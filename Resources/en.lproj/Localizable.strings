@@ -36,15 +36,16 @@
 "addressbar.placeholder" = "Type a path, press Return";
 "addressbar.subfolders" = "Subfolders";
 "addressbar.noSubfolders" = "(No Subfolders)";
-"menu.newTab" = "New Tab";
-"menu.closeTab" = "Close Tab";
+"menu.newWorkspace" = "New Workspace";
+"menu.closeWorkspace" = "Close Workspace";
+"menu.nextWorkspace" = "Next Workspace";
+"menu.prevWorkspace" = "Previous Workspace";
 "menu.layout" = "Layout";
 "layout.single" = "Single Pane";
 "layout.dualH" = "Two Columns";
 "layout.dualV" = "Two Rows";
 "layout.tripleH" = "Three Columns";
 "layout.quad" = "2×2 Grid";
-"toolbar.layout" = "Layout";
 "tab.new" = "New Tab";
 "tab.close" = "Close Tab";
 
@@ -158,8 +159,6 @@
 "menu.viewAsList" = "as List";
 "menu.viewAsColumns" = "as Columns";
 "iconGrid.sizeTooltip" = "Icon Size";
-"toolbar.nav" = "Back/Forward";
-"toolbar.viewMode" = "View";
 "toolbar.airdrop" = "AirDrop";
 "toolbar.terminal" = "Open in Terminal";
 "toolbar.tasks" = "Tasks";
