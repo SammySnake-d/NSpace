@@ -115,6 +115,7 @@ final class SidebarViewController: NSViewController {
               case let .volume(vol) = leaf.payload else { return }
         do {
             try model.eject(vol)
+            Toast.show(L10n.f("toast.ejected", vol.name), in: view.window)
         } catch {
             showBanner(String(format: L10n.t("sidebar.ejectFailed"), vol.name, error.localizedDescription))
         }
