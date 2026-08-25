@@ -21,6 +21,11 @@ final class PaneViewController: NSViewController {
     /// 用户在本窗格交互 → 请求成为活动窗格
     var onRequestFocus: (() -> Void)?
 
+    /// 文件操作桥：下传每个标签的列表视图（右键菜单/快捷键经此发 OperationSpec）
+    var coordinator: FileOpsCoordinator? {
+        didSet { tabs.forEach { $0.listVC.coordinator = coordinator } }
+    }
+
     private let tabBar = TabBarView()
     private let breadcrumb = BreadcrumbBar()
     private let pathEditor = PathEditorField()
@@ -100,6 +105,7 @@ final class PaneViewController: NSViewController {
         let browser = BrowserState(url: url)
         let model = DirectoryViewModel(directory: url)
         let listVC = FileListViewController(model: model)
+        listVC.coordinator = coordinator
         listVC.onNavigate = { [weak self] target in self?.navigate(to: target) }
         listVC.onInteract = { [weak self] in self?.onRequestFocus?() }
         let tab = Tab(browser: browser, model: model, listVC: listVC)
@@ -187,6 +193,12 @@ final class PaneViewController: NSViewController {
 
     /// 焦点落点（PaneGrid 激活窗格时把键盘焦点交给内容视图）
     var focusTarget: NSView { activeTab.listVC.focusTarget }
+
+    /// 操作后重读活动列表（真实 FS 投影刷新）
+    func reloadActiveList() { activeTab.model.reload() }
+
+    /// 仅重绘活动列表（剪切灰显变化，无需重新读盘）
+    func redrawActiveList() { activeTab.listVC.redraw() }
 
     // MARK: 地址栏编辑
 

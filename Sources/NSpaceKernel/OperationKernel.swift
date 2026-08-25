@@ -23,6 +23,8 @@ public actor OperationKernel {
     private var nodes: [OperationSpec.Kind: any OperationNode] = [:]
     private var arbiter: (any ConflictArbiter)?
     private var runs: [UUID: Run] = [:]
+    /// 成功终态的节点凭证留存（createdURLs / trashedItems 供 UI 选中/撤销读取；纯派生存档，非状态机分支）
+    private var receipts: [UUID: OperationReceipt] = [:]
     private var order: [UUID] = []
     private var observers: [UUID: AsyncStream<OperationProjection>.Continuation] = [:]
     /// 串行执行：磁盘 I/O 可预测；并行度留作后续配置
@@ -85,6 +87,9 @@ public actor OperationKernel {
                                    currentPath: r.currentPath)
     }
 
+    /// 成功终态凭证（createdURLs / trashedItems）；未完成或非成功返回 nil
+    public func receipt(_ id: UUID) -> OperationReceipt? { receipts[id] }
+
     // MARK: 内部：调度与状态提交
 
     private func removeObserver(_ key: UUID) { observers[key] = nil }
@@ -119,6 +124,7 @@ public actor OperationKernel {
         )
         do {
             let receipt = try await node.execute(spec, context: context)
+            receipts[id] = receipt
             commit(id) { run in
                 run.filesDone = receipt.filesDone
                 run.bytesDone = receipt.bytesDone

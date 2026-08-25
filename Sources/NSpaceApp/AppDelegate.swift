@@ -1,15 +1,26 @@
 import AppKit
 import NSpaceKernel
+import Transfer
+import LocalOps
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let kernel = OperationKernel()
+    /// 冲突裁决面板（内核唯一 arbiter）——强持有，内核只存弱语义引用
+    private let conflictSheet = ConflictSheet()
     private var windowControllers: [MainWindowController] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
-        openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
-        NSApp.activate()
+        // 组合根（BG-2）：声明式注入 What —— 胶囊节点 + 冲突裁决者 + 进度订阅
+        Task { @MainActor in
+            await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])
+            await kernel.register(LocalOpsNode(), for: [.rename, .newFolder, .newFile, .trash])
+            await kernel.setArbiter(conflictSheet)
+            ProgressWindowController.shared.start(kernel: kernel)
+            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            NSApp.activate()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -50,5 +61,10 @@ extension AppDelegate: NSWindowDelegate {
             wc.teardown()
         }
         windowControllers.removeAll { $0.window === window }
+    }
+
+    /// ⌘Z 路由到该窗口的文件操作撤销栈（撤销废纸篓等）
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
+        windowControllers.first(where: { $0.window === window })?.coordinator.undoManager
     }
 }

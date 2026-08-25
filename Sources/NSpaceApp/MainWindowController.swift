@@ -6,12 +6,14 @@ import NSpaceKernel
 final class MainWindowController: NSWindowController {
     let kernel: OperationKernel
     let grid: PaneGridController
+    let coordinator: FileOpsCoordinator
     private var keyMonitor: Any?
     private let layoutControl = NSSegmentedControl()
 
     init(kernel: OperationKernel, initialDirectory: URL, select: URL? = nil) {
         self.kernel = kernel
         self.grid = PaneGridController(initialDirectory: initialDirectory)
+        self.coordinator = FileOpsCoordinator(kernel: kernel, grid: grid)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
@@ -22,6 +24,7 @@ final class MainWindowController: NSWindowController {
         window.setFrameAutosaveName("NSpaceMainWindow")
         super.init(window: window)
 
+        grid.coordinator = coordinator
         window.contentViewController = grid
         grid.onActiveLocationChange = { [weak self] url in self?.updateTitle(for: url) }
         updateTitle(for: initialDirectory)

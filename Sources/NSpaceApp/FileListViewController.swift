@@ -2,10 +2,13 @@ import AppKit
 import NSpaceContracts
 
 /// 列表视图（性能核心）：view-based NSTableView、固定行高、行复用、可排序列。
-/// 只读消费 DirectoryViewModel（BG-1：本层无任何写型文件 API）。
+/// 只读消费 DirectoryViewModel（BG-1：本层无任何写型文件 API）；
+/// 文件变更意图一律经 FileOpsCoordinator 构造 OperationSpec 交内核执行。
 @MainActor
 final class FileListViewController: NSViewController {
     let model: DirectoryViewModel
+    /// 文件操作桥（由窗格注入）
+    weak var coordinator: FileOpsCoordinator?
     /// 导航意图上抛（由 Pane 历史协调）
     var onNavigate: ((URL) -> Void)?
     /// 用户交互上抛（窗格焦点协调）
@@ -15,8 +18,14 @@ final class FileListViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let emptyLabel = NSTextField(labelWithString: "")
 
+    /// 操作完成后待显露（选中/进入重命名）的目标
+    private var pendingReveal: (url: URL, rename: Bool)?
+
     /// 键盘焦点落点（PaneGrid 激活时 makeFirstResponder 此视图）
     var focusTarget: NSView { tableView }
+
+    /// 当前目录（新建/粘贴/终端打开的落点）
+    var currentDirectory: URL { model.directory }
 
     init(model: DirectoryViewModel) {
         self.model = model
@@ -30,6 +39,8 @@ final class FileListViewController: NSViewController {
 
     override func loadView() {
         tableView.onInteract = { [weak self] in self?.onInteract?() }
+        tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
+        tableView.onReturn = { [weak self] in self?.beginRenameSelected() }
         tableView.style = .inset
         tableView.rowHeight = 24
         tableView.usesAutomaticRowHeights = false
@@ -88,11 +99,35 @@ final class FileListViewController: NSViewController {
         if model.items.isEmpty, !model.isLoading {
             showEmptyState(L10n.t("empty.folder"))
         }
+        revealPendingIfPossible()
     }
 
     private func showEmptyState(_ message: String) {
         emptyLabel.stringValue = message
         emptyLabel.isHidden = false
+    }
+
+    /// 仅重绘（剪切灰显变化时由协调器调用）
+    func redraw() { tableView.reloadData() }
+
+    // MARK: 选中态
+
+    var selectedItems: [FileItem] {
+        tableView.selectedRowIndexes.compactMap { model.items.indices.contains($0) ? model.items[$0] : nil }
+    }
+    var selectedURLs: [URL] { selectedItems.map(\.url) }
+
+    // MARK: 显露（新建后选中并进入重命名）
+
+    func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
+
+    private func revealPendingIfPossible() {
+        guard let pending = pendingReveal,
+              let row = model.items.firstIndex(where: { $0.url == pending.url }) else { return }
+        pendingReveal = nil
+        tableView.selectRowIndexes([row], byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+        if pending.rename { beginRename(row: row) }
     }
 
     // MARK: 打开行为（spec 功能 9：文件走系统默认 App；文件夹窗格内导航）
@@ -111,14 +146,142 @@ final class FileListViewController: NSViewController {
         }
     }
 
-    // MARK: 菜单命令（响应链）
+    // MARK: 右键菜单
 
-    @objc func toggleHiddenFiles(_ sender: Any?) {
-        model.includeHidden.toggle()
+    private func buildMenu(clickedRow row: Int) -> NSMenu {
+        FileContextMenuBuilder.menu(selection: selectedItems, directory: currentDirectory, target: self)
     }
 
-    @objc func refresh(_ sender: Any?) {
-        model.reload()
+    // MARK: 行内重命名（FG-6：失败原子回滚旧名 + beep + 原位红字 2s）
+
+    private func beginRenameSelected() {
+        let rows = tableView.selectedRowIndexes
+        guard rows.count == 1, let row = rows.first else { NSSound.beep(); return }
+        beginRename(row: row)
+    }
+
+    func beginRename(row: Int) {
+        guard row >= 0, row < model.items.count,
+              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NameCellView
+        else { return }
+        let item = model.items[row]
+        cell.onRenameCommit = { [weak self] newName in self?.submitRename(item, newName: newName, row: row) }
+        cell.onRenameCancel = { }
+        cell.beginRename()
+    }
+
+    private func submitRename(_ item: FileItem, newName: String, row: Int) {
+        coordinator?.rename(item.url, to: newName) { [weak self] ok in
+            if !ok { self?.flashRenameError(row: row) }
+            // 成功：coordinator 已 reload；失败：未 reload，label 仍显旧名（原子回滚）
+        }
+    }
+
+    /// FG-6 就地错误：beep + 行上红字 2s，不跳页不白屏
+    private func flashRenameError(row: Int) {
+        NSSound.beep()
+        guard row >= 0, row < model.items.count else { return }
+        let rect = tableView.rect(ofRow: row)
+        let banner = NSTextField(labelWithString: L10n.t("rename.failed"))
+        banner.textColor = .systemRed
+        banner.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.9)
+        banner.drawsBackground = true
+        banner.font = .systemFont(ofSize: 11)
+        banner.frame = NSRect(x: rect.minX + 24, y: rect.minY + 2, width: 240, height: 20)
+        tableView.addSubview(banner)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            banner.removeFromSuperview()
+        }
+    }
+
+    // MARK: 菜单命令（响应链）
+
+    @objc func toggleHiddenFiles(_ sender: Any?) { model.includeHidden.toggle() }
+    @objc func refresh(_ sender: Any?) { model.reload() }
+
+    // 复制/剪切/粘贴/拷贝路径（Edit 菜单 ⌘C/⌘X/⌘V/⌘⇧C 与右键菜单共用）
+    @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
+    @objc func cutItems(_ sender: Any?) { coordinator?.cut(selectedURLs) }
+    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: currentDirectory) }
+    @objc func copyPath(_ sender: Any?) { coordinator?.copyPaths(selectedURLs) }
+    // NSText 标准选择器转发（当表视图为第一响应者时 ⌘C/⌘X/⌘V 生效）
+    @objc func copy(_ sender: Any?) { copyItems(sender) }
+    @objc func cut(_ sender: Any?) { cutItems(sender) }
+    @objc func paste(_ sender: Any?) { pasteItems(sender) }
+
+    @objc func duplicateItems(_ sender: Any?) { coordinator?.duplicate(selectedURLs) }
+    @objc func moveToTrash(_ sender: Any?) { coordinator?.moveToTrash(selectedURLs) }
+    @objc func newFolderHere(_ sender: Any?) { coordinator?.newFolder(in: currentDirectory, revealIn: self) }
+    @objc func newFileHere(_ sender: Any?) { coordinator?.newFile(in: currentDirectory, revealIn: self) }
+    @objc func renameSelected(_ sender: Any?) { beginRenameSelected() }
+    @objc func copyToOtherPane(_ sender: Any?) { coordinator?.copyToOtherPane(selectedURLs) }
+    @objc func moveToOtherPane(_ sender: Any?) { coordinator?.moveToOtherPane(selectedURLs) }
+
+    @objc func openSelected(_ sender: Any?) { selectedItems.forEach { open($0) } }
+
+    @objc func openWithApp(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem, let app = item.representedObject as? URL else { return }
+        let cfg = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open(selectedURLs, withApplicationAt: app, configuration: cfg)
+    }
+
+    @objc func openWithOther(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK, let app = panel.url else { return }
+        let cfg = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open(selectedURLs, withApplicationAt: app, configuration: cfg)
+    }
+
+    @objc func getInfo(_ sender: Any?) {
+        let target = selectedURLs.first ?? currentDirectory
+        InfoPanel.show(for: target)
+    }
+
+    @objc func openInTerminal(_ sender: Any?) {
+        // 选中文件夹则进其内，否则用当前目录
+        let dir: URL = selectedItems.first(where: { $0.isDirectory })?.url ?? currentDirectory
+        let ws = NSWorkspace.shared
+        let terminal = ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
+            ?? ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
+        guard let terminal else { NSSound.beep(); return }
+        ws.open([dir], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    @objc func showPackageContents(_ sender: Any?) {
+        guard let pkg = selectedItems.first(where: { $0.isPackage }) else { return }
+        onNavigate?(pkg.url)
+    }
+}
+
+// MARK: - 菜单校验（按选中态启用/禁用）
+
+extension FileListViewController: @preconcurrency NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let hasSelection = !tableView.selectedRowIndexes.isEmpty
+        let single = tableView.selectedRowIndexes.count == 1
+        switch menuItem.action {
+        case #selector(copyItems(_:)), #selector(cutItems(_:)), #selector(copyPath(_:)),
+             #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
+             #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
+             #selector(copy(_:)), #selector(cut(_:)):
+            return hasSelection
+        case #selector(renameSelected(_:)):
+            return single
+        case #selector(pasteItems(_:)), #selector(paste(_:)):
+            return pasteboardHasFiles
+        default:
+            return true
+        }
+    }
+
+    private var pasteboardHasFiles: Bool {
+        NSPasteboard.general.canReadObject(forClasses: [NSURL.self],
+                                           options: [.urlReadingFileURLsOnly: true])
     }
 }
 
@@ -136,8 +299,9 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         if colID == "name" {
             let cell = tableView.makeView(withIdentifier: .init("nameCell"), owner: nil) as? NameCellView
                 ?? NameCellView(identifier: .init("nameCell"))
+            let cut = coordinator?.isCut(item.url) ?? false
             cell.configure(icon: Formatters.icon(forTypeID: item.contentTypeID, isDirectory: item.isDirectory),
-                           name: item.name, dimmed: item.isHidden)
+                           name: item.name, dimmed: item.isHidden || cut)
             return cell
         }
 
