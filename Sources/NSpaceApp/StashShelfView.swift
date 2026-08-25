@@ -15,9 +15,9 @@ final class StashShelfView: NSView {
     private let dropCatcher = StashDropCatcher()
     private var heightConstraint: NSLayoutConstraint?
 
-    /// 空态 40pt（单行提示），有货 152pt——QSpace 顶格规格（零标题零冗余留白）
-    private static let emptyHeight: CGFloat = 40
-    private static let filledHeight: CGFloat = 152
+    /// 恒定高度（空/满一致不跳变）：牌堆区视觉稳定居中（QSpace 规格）
+    private static let emptyHeight: CGFloat = 148
+    private static let filledHeight: CGFloat = 148
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -54,10 +54,11 @@ final class StashShelfView: NSView {
             ("dot.radiowaves.left.and.right", "stash.airdrop", .airdrop),
             ("trash", "stash.clear", nil),  // nil = 清空
         ]
+        var buttons: [NSButton] = []
         for (symbol, key, action) in actions {
             let button = NSButton()
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L10n.t(key))
-            button.symbolConfiguration = .init(pointSize: 14, weight: .medium)
+            button.symbolConfiguration = .init(pointSize: 13, weight: .medium)
             button.isBordered = false
             button.contentTintColor = .secondaryLabelColor
             button.toolTip = L10n.t(key)  // 隐性语义 + 微 tooltip
@@ -68,9 +69,17 @@ final class StashShelfView: NSView {
             } else {
                 button.action = #selector(clearAll(_:))
             }
-            actionsStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 32).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 23).isActive = true
+            buttons.append(button)
+        }
+        // 2×2 网格：复制/移动 上排，AirDrop/清空 下排
+        for pair in [[buttons[0], buttons[1]], [buttons[2], buttons[3]]] {
+            let row = NSStackView(views: pair)
+            row.orientation = .horizontal
+            row.spacing = 6
+            actionsStack.addArrangedSubview(row)
         }
 
         for sub in [emptyIcon, emptyLabel, stackPile, countButton, actionsStack] {
@@ -92,21 +101,21 @@ final class StashShelfView: NSView {
         heightConstraint = height
         NSLayoutConstraint.activate([
             height,
-            // 空态一行：图标+文字（40pt 高）
-            emptyIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            emptyIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            emptyLabel.leadingAnchor.constraint(equalTo: emptyIcon.trailingAnchor, constant: 6),
-            emptyLabel.centerYAnchor.constraint(equalTo: emptyIcon.centerYAnchor),
+            // 空态：图标+文字整体居中（恒高区内视觉稳定）
+            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 10),
+            emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emptyIcon.trailingAnchor.constraint(equalTo: emptyLabel.leadingAnchor, constant: -6),
+            emptyIcon.centerYAnchor.constraint(equalTo: emptyLabel.centerYAnchor),
 
-            // QSpace 式顶格：牌堆左贴边、操作条紧贴牌堆右侧（右侧空间自然留白不撑空隙）
-            stackPile.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            stackPile.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            // 牌堆列（堆+计数）与 2×2 操作组作为整体水平居中（QSpace 居中规格）
+            stackPile.centerXAnchor.constraint(equalTo: centerXAnchor, constant: -34),
+            stackPile.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             stackPile.widthAnchor.constraint(equalToConstant: 96),
             stackPile.heightAnchor.constraint(equalToConstant: 92),
             countButton.centerXAnchor.constraint(equalTo: stackPile.centerXAnchor),
             countButton.topAnchor.constraint(equalTo: stackPile.bottomAnchor, constant: 2),
 
-            actionsStack.leadingAnchor.constraint(equalTo: stackPile.trailingAnchor, constant: 20),
+            actionsStack.leadingAnchor.constraint(equalTo: stackPile.trailingAnchor, constant: 14),
             actionsStack.centerYAnchor.constraint(equalTo: stackPile.centerYAnchor),
         ])
         refresh()
