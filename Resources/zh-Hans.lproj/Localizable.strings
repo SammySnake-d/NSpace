@@ -104,3 +104,13 @@
 "sidebar.remove" = "移除";
 "menu.toggleSidebar" = "显示/隐藏侧边栏";
 "sidebar.readOnly" = "只读";
+"menu.settings" = "设置…";
+"settings.title" = "NSpace 设置";
+"settings.finderSection" = "替代 Finder";
+"settings.setDefault" = "设为默认文件夹打开程序";
+"settings.isDefault" = "NSpace 已是默认文件夹打开程序 ✓";
+"settings.notDefault" = "当前文件夹默认由 Finder 打开";
+"settings.setFailed" = "设置失败：%@";
+"settings.limitationNote" = "接管后：终端 open、第三方 App 打开文件夹都会用 NSpace。已知限制：部分 App 的“在 Finder 中显示”由系统直接发给 Finder，无法拦截（QSpace 亦然）。";
+"settings.openFDA" = "打开“完全磁盘访问”设置";
+"settings.fdaNote" = "浏览受保护目录（如“下载”“桌面”）首次会弹系统授权；如需访问全部位置，请在系统设置中为 NSpace 勾选完全磁盘访问。";

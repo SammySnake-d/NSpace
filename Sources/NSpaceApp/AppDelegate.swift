@@ -49,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return wc
     }
 
+    @objc func showSettings(_ sender: Any?) {
+        SettingsWindowController.shared.showWindow(sender)
+    }
+
     @objc func newWindow(_ sender: Any?) {
         openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
     }

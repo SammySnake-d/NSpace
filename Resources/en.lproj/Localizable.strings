@@ -104,3 +104,13 @@
 "sidebar.remove" = "Remove";
 "menu.toggleSidebar" = "Show/Hide Sidebar";
 "sidebar.readOnly" = "Read-only";
+"menu.settings" = "Settings…";
+"settings.title" = "NSpace Settings";
+"settings.finderSection" = "Replace Finder";
+"settings.setDefault" = "Set as Default Folder Handler";
+"settings.isDefault" = "NSpace is the default folder handler ✓";
+"settings.notDefault" = "Folders currently open in Finder";
+"settings.setFailed" = "Failed: %@";
+"settings.limitationNote" = "After taking over: `open` and third-party folder-open actions use NSpace. Known limit: some apps' “Reveal in Finder” targets Finder directly and cannot be intercepted (same for QSpace).";
+"settings.openFDA" = "Open Full Disk Access Settings";
+"settings.fdaNote" = "Protected folders (Downloads, Desktop) prompt once; grant Full Disk Access in System Settings for everything else.";
