@@ -73,7 +73,7 @@ NSWindow: styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSiz
 
 ## 3. 图标工具条（36pt，密度对齐 QSpace）
 
-按钮 24×24、SF Symbol pointSize 13、间距 4、簇间发丝竖线分隔，全部图标+tooltip（隐性语义）：
+按钮 24×24、SF Symbol pointSize 13、间距 4、簇间发丝竖线分隔，全部图标+tooltip（隐性语义）。**排布与符号以 §6 定稿为准**：
 | 簇 | 项 | 动作（全部已存在，1:1 迁移自现 NSToolbar） |
 |---|---|---|
 | 导航 | ◀ ▶（长按出历史菜单）⌃ | 现 navItemID 三联 |
@@ -109,3 +109,33 @@ FG-1：迁移时逐个接回 action+validate，禁止先摆图标后补功能。
    StatusBarView 高 22→24；PaneViewController 地址栏 26→24；SidebarViewController 暂存顶距 34→36、
    杂项 6→8、18→16 或 20；StashShelfView 10→12、-6→-8；TabBarView 3→4、-6→-8。
    其余存量偏离（设置页/Toast/FileCellViews）留在基线，M18 清零。
+
+## 6. 用户定稿（2026-08-26，权威覆盖——与上文冲突处以本节为准）
+
+### 6.1 图标：一律用官方原版 SF Symbols（用户点名）
+- 实现只允许 `NSImage(systemSymbolName:)` 取**官方符号**，严禁自绘 path、严禁 emoji/文字充当图标。
+- 定稿符号表（pointSize 13 / .regular；系统无此符号时用括号内回退）：
+  | 动作 | 符号 |
+  |---|---|
+  | 后退/前进/上层 | `chevron.backward` / `chevron.forward` / `arrow.up` |
+  | 显示类型三段 | `square.grid.2x2` / `list.bullet` / `rectangle.split.3x1` |
+  | AirDrop | `airdrop`（回退 `dot.radiowaves.left.and.right`） |
+  | 在终端打开 | `apple.terminal`（回退 `terminal`） |
+  | 文件操作任务 | `arrow.up.arrow.down`（弃循环箭头，消除"刷新"误读） |
+  | 布局五段（同族） | `rectangle` / `rectangle.split.2x1` / `rectangle.split.1x2` / `rectangle.split.3x1` / `rectangle.split.2x2` |
+  | 侧栏开关 | `sidebar.leading` |
+  | 暂存架五钮 | `doc.on.doc` / `arrow.forward.square` / `airdrop` / `trash` / `ellipsis.circle` |
+  | 侧栏条目 | 保持现状：`folder.fill`/`icloud`/`internaldrive` + accent 着色 |
+
+### 6.2 工具条排布：A1 左右分野（用户拍板）
+`[侧栏开关] │ [◀ ▶ ⌃] │ [视图三段] ——弹性留白（兼窗口拖动把手）—— [AirDrop 终端 任务 废纸篓] │ [布局五段]`
+簇间 16pt + 发丝竖线；左=高频导航/视图（就近内容），右=全局动作/布局。
+
+### 6.3 暂存架：B2 hover-reveal 浮条（用户拍板，覆盖 §1 的常显动作列）
+- **常态**：仅牌堆 + 计数药丸（10% 浅底、tabular-nums），组在 148pt 区内居中，牌堆可放大至约 112×100。
+- **悬停暂存区 150ms**：底部浮出动作条（overlay 材质 + 发丝框 + 阴影，五钮 20×20 间距 4：
+  拷贝/移动/AirDrop/清空/更多）。浮条是浮层，**不改变布局**（FG-4 空间防抖）；移出即隐。
+- **拖拽悬停**：隐浮条，区内显示 accent 发丝内圈投放高亮（150ms 原位反馈）。
+- **空态**：托盘符号（`tray.and.arrow.down`）+ "拖入文件暂存" muted 文案（空态说明下一步）。
+- 计数药丸点击 = 现有逐项管理菜单（保留）。
+- ui-smoke 断言相应改为：常态动作条 isHidden==true；牌堆容器居中（|center 差|≤2pt）；浮条为 overlay 不参与 Auto Layout 主链。
