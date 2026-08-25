@@ -194,3 +194,22 @@
 "sidebar.movies" = "影片";
 "sidebar.music" = "音乐";
 "sidebar.pictures" = "图片";
+
+/* 归档能力（ArchiveEngine） */
+"menu.compressN" = "压缩 %d 项";
+"menu.compressOne" = "压缩 “%@”";
+"menu.extract" = "解压";
+"menu.extractTo" = "解压到…";
+"menu.extractTo.prompt" = "解压到此处";
+"archive.defaultName" = "归档";
+"toast.compressed" = "已压缩";
+"toast.extracted" = "已解压";
+"settings.tab.archive" = "归档";
+"settings.archiveFormat" = "压缩格式";
+"settings.archiveFormat.zip" = "ZIP（.zip）";
+"settings.archiveFormat.targz" = "TAR.GZ（.tar.gz）";
+"settings.archiveKeepOriginal" = "压缩后保留原文件";
+"settings.extractCreateWrapper" = "解压时确保创建包裹文件夹";
+"settings.extractWrapperNote" = "当压缩包顶层只有一个条目时忽略此设置。";
+"settings.extractKeepArchive" = "解压后保留压缩包";
+"settings.archiveCryptoNote" = "ZIP 加密采用传统 ZipCrypto，属弱加密，仅作轻度保护。";

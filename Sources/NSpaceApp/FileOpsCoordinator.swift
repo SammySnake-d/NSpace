@@ -1,6 +1,7 @@
 import AppKit
 import NSpaceKernel
 import NSpaceContracts
+import ArchiveEngine
 
 /// 操作后显露落点（新建完成 → 选中并按需进入重命名）；列表/图标视图各自实现（分栏传 nil）
 @MainActor
@@ -85,6 +86,39 @@ final class FileOpsCoordinator {
     func duplicate(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
         run(OperationSpec(kind: .duplicate, sources: urls))
+    }
+
+    // MARK: 归档（压缩 / 解压；ArchiveEngine 胶囊，读 Preferences 归档默认值构造 ArchiveOptions）
+
+    /// 压缩选中项为一个归档包（格式取设置；多源用本地化默认基名，单源节点从名字推导）
+    func compress(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let keepOriginal = Preferences.archiveKeepOriginal
+        let options = ArchiveOptions(format: Preferences.archiveFormat, password: nil,
+                                     keepOriginal: keepOriginal)
+        // 多源归档基名用本地化"归档"（节点在共同父目录下打包）；单源交由节点省扩展名命名
+        let baseName = urls.count > 1 ? L10n.t("archive.defaultName") : nil
+        run(OperationSpec(kind: .compress, sources: urls, newName: baseName, archiveOptions: options)) { [weak self] receipt in
+            guard let self, receipt != nil else { return }
+            Toast.show(L10n.t("toast.compressed"), in: self.grid?.view.window)
+            // 保留原文件=false → 打包成功后把原文件移到废纸篓（复用 trash + 撤销路径）
+            if !keepOriginal { self.moveToTrash(urls) }
+        }
+    }
+
+    /// 解压选中的归档（into=nil 表示解到压缩包同目录；含"解压到…"时传目标目录）
+    func extract(_ urls: [URL], into directory: URL?) {
+        let archives = urls.filter { ArchiveEngineNode.isSupportedArchive($0) }
+        guard !archives.isEmpty else { NSSound.beep(); return }
+        let keepArchive = Preferences.extractKeepArchive
+        let options = ArchiveOptions(password: nil, keepOriginal: true, extractInto: directory,
+                                     createWrapper: Preferences.extractCreateWrapper)
+        run(OperationSpec(kind: .extract, sources: archives, archiveOptions: options)) { [weak self] receipt in
+            guard let self, receipt != nil else { return }
+            Toast.show(L10n.t("toast.extracted"), in: self.grid?.view.window)
+            // 保留压缩包=false → 解压成功后把压缩包移到废纸篓
+            if !keepArchive { self.moveToTrash(archives) }
+        }
     }
 
     func newFolder(in directory: URL, revealIn list: FileRevealTarget?) {

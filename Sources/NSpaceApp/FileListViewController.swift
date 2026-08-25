@@ -2,6 +2,7 @@ import AppKit
 import QuickLookUI
 import UniformTypeIdentifiers
 import NSpaceContracts
+import ArchiveEngine
 import FolderSize
 import IconThumb
 
@@ -400,6 +401,26 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     @objc func duplicateItems(_ sender: Any?) { coordinator?.duplicate(selectedURLs) }
     @objc func moveToTrash(_ sender: Any?) { coordinator?.moveToTrash(selectedURLs) }
+
+    // 归档：压缩任意选中；解压支持的归档（into=nil 同目录 / 选目录）
+    @objc func compressItems(_ sender: Any?) { coordinator?.compress(selectedURLs) }
+    @objc func extractItems(_ sender: Any?) { coordinator?.extract(selectedArchiveURLs, into: nil) }
+    @objc func extractItemsTo(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = L10n.t("menu.extractTo.prompt")
+        panel.directoryURL = currentDirectory
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        coordinator?.extract(selectedArchiveURLs, into: dir)
+    }
+
+    /// 选中项里可解压的归档 URL（右键"解压"据此过滤）
+    private var selectedArchiveURLs: [URL] {
+        selectedItems.filter { ArchiveEngineNode.isSupportedArchive($0.url) }.map(\.url)
+    }
     @objc func newFolderHere(_ sender: Any?) { coordinator?.newFolder(in: currentDirectory, revealIn: self) }
     @objc func newFileHere(_ sender: Any?) { coordinator?.newFile(in: currentDirectory, revealIn: self) }
     @objc func renameSelected(_ sender: Any?) { beginRenameSelected() }
@@ -493,8 +514,11 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
         case #selector(copyItems(_:)), #selector(cutItems(_:)), #selector(copyPath(_:)),
              #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
-             #selector(copy(_:)), #selector(cut(_:)), #selector(airdropSelected(_:)):
+             #selector(copy(_:)), #selector(cut(_:)), #selector(airdropSelected(_:)),
+             #selector(compressItems(_:)):
             return hasSelection
+        case #selector(extractItems(_:)), #selector(extractItemsTo(_:)):
+            return !selectedArchiveURLs.isEmpty
         case #selector(renameSelected(_:)):
             return single
         case #selector(pasteItems(_:)), #selector(paste(_:)):

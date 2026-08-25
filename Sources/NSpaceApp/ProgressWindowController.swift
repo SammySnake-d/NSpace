@@ -260,6 +260,8 @@ final class ProgressRowView: NSView {
         case .rename: "pencil"
         case .newFolder: "folder.badge.plus"
         case .newFile: "doc.badge.plus"
+        case .compress: "doc.zipper"
+        case .extract: "arrow.up.bin"
         }
     }
 }

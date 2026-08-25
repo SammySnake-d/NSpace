@@ -1,5 +1,6 @@
 import AppKit
 import NSpaceContracts
+import ArchiveEngine
 
 /// 右键菜单构造器：按选中态生成菜单；命令按 selector 名路由到各内容视图（列表/图标/分栏）的响应链动作。
 /// target 只需实现同名 @objc 动作即可复用（未实现的动作项自动灰显——诚实禁用）。
@@ -73,6 +74,10 @@ enum FileContextMenuBuilder {
             key: "\u{8}", mods: .command, symbol: "trash")
         menu.addItem(.separator())
 
+        // 归档：压缩任意选中 / 解压支持的归档（FG-1 诚实禁用：无支持项则不出"解压"）
+        addArchiveItems(menu, selection: selection, single: single, target: target)
+        menu.addItem(.separator())
+
         add(menu, "menu.newFolder", #selector(FileListViewController.newFolderHere(_:)), target,
             key: "N", mods: [.command, .shift], symbol: "folder.badge.plus")
         add(menu, "menu.getInfo", #selector(FileListViewController.getInfo(_:)), target,
@@ -117,6 +122,27 @@ enum FileContextMenuBuilder {
         submenu.addItem(other)
         item.submenu = submenu
         return item
+    }
+
+    // MARK: 归档项（压缩标题随选中数/名动态；解压仅当选中含支持的归档时出现）
+
+    private static func addArchiveItems(_ menu: NSMenu, selection: [FileItem],
+                                        single: FileItem?, target: AnyObject) {
+        let compressTitle = single != nil
+            ? L10n.f("menu.compressOne", single!.name)
+            : L10n.f("menu.compressN", selection.count)
+        let compress = NSMenuItem(title: compressTitle,
+                                  action: #selector(FileListViewController.compressItems(_:)),
+                                  keyEquivalent: "")
+        compress.target = target
+        compress.image = NSImage(systemSymbolName: "doc.zipper", accessibilityDescription: nil)
+        menu.addItem(compress)
+
+        guard selection.contains(where: { ArchiveEngineNode.isSupportedArchive($0.url) }) else { return }
+        add(menu, "menu.extract", #selector(FileListViewController.extractItems(_:)), target,
+            symbol: "arrow.up.bin")
+        add(menu, "menu.extractTo", #selector(FileListViewController.extractItemsTo(_:)), target,
+            symbol: "arrow.up.bin.fill")
     }
 
     // MARK: 构造工具

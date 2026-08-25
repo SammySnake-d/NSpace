@@ -194,3 +194,22 @@
 "sidebar.movies" = "Movies";
 "sidebar.music" = "Music";
 "sidebar.pictures" = "Pictures";
+
+/* Archive capability (ArchiveEngine) */
+"menu.compressN" = "Compress %d Items";
+"menu.compressOne" = "Compress “%@”";
+"menu.extract" = "Extract";
+"menu.extractTo" = "Extract To…";
+"menu.extractTo.prompt" = "Extract Here";
+"archive.defaultName" = "Archive";
+"toast.compressed" = "Compressed";
+"toast.extracted" = "Extracted";
+"settings.tab.archive" = "Archive";
+"settings.archiveFormat" = "Archive Format";
+"settings.archiveFormat.zip" = "ZIP (.zip)";
+"settings.archiveFormat.targz" = "TAR.GZ (.tar.gz)";
+"settings.archiveKeepOriginal" = "Keep originals after compressing";
+"settings.extractCreateWrapper" = "Create a wrapper folder when extracting";
+"settings.extractWrapperNote" = "Ignored when the archive has a single top-level item.";
+"settings.extractKeepArchive" = "Keep the archive after extracting";
+"settings.archiveCryptoNote" = "ZIP encryption uses legacy ZipCrypto (weak); light protection only.";
