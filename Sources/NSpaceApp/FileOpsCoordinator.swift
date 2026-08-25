@@ -36,6 +36,7 @@ final class FileOpsCoordinator {
         writeToPasteboard(urls)
         cutURLs = []
         redrawLists()
+        Toast.show(String(format: L10n.t("toast.copied"), urls.count), in: grid?.view.window)
     }
 
     func cut(_ urls: [URL]) {
@@ -43,6 +44,7 @@ final class FileOpsCoordinator {
         writeToPasteboard(urls)
         cutURLs = Set(urls)
         redrawLists()
+        Toast.show(String(format: L10n.t("toast.cutN"), urls.count), in: grid?.view.window)
     }
 
     func paste(into directory: URL) {
@@ -65,6 +67,9 @@ final class FileOpsCoordinator {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
+        Toast.show(urls.count == 1 ? L10n.t("toast.copiedPath")
+                   : String(format: L10n.t("toast.copiedPaths"), urls.count),
+                   in: grid?.view.window)
     }
 
     // MARK: 内核操作

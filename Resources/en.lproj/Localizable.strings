@@ -163,3 +163,9 @@
 "toolbar.airdrop" = "AirDrop";
 "toolbar.terminal" = "Open in Terminal";
 "toolbar.tasks" = "Tasks";
+"toast.copied" = "%d items copied";
+"toast.cutN" = "%d items cut";
+"toast.copiedPath" = "Path copied";
+"toast.copiedPaths" = "%d paths copied";
+"toast.bookmarkAdded" = "%d bookmarks added";
+"menu.addBookmark" = "Add to Bookmarks";

@@ -54,6 +54,15 @@ enum FileContextMenuBuilder {
             key: "c", mods: [.command, .shift], symbol: "link")
         menu.addItem(.separator())
 
+        // 添加到书签：仅选中含真实目录时出现（FG-1）；action 走响应链到 MainWindowController
+        if selection.contains(where: { $0.isDirectory && !$0.isPackage }) {
+            let bm = menu.addItem(withTitle: L10n.t("menu.addBookmark"),
+                                  action: #selector(MainWindowController.addSelectionToBookmarks(_:)),
+                                  keyEquivalent: "")
+            bm.image = NSImage(systemSymbolName: "bookmark", accessibilityDescription: nil)
+            menu.addItem(.separator())
+        }
+
         if single != nil {
             add(menu, "menu.rename", #selector(FileListViewController.renameSelected(_:)), target,
                 symbol: "pencil")

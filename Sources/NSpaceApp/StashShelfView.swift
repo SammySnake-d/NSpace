@@ -16,9 +16,9 @@ final class StashShelfView: NSView {
     private let actionsStack = NSStackView()
     private var heightConstraint: NSLayoutConstraint?
 
-    /// 空态 88pt，有货 148pt（4pt 网格）
+    /// 空态 88pt，有货 224pt（QSpace 规格：大图标卡片要有真实呼吸空间）
     private static let emptyHeight: CGFloat = 88
-    private static let filledHeight: CGFloat = 148
+    private static let filledHeight: CGFloat = 224
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -36,10 +36,19 @@ final class StashShelfView: NSView {
         emptyLabel.textColor = .tertiaryLabelColor
 
         cardsStack.orientation = .horizontal
-        cardsStack.spacing = 4
-        cardsStack.alignment = .top
+        cardsStack.spacing = 8
+        cardsStack.alignment = .centerY
         cardsStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 4)
         cardsScroll.documentView = cardsStack
+        // documentView 用 AutoLayout 必须钉边到 contentView，否则 frame 恒零（卡片全不可见的元凶）
+        cardsStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            cardsStack.topAnchor.constraint(equalTo: cardsScroll.contentView.topAnchor),
+            cardsStack.bottomAnchor.constraint(equalTo: cardsScroll.contentView.bottomAnchor),
+            cardsStack.leadingAnchor.constraint(equalTo: cardsScroll.contentView.leadingAnchor),
+            cardsStack.trailingAnchor.constraint(greaterThanOrEqualTo: cardsScroll.contentView.trailingAnchor),
+            cardsStack.heightAnchor.constraint(equalTo: cardsScroll.contentView.heightAnchor),
+        ])
         cardsScroll.drawsBackground = false
         cardsScroll.hasHorizontalScroller = true
         cardsScroll.hasVerticalScroller = false
@@ -48,7 +57,7 @@ final class StashShelfView: NSView {
 
         // 纯图标操作条（竖排；FG-1：空暂存架时隐藏）
         actionsStack.orientation = .vertical
-        actionsStack.spacing = 6
+        actionsStack.spacing = 12
         actionsStack.alignment = .centerX
         let actions: [(String, String, StashAction?)] = [
             ("doc.on.doc", "stash.copyHere", .copyHere),
@@ -59,7 +68,7 @@ final class StashShelfView: NSView {
         for (symbol, key, action) in actions {
             let button = NSButton()
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L10n.t(key))
-            button.symbolConfiguration = .init(pointSize: 12, weight: .medium)
+            button.symbolConfiguration = .init(pointSize: 14, weight: .medium)
             button.isBordered = false
             button.contentTintColor = .secondaryLabelColor
             button.toolTip = L10n.t(key)  // 隐性语义 + 微 tooltip
@@ -71,7 +80,8 @@ final class StashShelfView: NSView {
                 button.action = #selector(clearAll(_:))
             }
             actionsStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 22).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 22).isActive = true
         }
 
         for sub in [titleLabel, emptyIcon, emptyLabel, cardsScroll, actionsStack] {
@@ -203,7 +213,7 @@ private final class StashCardView: NSView {
         let icon = NSImageView()
         if let url {
             let image = NSWorkspace.shared.icon(forFile: url.path)
-            image.size = NSSize(width: 40, height: 40)
+            image.size = NSSize(width: 72, height: 72)
             icon.image = image
         } else {
             icon.image = NSImage(systemSymbolName: "questionmark.square.dashed",
@@ -211,7 +221,7 @@ private final class StashCardView: NSView {
             icon.contentTintColor = .tertiaryLabelColor
         }
         let name = NSTextField(labelWithString: url?.lastPathComponent ?? L10n.t("stash.missing"))
-        name.font = .systemFont(ofSize: 10)
+        name.font = .systemFont(ofSize: 11)
         name.textColor = url == nil ? .tertiaryLabelColor : .labelColor
         name.alignment = .center
         name.lineBreakMode = .byTruncatingMiddle
@@ -223,15 +233,16 @@ private final class StashCardView: NSView {
             addSubview(sub)
         }
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 76),
-            icon.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            widthAnchor.constraint(equalToConstant: 104),
+            heightAnchor.constraint(equalToConstant: 128),
+            icon.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 40),
-            icon.heightAnchor.constraint(equalToConstant: 40),
-            name.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 2),
-            name.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            name.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            name.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
+            icon.widthAnchor.constraint(equalToConstant: 72),
+            icon.heightAnchor.constraint(equalToConstant: 72),
+            name.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 4),
+            name.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            name.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            name.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
         ])
         toolTip = url?.path
     }

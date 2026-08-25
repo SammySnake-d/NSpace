@@ -92,6 +92,21 @@ final class MainWindowController: NSWindowController {
         (NSApp.delegate as? AppDelegate)?.noteStateChanged()
     }
 
+    // MARK: 书签（右键"添加到书签"经响应链到此；选中目录逐个入册）
+
+    @objc func addSelectionToBookmarks(_ sender: Any?) {
+        let dirs = grid.activePane.activeTab.listVC.selectedItems
+            .filter { $0.isDirectory && !$0.isPackage }
+        guard !dirs.isEmpty else { NSSound.beep(); return }
+        let store = sidebar.model.bookmarkStore
+        Task { [weak self] in
+            for dir in dirs { try? await store.add(dir.url) }
+            self?.sidebar.model.rebuild()
+            Toast.show(String(format: L10n.t("toast.bookmarkAdded"), dirs.count),
+                       in: self?.window)
+        }
+    }
+
     // MARK: 工作区标签（⌘T / 标签栏"+"按钮都走这里）
 
     @objc func newWorkspaceTab(_ sender: Any?) {

@@ -163,3 +163,9 @@
 "toolbar.airdrop" = "隔空投送";
 "toolbar.terminal" = "在终端打开";
 "toolbar.tasks" = "任务状态";
+"toast.copied" = "已拷贝 %d 项";
+"toast.cutN" = "已剪切 %d 项";
+"toast.copiedPath" = "已拷贝路径";
+"toast.copiedPaths" = "已拷贝 %d 条路径";
+"toast.bookmarkAdded" = "已添加 %d 个书签";
+"menu.addBookmark" = "添加到书签";

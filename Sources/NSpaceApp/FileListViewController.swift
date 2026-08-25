@@ -406,8 +406,9 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         // 选中文件夹则进其内，否则用当前目录
         let dir: URL = selectedItems.first(where: { $0.isDirectory })?.url ?? currentDirectory
         let ws = NSWorkspace.shared
-        let terminal = ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
-            ?? ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
+        // iTerm 优先（用户主力终端）；可配置默认终端进设置窗（TODO M15）
+        let terminal = ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
+            ?? ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
         guard let terminal else { NSSound.beep(); return }
         ws.open([dir], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
     }
