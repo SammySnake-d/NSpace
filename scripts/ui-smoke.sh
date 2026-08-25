@@ -25,7 +25,7 @@ require_pass() {
   fi
 }
 require_pass "无 NSToolbar"
-require_pass "甲板标签行高 28"
+require_pass "甲板标签行高 40"
 require_pass "甲板工具条行高 36"
 require_pass "工作区标签条存在于甲板"
 require_pass "⌘T 新建工作区"

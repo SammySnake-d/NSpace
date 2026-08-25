@@ -101,4 +101,20 @@ import BookmarkStore
         #expect(items.count == 1)
         #expect(items.first?.name == "旧书签")
     }
+
+    /// I-14 恢复种子：已存在目标（按解析路径去重）跳过，只补缺失；再次调用幂等 0 新增
+    @Test func restoreMissingSeedsMergesOnlyAbsent() async throws {
+        let (store, dir, target) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try await store.add(target, name: "已有")
+        let other = dir.appendingPathComponent("other-seed", isDirectory: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let added = await store.restoreMissingSeeds([(target, "重复种子"), (other, "新种子")])
+        #expect(added == 1)
+        let items = await store.all()
+        #expect(items.count == 2)
+        #expect(items.map(\.name).contains("新种子"))
+        let again = await store.restoreMissingSeeds([(target, "重复种子"), (other, "新种子")])
+        #expect(again == 0)
+    }
 }

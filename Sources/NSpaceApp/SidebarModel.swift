@@ -70,6 +70,12 @@ final class SidebarModel {
         Task { [weak self] in
             guard let self else { return }
             await self.bookmarkStore.seedIfEmpty(Self.seedPlaces())
+            // I-14 一次性补种：旧纯数组档案（非空即被判"已播种"）导致默认种子从未注入——
+            // 合并缺失项一次；此后用户删除的种子不复活，设置窗「恢复默认书签」可随时手动恢复
+            if !UserDefaults.standard.bool(forKey: "seedsMergedV2") {
+                await self.bookmarkStore.restoreMissingSeeds(Self.seedPlaces())
+                UserDefaults.standard.set(true, forKey: "seedsMergedV2")
+            }
             self.rebuild()
         }
         // 卷挂载/卸载自动刷新
@@ -83,6 +89,13 @@ final class SidebarModel {
 
     // 模型与窗口同生命周期；如需提前停表调 stop()
     func stop() { volumeWatchTask?.cancel() }
+
+    /// 设置窗「恢复默认书签」入口（I-14）：补齐缺失种子并刷新；返回新增数供吐司反馈
+    func restoreDefaultSeeds() async -> Int {
+        let added = await bookmarkStore.restoreMissingSeeds(Self.seedPlaces())
+        rebuild()
+        return added
+    }
 
     func eject(_ item: VolumeItem) throws {
         try volumeInfo.eject(item.url)

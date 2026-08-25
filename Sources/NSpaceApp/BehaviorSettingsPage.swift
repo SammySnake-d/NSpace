@@ -44,6 +44,13 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
             action: #selector(tabLimitChanged(_:)))
         let tabLimitNote = note("settings.behavior.tabLimit.note")
 
+        // I-17：工作区标签上限（M17 新增外部化键，同超限覆盖最老语义）
+        let wsLimitRow = popupRow("settings.behavior.wsTabLimit",
+            optionKeys: ["settings.behavior.tabLimit.none", "settings.behavior.tabLimit.5",
+                         "settings.behavior.tabLimit.10", "settings.behavior.tabLimit.20"],
+            selectedTag: tabLimitValues.firstIndex(of: Preferences.workspaceTabLimit) ?? 0,
+            action: #selector(wsTabLimitChanged(_:)))
+
         // 打开模式小节（对应 QSpace"打开到"）
         let openHeader = sectionHeader("settings.behavior.openSection")
         let openRow = popupRow("settings.behavior.openTarget",
@@ -54,7 +61,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
 
         let stack = NSStackView(views: [
             enterRow, backspaceRow, dragRow, blank, sortRow,
-            NSBox.separatorLine(), tabLimitRow, tabLimitNote,
+            NSBox.separatorLine(), tabLimitRow, wsLimitRow, tabLimitNote,
             NSBox.separatorLine(), openHeader, openRow, openNote,
         ])
         stack.orientation = .vertical
@@ -208,6 +215,12 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let t = sender.selectedTag()
         guard tabLimitValues.indices.contains(t) else { return }
         Preferences.paneTabLimit = tabLimitValues[t]
+    }
+
+    @objc private func wsTabLimitChanged(_ sender: NSPopUpButton) {
+        let t = sender.selectedTag()
+        guard tabLimitValues.indices.contains(t) else { return }
+        Preferences.workspaceTabLimit = tabLimitValues[t]
     }
 
     @objc private func openTargetChanged(_ sender: NSPopUpButton) {

@@ -36,7 +36,7 @@ protocol TopDeckDelegate: AnyObject {
 /// 甲板空白处可拖动窗口，双击按系统 AppleActionOnDoubleClick 缩放/最小化。零新配色（Theme.accent/系统语义色/材质）。
 @MainActor
 final class TopDeckView: NSVisualEffectView {
-    static let tabRowHeight: CGFloat = 28
+    static let tabRowHeight: CGFloat = 40
     static let toolbarRowHeight: CGFloat = 36
     /// 侧栏折叠时红绿灯落在甲板左上，标签行让位（仅折叠态；§1，收敛 4pt 阶梯 = 80）
     static let trafficLightInset: CGFloat = 80
@@ -76,6 +76,7 @@ final class TopDeckView: NSVisualEffectView {
     private func build() {
         // ── 行1：工作区标签条 ───────────────────────────────────────────
         workspaceTabBar.translatesAutoresizingMaskIntoConstraints = false
+        workspaceTabBar.itemHeight = 28
         workspaceTabBar.useTransparentBackground()
         workspaceTabBar.onSelect = { [weak self] i in self?.deckDelegate?.deckSelectWorkspace(i) }
         workspaceTabBar.onClose = { [weak self] i in self?.deckDelegate?.deckCloseWorkspace(i) }
@@ -90,7 +91,6 @@ final class TopDeckView: NSVisualEffectView {
         // 左簇：导航三段（chevron.backward / chevron.forward / arrow.up）
         navControl.segmentCount = 3
         navControl.trackingMode = .momentary
-        navControl.segmentStyle = .separated
         let navSpecs = [("chevron.backward", "menu.back"), ("chevron.forward", "menu.forward"),
                         ("arrow.up", "menu.goUp")]
         for (i, s) in navSpecs.enumerated() {
@@ -133,7 +133,6 @@ final class TopDeckView: NSVisualEffectView {
         // 右簇：布局五段（rectangle 同族；PaneLayout.symbolName 与 §6.1 表一致）
         layoutControl.segmentCount = PaneLayout.allCases.count
         layoutControl.trackingMode = .selectOne
-        layoutControl.segmentStyle = .separated
         for (i, layout) in PaneLayout.allCases.enumerated() {
             layoutControl.setImage(NSImage.officialSymbol(layout.symbolName, accessibility: layout.localizedName),
                                    forSegment: i)

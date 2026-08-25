@@ -11,12 +11,19 @@ final class TabBarView: NSView {
     private let scroll = NSScrollView()
     private let addButton = NSButton()
 
+    /// 标签胶囊高度（窗格标签 20；甲板工作区标签 28——行高 40 的 QSpace 密度）
+    var itemHeight: CGFloat = 20
+
+    /// 甲板位于标题栏区（fullSizeContentView）：不覆写则点击被窗口拖拽机制吞掉（I-12）
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
 
         stack.orientation = .horizontal
+        stack.alignment = .centerY
         stack.spacing = 2
         stack.edgeInsets = NSEdgeInsets(top: 2, left: 4, bottom: 2, right: 2)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -60,7 +67,8 @@ final class TabBarView: NSView {
     func update(titles: [String], active: Int) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for (i, title) in titles.enumerated() {
-            let item = TabItemView(title: title, isActive: i == active, closable: titles.count > 1)
+            let item = TabItemView(title: title, isActive: i == active,
+                                   closable: titles.count > 1, height: itemHeight)
             item.onSelect = { [weak self] in self?.onSelect?(i) }
             item.onClose = { [weak self] in self?.onClose?(i) }
             stack.addArrangedSubview(item)
@@ -82,7 +90,10 @@ private final class TabItemView: NSView {
     private let closable: Bool
     private var tracking: NSTrackingArea?
 
-    init(title: String, isActive: Bool, closable: Bool) {
+    /// 同 TabBarView：标题栏区内必须禁窗口拖拽接管，否则 mouseDown 收不到（I-12）
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    init(title: String, isActive: Bool, closable: Bool, height: CGFloat) {
         self.isActive = isActive
         self.closable = closable
         super.init(frame: .zero)
@@ -116,7 +127,7 @@ private final class TabItemView: NSView {
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             widthAnchor.constraint(lessThanOrEqualToConstant: 160),
-            heightAnchor.constraint(equalToConstant: 20),
+            heightAnchor.constraint(equalToConstant: height),
         ])
     }
 

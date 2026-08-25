@@ -98,6 +98,28 @@ public actor BookmarkStore {
         try? persist()
     }
 
+    /// 恢复缺失的默认种子（I-14 用户语义：种子可删、可随时恢复）。
+    /// 按解析后 standardized 路径去重——已存在的目标跳过，只补缺失项；返回实际新增数。
+    /// 设置窗「恢复默认书签」与 App 层旧档案一次性补种都走这里。
+    @discardableResult
+    public func restoreMissingSeeds(_ urls: [(URL, String)]) async -> Int {
+        await ensureLoaded()
+        let existing = Set(items.compactMap { resolve($0)?.standardizedFileURL.path })
+        var added = 0
+        for (url, name) in urls where !existing.contains(url.standardizedFileURL.path) {
+            guard let data = try? url.bookmarkData(options: [],
+                                                   includingResourceValuesForKeys: nil,
+                                                   relativeTo: nil) else { continue }
+            items.append(BookmarkItem(name: name, bookmarkData: data))
+            added += 1
+        }
+        if added > 0 {
+            seeded = true
+            try? persist()
+        }
+        return added
+    }
+
     // MARK: 私有：加载与原子落盘
 
     private func ensureLoaded() async {

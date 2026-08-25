@@ -125,6 +125,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: 会话恢复与保存（M11：重开即回到工作状态）
 
     private func restoreSessionOrDefault() async {
+        // UITEST 隔离：自测断言依赖确定性初态（单工作区默认布局），不吃真实用户会话；
+        // frame 持久化场景（SETFRAME/EXPECTFRAME）走独立的 windowFrame 键，不受此影响
+        if ProcessInfo.processInfo.environment["NSPACE_UITEST"] != nil {
+            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            return
+        }
         guard let snapshot = await sessionStore.load(), !snapshot.windows.isEmpty else {
             openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
             return

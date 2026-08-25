@@ -136,10 +136,10 @@ enum UISelfTest {
             // M17-1：无 NSToolbar（I-10 追踪分隔线体系消亡）
             record(window.toolbar == nil, "无 NSToolbar（甲板自绘）")
 
-            // M17-2：甲板两行高度 28 / 36
+            // M17-2：甲板两行高度 40 / 36
             let tabH = wc.deck.tabRow.frame.height
             let toolH = wc.deck.toolbarRow.frame.height
-            record(abs(tabH - TopDeckView.tabRowHeight) < 1.5, "甲板标签行高 28（实得 \(Int(tabH))）")
+            record(abs(tabH - TopDeckView.tabRowHeight) < 1.5, "甲板标签行高 40（实得 \(Int(tabH))）")
             record(abs(toolH - TopDeckView.toolbarRowHeight) < 1.5, "甲板工具条行高 36（实得 \(Int(toolH))）")
 
             // M17-3：工作区标签条存在（甲板视图树含 workspaceTabBar）+ 初始单工作区

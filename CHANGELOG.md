@@ -2,6 +2,21 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.9.1] - 2026-08-26
+
+### 修复（用户反馈批次 I-11~I-17）
+- I-12 点击工作区标签无法切换：标题栏区内视图 mouseDownCanMoveWindow 默认 true 吞掉点击——TabBarView/TabItemView 覆写禁用
+- I-11 标签文字未垂直居中 + 拥挤：标签行 28→40（用户点名 1.5×），胶囊 20→28，stack 显式 centerY
+- I-16 导航/布局分段像重复按钮：去 .separated 边框，一体胶囊，分隔线只在簇间
+- I-14 默认书签种子从未注入（旧档案误判已播种）：restoreMissingSeeds 按路径去重合并 + 一次性补种 + 设置「恢复默认书签」按钮（种子可删可恢复，专属图标）
+- I-15 替代 Finder"未能打开该文件"：申请前 LSRegisterURL 强制重注册（ad-hoc 重签致 LS 记录失效）
+- 测试隔离：UITEST 模式跳过真实会话恢复（自测断言确定性初态）
+
+### 新增
+- I-13 ⌘1..9 工作区数字直达（窗口菜单 + 注册表可改键）；视图模式迁注册表默认 ⌥⌘1/2/3
+- I-17 设置-使用习惯暴露「工作区标签上限」
+- BookmarkStore.restoreMissingSeeds 幂等回归测试
+
 ## [0.9.0] - 2026-08-26
 
 ### 新增

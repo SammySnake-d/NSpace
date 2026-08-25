@@ -277,3 +277,15 @@
 "accent.indigo" = "Indigo";
 "accent.purple" = "Purple";
 "accent.pink" = "Pink";
+"menu.gotoWorkspace1" = "Go to Workspace 1";
+"menu.gotoWorkspace2" = "Go to Workspace 2";
+"menu.gotoWorkspace3" = "Go to Workspace 3";
+"menu.gotoWorkspace4" = "Go to Workspace 4";
+"menu.gotoWorkspace5" = "Go to Workspace 5";
+"menu.gotoWorkspace6" = "Go to Workspace 6";
+"menu.gotoWorkspace7" = "Go to Workspace 7";
+"menu.gotoWorkspace8" = "Go to Workspace 8";
+"menu.gotoWorkspace9" = "Go to Workspace 9";
+"settings.restoreSeeds" = "Restore Default Bookmarks";
+"toast.seedsRestored" = "%d default bookmarks restored";
+"settings.behavior.wsTabLimit" = "Workspace tab limit";

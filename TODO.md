@@ -125,3 +125,12 @@
 - ✅（已修 v0.9.0）**I-08 设置页显示原始键 menu.asList**（2026-08-26 用户报告，截图#49）：根因已定位——SettingsWindowController.swift:103 与 MainWindowController.swift:377 引用 `menu.asIcons/asList/asColumns`，但 Localizable.strings 里只有 `menu.viewAsIcons/viewAsList/viewAsColumns`，L10n 未命中回退为键名。工具栏分段控件 tooltip 同病。修复：zh+en 补三键。
 - ✅（已修 v0.9.0）**I-09 完全磁盘访问按钮功能重复**（2026-08-26 用户报告）：「权限」页（并发批次新增）与「替代 Finder」页（SettingsWindowController.buildFinderTab:233）各有一个"打开完全磁盘访问设置"按钮。修复：保留权限页，替代 Finder 页删按钮留说明。
 - ✅（已修 v0.9.0）**I-10 点击按钮后右侧内容区布局 bug**（2026-08-26 用户报告，截图#51）：疑似工具栏侧栏折叠钮与 NSTrackingSeparatorToolbarItem 组合——折叠后 dividerIndex 语义失配/工具栏项错位，右侧渲染异常。需先复现（UISelfTest 加折叠-展开场景截图对比），再修。
+- ✅（v0.9.1）**I-11 工作区标签文字未垂直居中**（2026-08-26 截图#53）：TabBarView stack 未显式 centerY 对齐 + 行高拥挤。修复：alignment=.centerY + 标签行 28→40（用户点名 +0.5 倍高），胶囊 20→28。
+- ✅（v0.9.1）**I-12 点击工作区标签无法切换**（截图#54）：根因 fullSizeContentView 标题栏区内非控件视图 mouseDownCanMoveWindow 默认 true，点击被窗口拖拽机制吞掉。修复：TabBarView/TabItemView 覆写 mouseDownCanMoveWindow=false。
+- ✅（v0.9.1）**I-13 ⌘1..9 应直达工作区**（用户点名）：注册表新增 workspace1..9（默认 ⌘1..9）；视图模式让位迁注册表 viewAs*（默认 ⌥⌘1/2/3，可改）。
+- ✅（v0.9.1）**I-14 默认书签种子从未注入**（用户报告"桌面/home 不见了"）：旧纯数组档案非空被误判已播种。修复：BookmarkStore.restoreMissingSeeds 按路径去重合并 + App 层一次性迁移(seedsMergedV2) + 设置「恢复默认书签」按钮（用户点名：种子可删可恢复，图标专属）。
+- ✅（v0.9.1）**I-15 替代 Finder 设置失败"未能打开该文件"**（截图#55）：每次重构建 ad-hoc 重签致 LaunchServices 记录失效。修复：申请前 LSRegisterURL 强制重注册。
+- ✅（v0.9.1）**I-16 导航/布局分段像重复按钮**（截图#56）：segmentStyle=.separated 各段自带边框。修复：去 separated，一体胶囊，分隔线只在簇间。
+- ✅（v0.9.1）**I-17 workspaceTabLimit 未暴露在设置**：使用习惯页补「工作区标签上限」。
+- ⬜ **M19**：布局快捷键 ⌃⌘1..5 迁 KeyBindings 注册表（当前硬编码于菜单，与 ⌘1..9 无冲突，降优先）。
+- ⬜ **M20 App 图标重设计**（2026-08-26 用户点名"当前的不好看"）：弃现紫底分栏图标，设计优秀新 logo（scripts/generate-icon.swift + make-icns.sh 管线重绘），风格随 M17 定稿视觉（原生质感、结构辨识度）。

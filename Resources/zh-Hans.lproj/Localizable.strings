@@ -277,3 +277,15 @@
 "accent.indigo" = "靛";
 "accent.purple" = "紫";
 "accent.pink" = "粉";
+"menu.gotoWorkspace1" = "切换到工作区 1";
+"menu.gotoWorkspace2" = "切换到工作区 2";
+"menu.gotoWorkspace3" = "切换到工作区 3";
+"menu.gotoWorkspace4" = "切换到工作区 4";
+"menu.gotoWorkspace5" = "切换到工作区 5";
+"menu.gotoWorkspace6" = "切换到工作区 6";
+"menu.gotoWorkspace7" = "切换到工作区 7";
+"menu.gotoWorkspace8" = "切换到工作区 8";
+"menu.gotoWorkspace9" = "切换到工作区 9";
+"settings.restoreSeeds" = "恢复默认书签";
+"toast.seedsRestored" = "已恢复 %d 个默认书签";
+"settings.behavior.wsTabLimit" = "工作区标签上限";

@@ -13,8 +13,11 @@ enum FinderIntegration {
         return handler.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
     }
 
-    /// 申请成为默认文件夹处理程序（系统会弹确认对话框）
+    /// 申请成为默认文件夹处理程序（系统会弹确认对话框）。
+    /// I-15：每次重构建 ad-hoc 重签会让 LaunchServices 记录失效（报"未能打开该文件"）——
+    /// 申请前先强制重新注册当前 bundle。
     static func requestDefaultFolderHandler(completion: @escaping @MainActor (Error?) -> Void) {
+        LSRegisterURL(Bundle.main.bundleURL as CFURL, true)
         NSWorkspace.shared.setDefaultApplication(
             at: Bundle.main.bundleURL, toOpen: .folder) { error in
             Task { @MainActor in completion(error) }

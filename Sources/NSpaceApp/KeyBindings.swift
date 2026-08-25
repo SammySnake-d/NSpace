@@ -39,7 +39,14 @@ enum KeyBindings {
         Entry(id: "searchGlobal", titleKey: "menu.searchGlobal", defaultKey: "f", defaultMods: [.command, .shift]),
         Entry(id: "toggleSidebar", titleKey: "menu.toggleSidebar", defaultKey: "s", defaultMods: [.command, .option]),
         Entry(id: "togglePaneTabBar", titleKey: "menu.togglePaneTabBar", defaultKey: "", defaultMods: []),
+        // 视图模式（I-13：从硬编码 ⌘1/2/3 迁入注册表；默认让位给工作区数字直达 → ⌥⌘1/2/3，可改）
+        Entry(id: "viewAsIcons", titleKey: "menu.viewAsIcons", defaultKey: "1", defaultMods: [.command, .option]),
+        Entry(id: "viewAsList", titleKey: "menu.viewAsList", defaultKey: "2", defaultMods: [.command, .option]),
+        Entry(id: "viewAsColumns", titleKey: "menu.viewAsColumns", defaultKey: "3", defaultMods: [.command, .option]),
     ]
+    // 工作区数字直达 ⌘1..9（I-13 用户点名，QSpace 肌肉记忆）
+    + (1...9).map { Entry(id: "workspace\($0)", titleKey: "menu.gotoWorkspace\($0)",
+                          defaultKey: "\($0)", defaultMods: [.command]) }
 
     static func entry(_ id: String) -> Entry? {
         registry.first { $0.id == id }

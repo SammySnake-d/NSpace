@@ -92,15 +92,16 @@ enum MainMenu {
         let viewMenu = NSMenu(title: L10n.t("menu.view"))
         viewItem.submenu = viewMenu
 
-        // 视图模式（M9：每窗格独立；⌘1/2/3，validateMenuItem 打勾当前模式）
+        // 视图模式（M9：每窗格独立；I-13 迁注册表默认 ⌥⌘1/2/3，validateMenuItem 打勾当前模式）
         let modeSpecs: [(String, Selector, String, String)] = [
-            ("menu.viewAsIcons", #selector(PaneViewController.viewAsIcons(_:)), "1", "square.grid.2x2"),
-            ("menu.viewAsList", #selector(PaneViewController.viewAsList(_:)), "2", "list.bullet"),
-            ("menu.viewAsColumns", #selector(PaneViewController.viewAsColumns(_:)), "3", "rectangle.split.3x1"),
+            ("menu.viewAsIcons", #selector(PaneViewController.viewAsIcons(_:)), "viewAsIcons", "square.grid.2x2"),
+            ("menu.viewAsList", #selector(PaneViewController.viewAsList(_:)), "viewAsList", "list.bullet"),
+            ("menu.viewAsColumns", #selector(PaneViewController.viewAsColumns(_:)), "viewAsColumns", "rectangle.split.3x1"),
         ]
-        for (key, sel, equiv, symbol) in modeSpecs {
-            let item = viewMenu.addItem(withTitle: L10n.t(key), action: sel, keyEquivalent: equiv)
+        for (key, sel, bindingID, symbol) in modeSpecs {
+            let item = viewMenu.addItem(withTitle: L10n.t(key), action: sel, keyEquivalent: "")
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            KeyBindings.apply(bindingID, to: item)
         }
         viewMenu.addItem(.separator())
 
@@ -169,6 +170,15 @@ enum MainMenu {
         windowItem.submenu = windowMenu
         windowMenu.addItem(withTitle: L10n.t("menu.minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: L10n.t("menu.zoom"), action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        // 工作区数字直达 ⌘1..9（I-13；tag = 工作区下标，超出现有数量时 validate 置灰）
+        for n in 1...9 {
+            let item = windowMenu.addItem(withTitle: L10n.t("menu.gotoWorkspace\(n)"),
+                                          action: #selector(MainWindowController.switchWorkspaceByNumber(_:)),
+                                          keyEquivalent: "")
+            item.tag = n - 1
+            KeyBindings.apply("workspace\(n)", to: item)
+        }
         NSApp.windowsMenu = windowMenu
 
         return main

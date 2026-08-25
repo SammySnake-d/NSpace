@@ -9,7 +9,7 @@ import SessionStore
 /// 右列 contentColumn（TopDeckView 甲板 + PaneGrid 窗格矩阵 + 各窗格状态栏）。
 /// 工作区标签自管（WorkspaceManager，弃原生 NSWindow tabbing）；Tab 键循环窗格焦点。
 @MainActor
-final class MainWindowController: NSWindowController {
+final class MainWindowController: NSWindowController, @preconcurrency NSMenuItemValidation {
     let kernel: OperationKernel
     let grid: PaneGridController
     let coordinator: FileOpsCoordinator
@@ -325,6 +325,19 @@ final class MainWindowController: NSWindowController {
 
     @objc func closeActiveWorkspace(_ sender: Any?) {
         closeWorkspace(at: workspaces.activeIndex)
+    }
+
+    /// ⌘1..9 数字直达（I-13）：菜单项 tag = 工作区下标；越界由 switchTo 守卫忽略
+    @objc func switchWorkspaceByNumber(_ sender: NSMenuItem) {
+        switchWorkspace(to: sender.tag)
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(switchWorkspaceByNumber(_:)) {
+            item.state = item.tag == workspaces.activeIndex ? .on : .off
+            return item.tag < workspaces.count
+        }
+        return true
     }
 
     @objc func nextWorkspace(_ sender: Any?) { cycleWorkspace(backward: false) }

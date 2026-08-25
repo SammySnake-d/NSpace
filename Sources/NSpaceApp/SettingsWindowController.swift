@@ -119,8 +119,14 @@ final class SettingsWindowController: NSWindowController {
         note.font = .systemFont(ofSize: 11)
         note.textColor = .tertiaryLabelColor
 
+        // I-14：默认书签种子可删可恢复——恢复按钮补齐缺失种子（按路径去重，不动用户书签）
+        let restoreSeeds = NSButton(title: L10n.t("settings.restoreSeeds"), target: self,
+                                    action: #selector(restoreDefaultSeeds))
+        restoreSeeds.bezelStyle = .push
+
         let stack = NSStackView(views: [layoutRow, viewRow, termRow,
                                         NSBox.separatorLine(), hidden, folders, paneBar,
+                                        NSBox.separatorLine(), restoreSeeds,
                                         NSBox.separatorLine(), note])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -155,6 +161,16 @@ final class SettingsWindowController: NSWindowController {
         PaneViewController.paneTabBarVisible = sender.state == .on
         for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
             wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
+        }
+    }
+
+    @objc private func restoreDefaultSeeds() {
+        let wcs = NSApp.windows.compactMap { $0.windowController as? MainWindowController }
+        guard let first = wcs.first else { return }
+        Task { @MainActor in
+            let added = await first.sidebar.model.restoreDefaultSeeds()
+            for wc in wcs.dropFirst() { wc.sidebar.model.rebuild() }
+            Toast.show(String(format: L10n.t("toast.seedsRestored"), added), in: first.window)
         }
     }
 
