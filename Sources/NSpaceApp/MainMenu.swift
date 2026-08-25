@@ -57,19 +57,19 @@ enum MainMenu {
                                          action: #selector(FileListViewController.moveToTrash(_:)), keyEquivalent: "")
         KeyBindings.apply("moveToTrash", to: trashItem)
         fileMenu.addItem(.separator())
-        // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆）
+        // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆；默认 F5/F6，可在设置改键）
         let f5 = fileMenu.addItem(withTitle: L10n.t("menu.copyToOtherPane"),
-                                  action: #selector(FileListViewController.copyToOtherPane(_:)), keyEquivalent: "\u{F708}")
-        f5.keyEquivalentModifierMask = []
+                                  action: #selector(FileListViewController.copyToOtherPane(_:)), keyEquivalent: "")
+        KeyBindings.apply("copyToOtherPane", to: f5)
         let f6 = fileMenu.addItem(withTitle: L10n.t("menu.moveToOtherPane"),
-                                  action: #selector(FileListViewController.moveToOtherPane(_:)), keyEquivalent: "\u{F709}")
-        f6.keyEquivalentModifierMask = []
+                                  action: #selector(FileListViewController.moveToOtherPane(_:)), keyEquivalent: "")
+        KeyBindings.apply("moveToOtherPane", to: f6)
         fileMenu.addItem(.separator())
         // ⌘W 分层关闭（I-21）：路由到 AppDelegate.closeTopmost——浮层优先，主窗才关工作区标签
         let closeTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWorkspace"), action: #selector(AppDelegate.closeTopmost(_:)), keyEquivalent: "")
         KeyBindings.apply("closeTab", to: closeTabItem)
-        let closePaneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closePaneTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
-        closePaneTabItem.keyEquivalentModifierMask = [.command, .option]
+        let closePaneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closePaneTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "")
+        KeyBindings.apply("closePaneTab", to: closePaneTabItem)
         let closeWinItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         closeWinItem.keyEquivalentModifierMask = [.command, .shift]
 
@@ -106,15 +106,15 @@ enum MainMenu {
         }
         viewMenu.addItem(.separator())
 
-        // 布局子菜单（⌃⌘1..5）
+        // 布局子菜单（默认 ⌃⌘1..5；M19 迁注册表，可在设置改键）
         let layoutItem = viewMenu.addItem(withTitle: L10n.t("menu.layout"), action: nil, keyEquivalent: "")
         let layoutMenu = NSMenu(title: L10n.t("menu.layout"))
         layoutItem.submenu = layoutMenu
         for (i, layout) in PaneLayout.allCases.enumerated() {
             let item = layoutMenu.addItem(withTitle: layout.localizedName,
                                           action: #selector(MainWindowController.applyLayout(_:)),
-                                          keyEquivalent: "\(i + 1)")
-            item.keyEquivalentModifierMask = [.control, .command]
+                                          keyEquivalent: "")
+            KeyBindings.apply("layout\(i + 1)", to: item)
             item.tag = layout.rawValue
             item.image = NSImage(systemSymbolName: layout.symbolName, accessibilityDescription: nil)
         }

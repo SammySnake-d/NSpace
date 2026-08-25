@@ -16,6 +16,10 @@ enum KeyBindings {
         Entry(id: "newTab", titleKey: "menu.newWorkspace", defaultKey: "t", defaultMods: [.command]),
         Entry(id: "newPaneTab", titleKey: "menu.newPaneTab", defaultKey: "t", defaultMods: [.command, .option]),
         Entry(id: "closeTab", titleKey: "menu.closeWorkspace", defaultKey: "w", defaultMods: [.command]),
+        Entry(id: "closePaneTab", titleKey: "menu.closePaneTab", defaultKey: "w", defaultMods: [.command, .option]),
+        // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆；M19 从菜单硬编码迁入注册表，可改键）
+        Entry(id: "copyToOtherPane", titleKey: "menu.copyToOtherPane", defaultKey: "\u{F708}", defaultMods: []),
+        Entry(id: "moveToOtherPane", titleKey: "menu.moveToOtherPane", defaultKey: "\u{F709}", defaultMods: []),
         Entry(id: "nextWorkspace", titleKey: "menu.nextWorkspace", defaultKey: "]", defaultMods: [.command, .shift]),
         Entry(id: "prevWorkspace", titleKey: "menu.prevWorkspace", defaultKey: "[", defaultMods: [.command, .shift]),
         // ⌃⇥ / ⌃⇧⇥ 工作区循环（Tab 无法作菜单 keyEquivalent，由事件监视器读本注册表的修饰键，
@@ -47,6 +51,11 @@ enum KeyBindings {
     // 工作区数字直达 ⌘1..9（I-13 用户点名，QSpace 肌肉记忆）
     + (1...9).map { Entry(id: "workspace\($0)", titleKey: "menu.gotoWorkspace\($0)",
                           defaultKey: "\($0)", defaultMods: [.command]) }
+    // 窗格布局 ⌃⌘1..5（M19：从菜单硬编码迁入注册表；titleKey 复用 PaneLayout 各布局名键）
+    + PaneLayout.allCases.enumerated().map { i, layout in
+        Entry(id: "layout\(i + 1)", titleKey: layout.titleKey,
+              defaultKey: "\(i + 1)", defaultMods: [.control, .command])
+    }
 
     static func entry(_ id: String) -> Entry? {
         registry.first { $0.id == id }
@@ -100,6 +109,8 @@ enum KeyBindings {
         case "\u{F701}": "↓"
         case "\u{F702}": "←"
         case "\u{F703}": "→"
+        case "\u{F708}": "F5"
+        case "\u{F709}": "F6"
         default: key.uppercased()
         }
     }
