@@ -3,7 +3,7 @@ import NSpaceContracts
 import VolumeInfo
 import BookmarkStore
 
-/// 左侧边栏：source list 三分组（起始位置/书签/位置）。
+/// 左侧边栏：source list 分组（书签/iCloud/位置，可拖动标题行重排）。
 /// 只读+发导航意图（BG-1）；书签增删改经 BookmarkStore 胶囊提交。
 @MainActor
 final class SidebarViewController: NSViewController {
@@ -17,6 +17,8 @@ final class SidebarViewController: NSViewController {
     private var bannerTimer: Timer?
     /// 书签内部重排的拖拽类型
     private static let reorderType = NSPasteboard.PasteboardType("com.nspace.sidebar.bookmark")
+    /// 分组标题行重排的拖拽类型（用户点名：书签可拖到最前）
+    private static let groupType = NSPasteboard.PasteboardType("com.nspace.sidebar.group")
 
     init(model: SidebarModel) {
         self.model = model
@@ -38,7 +40,7 @@ final class SidebarViewController: NSViewController {
         outline.rowSizeStyle = .small  // QSpace 式紧凑行高
         outline.dataSource = self
         outline.delegate = self
-        outline.registerForDraggedTypes([.fileURL, Self.reorderType])
+        outline.registerForDraggedTypes([.fileURL, Self.reorderType, Self.groupType])
         outline.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
         outline.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
         outline.menu = NSMenu()
@@ -158,8 +160,13 @@ extension SidebarViewController: NSOutlineViewDataSource {
         item is SidebarGroupNode
     }
 
-    // 拖出：书签=重排源；暂存项=resolve 后真实 URL（可投放到任何 fileURL 目标）
+    // 拖出：分组标题=组重排源；书签=重排源；暂存项=resolve 后真实 URL（可投放到任何 fileURL 目标）
     func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
+        if let group = item as? SidebarGroupNode {
+            let pb = NSPasteboardItem()
+            pb.setString(group.kind.rawValue, forType: Self.groupType)
+            return pb
+        }
         guard let leaf = item as? SidebarLeafNode else { return nil }
         guard case .bookmark = leaf.payload,
               let group = model.groups.first(where: { $0.kind == .bookmarks }),
@@ -171,6 +178,13 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+        // 分组重排：仅允许组拖到根级（item==nil）分组之间（index>=0，非落在某行正中）
+        if info.draggingPasteboard.types?.contains(Self.groupType) == true {
+            if item == nil && index >= 0 { return .move }
+            // 悬停在某分组/条目上 → 重定向到根级缝隙（不接收落在正中）
+            outlineView.setDropItem(nil, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            return []
+        }
         let isBookmarkGroup = (item as? SidebarGroupNode)?.kind == .bookmarks
         if info.draggingPasteboard.types?.contains(Self.reorderType) == true {
             return isBookmarkGroup && index >= 0 ? .move : []
@@ -192,6 +206,11 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
+        // 分组重排：重排 Preferences.sidebarGroupOrder 并 rebuild
+        if let kindStr = info.draggingPasteboard.string(forType: Self.groupType) {
+            reorderGroups(movingKind: kindStr, toVisibleIndex: index)
+            return true
+        }
         if let str = info.draggingPasteboard.string(forType: Self.reorderType), let from = Int(str) {
             let to = index > from ? index - 1 : index
             Task {
@@ -209,6 +228,26 @@ extension SidebarViewController: NSOutlineViewDataSource {
             model.rebuild()
         }
         return true
+    }
+
+    /// 组重排：把可见分组顺序按拖放落点重算，合并回持久化全序（隐藏的空 iCloud 组置尾不影响呈现）
+    private func reorderGroups(movingKind kindStr: String, toVisibleIndex index: Int) {
+        let visible = model.groups.map { $0.kind.rawValue }
+        guard let from = visible.firstIndex(of: kindStr) else { return }
+        var newVisible = visible
+        let moved = newVisible.remove(at: from)
+        let dest = from < index ? index - 1 : index
+        newVisible.insert(moved, at: min(max(dest, 0), newVisible.count))
+        // 合并进持久化全序：补齐三键 → 隐藏键（不在可见列表）追尾，可见键按新序在前
+        var full = Preferences.sidebarGroupOrder
+        for key in [SidebarGroupNode.Kind.bookmarks.rawValue,
+                    SidebarGroupNode.Kind.icloud.rawValue,
+                    SidebarGroupNode.Kind.volumes.rawValue] where !full.contains(key) {
+            full.append(key)
+        }
+        let hidden = full.filter { !newVisible.contains($0) }
+        Preferences.sidebarGroupOrder = newVisible + hidden
+        model.rebuild()
     }
 }
 

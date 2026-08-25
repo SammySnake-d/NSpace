@@ -88,8 +88,8 @@
 "conflict.merge" = "合并";
 "conflict.cancel" = "取消";
 "conflict.applyToAll" = "应用到全部";
-"sidebar.favorites" = "个人收藏";
 "sidebar.bookmarks" = "书签";
+"sidebar.icloud.section" = "iCloud";
 "sidebar.volumes" = "位置";
 "sidebar.home" = "个人";
 "sidebar.desktop" = "桌面";
