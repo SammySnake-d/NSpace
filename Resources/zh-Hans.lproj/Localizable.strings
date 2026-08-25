@@ -134,3 +134,9 @@
 "menu.closePaneTab" = "关闭窗格标签";
 "menu.togglePaneTabBar" = "显示/隐藏窗格标签栏";
 "menu.quickLook" = "快速查看";
+
+/* M9 视图模式 */
+"menu.viewAsIcons" = "为图标";
+"menu.viewAsList" = "为列表";
+"menu.viewAsColumns" = "为分栏";
+"iconGrid.sizeTooltip" = "图标大小";

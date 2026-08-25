@@ -134,3 +134,9 @@
 "menu.closePaneTab" = "Close Pane Tab";
 "menu.togglePaneTabBar" = "Show/Hide Pane Tab Bar";
 "menu.quickLook" = "Quick Look";
+
+/* M9 View Modes */
+"menu.viewAsIcons" = "as Icons";
+"menu.viewAsList" = "as List";
+"menu.viewAsColumns" = "as Columns";
+"iconGrid.sizeTooltip" = "Icon Size";

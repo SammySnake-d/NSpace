@@ -34,9 +34,17 @@ final class DirectoryViewModel {
     var includeHidden = false { didSet { reload() } }
     var sort = SortSpec() { didSet { reload() } }
 
-    var onUpdate: (() -> Void)?
-    /// 就地错误呈现（原位空态横幅，严禁弹窗轰炸——spec 容错矩阵）
-    var onError: ((String) -> Void)?
+    // M9 多播：同一 model 被列表/图标网格多视图消费（观察者与标签同生命周期，不需移除）
+    private var updateHandlers: [() -> Void] = []
+    private var errorHandlers: [(String) -> Void] = []
+
+    /// 订阅快照更新（多视图共享同一 model 的唯一挂点）
+    func addOnUpdate(_ handler: @escaping () -> Void) { updateHandlers.append(handler) }
+    /// 订阅就地错误呈现（原位空态横幅，严禁弹窗轰炸——spec 容错矩阵）
+    func addOnError(_ handler: @escaping (String) -> Void) { errorHandlers.append(handler) }
+
+    private func notifyUpdate() { updateHandlers.forEach { $0() } }
+    private func notifyError(_ message: String) { errorHandlers.forEach { $0(message) } }
 
     private var lastAppliedGeneration: UInt64 = 0
     private var loadTask: Task<Void, Never>?
@@ -66,14 +74,14 @@ final class DirectoryViewModel {
                 self.lastAppliedGeneration = snap.generation
                 self.items = snap.items
                 self.isLoading = false
-                self.onUpdate?()
+                self.notifyUpdate()
             } catch is CancellationError {
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 self.isLoading = false
                 self.items = []
-                self.onUpdate?()
-                self.onError?(error.localizedDescription)
+                self.notifyUpdate()
+                self.notifyError(error.localizedDescription)
             }
         }
     }

@@ -13,6 +13,9 @@ final class FocusReportingTableView: NSTableView {
     var onSpace: (() -> Void)?
     /// 拖拽移出/结束（spring-loaded 计时器取消用）
     var onDragExited: (() -> Void)?
+    /// ←/→ 键（分栏视图列间移动用；nil 时交回系统默认行为）
+    var onArrowLeft: (() -> Void)?
+    var onArrowRight: (() -> Void)?
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         onDragExited?()
@@ -58,6 +61,15 @@ final class FocusReportingTableView: NSTableView {
         }
         if event.keyCode == 49, let onSpace {
             onSpace()
+            return
+        }
+        // ←（123）/ →（124）：分栏视图接管列间移动；未接管时交回默认
+        if event.keyCode == 123, let onArrowLeft {
+            onArrowLeft()
+            return
+        }
+        if event.keyCode == 124, let onArrowRight {
+            onArrowRight()
             return
         }
         super.keyDown(with: event)
