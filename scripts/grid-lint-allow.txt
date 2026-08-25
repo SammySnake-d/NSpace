@@ -1,0 +1,18 @@
+# 确定性网格遗留基线（2026-08-26 grid-lint 首扫 34 处；M18 网格收敛清零后删除本文件）
+# 格式: 文件名:数值   # 理由/去向
+AppearanceSettingsPage.swift:10
+AppearanceSettingsPage.swift:150
+AppearanceSettingsPage.swift:18
+ArchiveSettingsPage.swift:10
+ArchiveSettingsPage.swift:150
+BehaviorSettingsPage.swift:10
+BehaviorSettingsPage.swift:130
+FileCellViews.swift:6
+PermissionsSettingsPage.swift:10
+SettingsWindowController.swift:10
+SettingsWindowController.swift:150
+SettingsWindowController.swift:6
+Toast.swift:14
+Toast.swift:6
+Toast.swift:-14
+Toast.swift:-6

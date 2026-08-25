@@ -129,25 +129,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
             return
         }
-        // 保存的每个"窗口"= 一个工作区标签：首个成窗，其余并入其标签组（M13 语义）
+        // 每个保存的"窗口"= 一组工作区（M17）：各成独立 OS 窗口，工作区数组自管恢复
         var first: MainWindowController?
-        for w in snapshot.windows {
-            let dir = URL(fileURLWithPath: w.panes.first?.tabs.first?.path ?? NSHomeDirectory())
+        for ws in snapshot.windows {
+            let firstPane = ws.workspaces.first(where: { !$0.panes.isEmpty })
+            let dir = URL(fileURLWithPath: firstPane?.panes.first?.tabs.first?.path ?? NSHomeDirectory())
             let wc = openWindow(at: dir, orderFront: first == nil)
-            wc.grid.restoreSession(w)
-            if let firstWindow = first?.window, let newWindow = wc.window {
-                firstWindow.addTabbedWindow(newWindow, ordered: .above)
-            }
+            wc.restoreWorkspaces(ws)
             if first == nil { first = wc }
         }
         first?.window?.makeKeyAndOrderFront(nil)
     }
 
-    /// 状态变化落盘请求（位置/布局/标签变化处调用；SessionStore 内部 1s 防抖合并）
+    /// 状态变化落盘请求（位置/布局/工作区变化处调用；SessionStore 内部 1s 防抖合并）
     func noteStateChanged() {
         guard sessionReady else { return }
         let snapshot = SessionSnapshot(windows: windowControllers.compactMap { wc in
-            wc.window != nil ? wc.grid.sessionWindow() : nil
+            wc.window != nil ? wc.workspaceSnapshot() : nil
         })
         guard !snapshot.windows.isEmpty else { return }
         Task { await sessionStore.save(snapshot) }
@@ -156,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 退出前强制落盘（同步等待 ≤1s；防抖中的快照不丢）
     func applicationWillTerminate(_ notification: Notification) {
         let snapshot = SessionSnapshot(windows: windowControllers.compactMap { wc in
-            wc.window != nil ? wc.grid.sessionWindow() : nil
+            wc.window != nil ? wc.workspaceSnapshot() : nil
         })
         let store = sessionStore
         let done = DispatchSemaphore(value: 0)

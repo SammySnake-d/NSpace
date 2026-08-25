@@ -1,6 +1,6 @@
 import AppKit
 
-/// 窗格底部状态条（QSpace 式，22pt）：左侧"N 项（已选 M 项）"，右侧"可用 X GB"。
+/// 窗格底部状态条（QSpace 式，24pt）：左侧"N 项（已选 M 项）"，右侧"可用 X GB"。
 /// 卷容量只在目录变化/标签切换时读一次（statfs 级只读开销），绝不轮询——北极星零空闲功耗。
 @MainActor
 final class StatusBarView: NSView {
@@ -9,6 +9,7 @@ final class StatusBarView: NSView {
 
     init() {
         super.init(frame: .zero)
+        wantsLayer = true
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
@@ -22,7 +23,7 @@ final class StatusBarView: NSView {
             addSubview(label)
         }
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 22),
+            heightAnchor.constraint(equalToConstant: 24),
             separator.topAnchor.constraint(equalTo: topAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -36,6 +37,16 @@ final class StatusBarView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    // 外观感知不透明底衬：用 updateLayer 让明暗切换自动重解析——原先无底衬时，
+    // 深色外观下这条 24pt 状态条在自渲染截图中不可见（项数/可用空间读不到）。
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
+    }
 
     /// 左侧计数：有选中显示"N 项（已选 M 项）"，否则"N 项"
     func update(itemCount: Int, selectedCount: Int) {

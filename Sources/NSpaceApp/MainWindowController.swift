@@ -2,8 +2,12 @@ import AppKit
 import NSpaceKernel
 import BookmarkStore
 import StashStore
+import SessionStore
 
-/// 主窗口：工具栏（侧边栏开关+布局切换）+ [侧边栏 | 窗格网格]；Tab 键循环窗格焦点
+/// 主窗口（M17 自绘甲板）：两列贯通结构——
+/// 左列 sidebarColumn（.sidebar 材质全高：红绿灯行 + 暂存架 + 书签），
+/// 右列 contentColumn（TopDeckView 甲板 + PaneGrid 窗格矩阵 + 各窗格状态栏）。
+/// 工作区标签自管（WorkspaceManager，弃原生 NSWindow tabbing）；Tab 键循环窗格焦点。
 @MainActor
 final class MainWindowController: NSWindowController {
     let kernel: OperationKernel
@@ -12,14 +16,19 @@ final class MainWindowController: NSWindowController {
     let sidebar: SidebarViewController
     /// 暂存架控制器（M7）：内容经 StashStore 胶囊持久化，行呈现在侧边栏
     let stashShelf: StashShelfController
+    /// 自绘顶部甲板（M17）：标签条 28 + 图标工具条 36
+    let deck = TopDeckView()
+    /// 工作区管理器（M17）：窗口内 [SessionWindow] + activeIndex，切换=快照当前→恢复目标
+    private(set) var workspaces: WorkspaceManager!
+
     /// 手工 NSSplitView（弃 NSSplitViewController：其恢复/调宽会在 splitView 上留必需
     /// 等式约束，布局扰动时反推窗口坍缩——UI 探针实锤 W==320/W==220/H==52 泄漏）
     private let mainSplit = NSSplitView()
     private let sidebarWrap = NSVisualEffectView()
+    /// 右列容器：甲板压顶 + 窗格矩阵铺底（唯一垂直分割线由此列与左列共界）
+    private let contentColumn = NSView()
     private var savedSidebarWidth: CGFloat = 200
     private var keyMonitor: Any?
-    private let layoutControl = NSSegmentedControl()
-    private let viewModeControl = NSSegmentedControl()
 
     init(kernel: OperationKernel, initialDirectory: URL, select: URL? = nil) {
         self.kernel = kernel
@@ -37,9 +46,12 @@ final class MainWindowController: NSWindowController {
             backing: .buffered, defer: false)
         window.minSize = NSSize(width: 600, height: 400)
         window.center()
-        // M13：窗口级工作区标签（QSpace 语义——标签对象=整个分屏布局）
-        window.tabbingMode = .automatic
-        window.tabbingIdentifier = "NSpaceMain"
+        // M17：弃原生窗口标签（横跨全窗与贯通布局冲突）——工作区改自管 WorkspaceManager
+        window.tabbingMode = .disallowed
+        // 自绘甲板：标题隐藏 + 标题栏透明 + 无 NSToolbar（I-10 追踪分隔线体系随之消亡）
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbar = nil
         super.init(window: window)
         // AppKit 经典坑:控制器默认级联窗口会屏蔽 setFrameAutosaveName 的恢复——必须显式关闭
         shouldCascadeWindows = false
@@ -65,7 +77,24 @@ final class MainWindowController: NSWindowController {
             sv.leadingAnchor.constraint(equalTo: sidebarWrap.leadingAnchor),
             sv.trailingAnchor.constraint(equalTo: sidebarWrap.trailingAnchor),
         ])
-        for pane in [sidebarWrap, grid.view] {
+
+        // 右列 = 甲板压顶 + 窗格矩阵铺底
+        deck.deckDelegate = self
+        let gridView = grid.view
+        gridView.translatesAutoresizingMaskIntoConstraints = false
+        contentColumn.addSubview(deck)
+        contentColumn.addSubview(gridView)
+        NSLayoutConstraint.activate([
+            deck.topAnchor.constraint(equalTo: contentColumn.topAnchor),
+            deck.leadingAnchor.constraint(equalTo: contentColumn.leadingAnchor),
+            deck.trailingAnchor.constraint(equalTo: contentColumn.trailingAnchor),
+            gridView.topAnchor.constraint(equalTo: deck.bottomAnchor),
+            gridView.leadingAnchor.constraint(equalTo: contentColumn.leadingAnchor),
+            gridView.trailingAnchor.constraint(equalTo: contentColumn.trailingAnchor),
+            gridView.bottomAnchor.constraint(equalTo: contentColumn.bottomAnchor),
+        ])
+
+        for pane in [sidebarWrap, contentColumn] {
             pane.translatesAutoresizingMaskIntoConstraints = true
             pane.autoresizingMask = [.width, .height]
             mainSplit.addArrangedSubview(pane)
@@ -90,7 +119,7 @@ final class MainWindowController: NSWindowController {
             let r = NSRectFromString(saved)
             if r.width >= 600, r.height >= 400 { window.setFrame(r, display: false) }
         }
-        // 外部化默认布局（新窗口/新工作区标签生效；会话恢复会覆盖）
+        // 外部化默认布局（新窗口/新工作区生效；会话恢复会覆盖）
         if let l = PaneLayout(rawValue: Preferences.defaultLayoutRaw), l != grid.layout {
             grid.apply(layout: l)
         }
@@ -98,10 +127,11 @@ final class MainWindowController: NSWindowController {
             let w = UserDefaults.standard.double(forKey: "sidebarWidth")
             return w > 0 ? min(max(w, 160), 320) : 200
         }()
+        let startCollapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed")
+        deck.setSidebarCollapsed(startCollapsed)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let collapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed")
-            self.mainSplit.setPosition(collapsed ? 0 : self.savedSidebarWidth, ofDividerAt: 0)
+            self.mainSplit.setPosition(startCollapsed ? 0 : self.savedSidebarWidth, ofDividerAt: 0)
         }
         NotificationCenter.default.addObserver(
             self, selector: #selector(splitDidResize(_:)),
@@ -115,9 +145,16 @@ final class MainWindowController: NSWindowController {
 
         sidebar.onNavigate = { [weak self] url in self?.grid.activePane.navigate(to: url) }
         grid.onActiveLocationChange = { [weak self] url in self?.updateTitle(for: url) }
+        grid.onActiveStatusChange = { [weak self] in
+            guard let self else { return }
+            self.deck.validateActions(hasSelection: self.grid.activePane.currentSelectionCount > 0)
+        }
+
+        // 工作区管理器：以当前 grid 快照播种单工作区（grid.view 已 loadView，窗格池就位）
+        workspaces = WorkspaceManager(initial: grid.sessionWindow())
         updateTitle(for: initialDirectory)
-        setupToolbar()
-        installTabKeyMonitor()
+        refreshWorkspaceTabs()
+        installKeyMonitor()
     }
 
     @available(*, unavailable)
@@ -126,6 +163,11 @@ final class MainWindowController: NSWindowController {
     func navigate(to url: URL) {
         grid.activePane.navigate(to: url)
     }
+
+    // MARK: UISelfTest 度量入口（M17 §5：分割线全高 / 折叠不漂移）
+    var sidebarColumnFrame: NSRect { sidebarWrap.frame }
+    var contentColumnFrame: NSRect { contentColumn.frame }
+    var workspaceCount: Int { workspaces.count }
 
     /// 窗口关闭时由 AppDelegate 调用（事件监视器必须显式拆除）
     func teardown() {
@@ -139,7 +181,7 @@ final class MainWindowController: NSWindowController {
 
     // MARK: 侧栏宽度自管持久化（替代 NSSplitView.autosaveName）
 
-    /// frame 持久化落盘（拖拽结束/移动/关窗时调；全屏态不записыв）
+    /// frame 持久化落盘（拖拽结束/移动/关窗时调；全屏态不写）
     func persistFrameNow() {
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
         UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "windowFrame")
@@ -151,6 +193,11 @@ final class MainWindowController: NSWindowController {
             savedSidebarWidth = w
             UserDefaults.standard.set(w, forKey: "sidebarWidth")
             UserDefaults.standard.set(false, forKey: "sidebarCollapsed")
+            deck.setSidebarCollapsed(false)
+        } else if w < 1 {
+            // 折叠视觉（甲板让位红绿灯）；折叠态持久化只由 toggleSidebar 落——
+            // 启动瞬时 0 宽的 didResize 绝不可写 collapsed=true（否则下次启动误折叠）
+            deck.setSidebarCollapsed(true)
         }
     }
 
@@ -158,15 +205,20 @@ final class MainWindowController: NSWindowController {
         persistFrameNow()
     }
 
-    /// 自实现侧栏折叠（⌘⌥S / 工具栏钮）：宽度 0 ⟷ 记忆宽度
+    /// 自实现侧栏折叠（⌘⌥S / 甲板钮）：宽度 0 ⟷ 记忆宽度；折叠时甲板 leading 让位红绿灯
     @objc func toggleSidebar(_ sender: Any?) {
-        let collapsed = sidebarWrap.frame.width < 1
-        mainSplit.setPosition(collapsed ? savedSidebarWidth : 0, ofDividerAt: 0)
-        UserDefaults.standard.set(!collapsed, forKey: "sidebarCollapsed")
+        setSidebar(collapsed: sidebarWrap.frame.width >= 1)
+    }
+
+    /// 确定性折叠/展开（甲板钮/菜单经 toggle 走此；UISelfTest 直接指定目标态）
+    func setSidebar(collapsed: Bool) {
+        mainSplit.setPosition(collapsed ? 0 : savedSidebarWidth, ofDividerAt: 0)
+        UserDefaults.standard.set(collapsed, forKey: "sidebarCollapsed")
+        deck.setSidebarCollapsed(collapsed)
     }
 
     private func updateTitle(for url: URL) {
-        // QSpace 式标签标题：活动目录 | 其他可见窗格目录
+        // QSpace 式标题：活动目录 | 其他可见窗格目录
         let name: (URL) -> String = { $0.path == "/" ? "/" : $0.lastPathComponent }
         var parts = [name(url)]
         for pane in grid.visiblePanes where pane !== grid.activePane {
@@ -174,8 +226,24 @@ final class MainWindowController: NSWindowController {
         }
         window?.title = parts.joined(separator: " | ")
         window?.representedURL = url
-        syncViewModeControl()
+        syncDeck()
+        refreshWorkspaceTabs()
         (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    /// 甲板控件同步（活动窗格/位置/布局/选中变化后回灌）
+    private func syncDeck() {
+        let pane = grid.activePane
+        let b = pane.activeTab.browser
+        deck.syncViewMode(pane.activeTab.viewMode.rawValue)
+        deck.syncLayout(grid.layout)
+        deck.syncNav(canBack: b.canGoBack, canForward: b.canGoForward, canUp: b.canGoUp)
+        deck.validateActions(hasSelection: pane.currentSelectionCount > 0)
+    }
+
+    /// 活动窗格/标签变化时同步视图切换器选中态（旧调用点保留）
+    func syncViewModeControl() {
+        deck.syncViewMode(grid.activePane.activeTab.viewMode.rawValue)
     }
 
     // MARK: 书签（右键"添加到书签"经响应链到此；选中目录逐个入册）
@@ -193,84 +261,134 @@ final class MainWindowController: NSWindowController {
         }
     }
 
-    // MARK: 工作区标签（⌘T / 标签栏"+"按钮都走这里）
+    // MARK: 工作区标签（M17：自管 WorkspaceManager；⌘T/⌘W/循环 + 标签条钮都走这里）
+
+    /// 切换前把 grid 实时快照回灌活动槽（否则切走的工作区丢失未落盘编辑）
+    private func snapshotIntoActive() {
+        workspaces.syncActive(grid.sessionWindow())
+    }
+
+    private func refreshWorkspaceTabs() {
+        snapshotIntoActive()
+        deck.updateWorkspaces(titles: workspaces.titles(), active: workspaces.activeIndex)
+    }
+
+    private func focusActivePane() {
+        window?.makeFirstResponder(grid.activePane.focusTarget)
+    }
 
     @objc func newWorkspaceTab(_ sender: Any?) {
-        guard let delegate = NSApp.delegate as? AppDelegate, let current = window else { return }
+        snapshotIntoActive()
         let dir = grid.activePane.activeTab.browser.current
-        let wc = delegate.openWindow(at: dir, orderFront: false)
-        if let newWindow = wc.window {
-            current.addTabbedWindow(newWindow, ordered: .above)
-            newWindow.makeKeyAndOrderFront(nil)
+        let fresh = SessionWindow(
+            layoutRaw: Preferences.defaultLayoutRaw,
+            panes: [SessionPane(tabs: [SessionTab(path: dir.path,
+                                                  sortKey: Preferences.defaultSortKey,
+                                                  sortAscending: Preferences.defaultSortAscending,
+                                                  includeHidden: Preferences.showHiddenByDefault,
+                                                  viewMode: Preferences.defaultViewModeRaw)],
+                                activeTabIndex: 0)],
+            activePaneIndex: 0)
+        workspaces.append(fresh, limit: Preferences.workspaceTabLimit)
+        grid.restoreSession(workspaces.activeState)
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    func switchWorkspace(to index: Int) {
+        guard index != workspaces.activeIndex else { return }
+        snapshotIntoActive()
+        workspaces.switchTo(index)
+        grid.restoreSession(workspaces.activeState)
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    func closeWorkspace(at index: Int) {
+        snapshotIntoActive()
+        let wasActive = index == workspaces.activeIndex
+        if workspaces.close(at: index) {
+            if wasActive { grid.restoreSession(workspaces.activeState) }
+            refreshWorkspaceTabs()
+            focusActivePane()
+            syncDeck()
+            (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+        } else {
+            // 最后一个工作区 → 关窗（⌘W 语义）
+            window?.performClose(nil)
         }
     }
 
-    /// AppKit 约定入口：标签栏 "+" 按钮
-    @objc override func newWindowForTab(_ sender: Any?) {
-        newWorkspaceTab(sender)
+    @objc func closeActiveWorkspace(_ sender: Any?) {
+        closeWorkspace(at: workspaces.activeIndex)
+    }
+
+    @objc func nextWorkspace(_ sender: Any?) { cycleWorkspace(backward: false) }
+    @objc func previousWorkspace(_ sender: Any?) { cycleWorkspace(backward: true) }
+
+    private func cycleWorkspace(backward: Bool) {
+        guard workspaces.count > 1 else { return }
+        snapshotIntoActive()
+        workspaces.cycle(backward: backward)
+        grid.restoreSession(workspaces.activeState)
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    /// AppDelegate 会话恢复入口：用工作区数组重建本窗口
+    func restoreWorkspaces(_ ws: SessionWorkspaces) {
+        guard !ws.workspaces.isEmpty else { return }
+        workspaces = WorkspaceManager(states: ws.workspaces, activeIndex: ws.activeWorkspace)
+        grid.restoreSession(workspaces.activeState)
+        deck.updateWorkspaces(titles: workspaces.titles(), active: workspaces.activeIndex)
+        syncDeck()
+    }
+
+    /// AppDelegate 会话保存入口：先回灌活动槽再交出全体工作区
+    func workspaceSnapshot() -> SessionWorkspaces {
+        snapshotIntoActive()
+        return SessionWorkspaces(workspaces: workspaces.states, activeWorkspace: workspaces.activeIndex)
     }
 
     @objc func togglePaneTabBar(_ sender: Any?) {
         PaneViewController.paneTabBarVisible.toggle()
-        // 广播到全部窗口（每个工作区标签是独立窗口控制器）
+        // 广播到全部窗口
         for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
             wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
         }
     }
 
-    // MARK: Tab 键循环窗格焦点（文本编辑中放行）
+    // MARK: Tab 键循环窗格焦点 + ⌃⇥ 循环工作区（文本编辑中放行）
 
-    private func installTabKeyMonitor() {
+    private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window, event.keyCode == 48,
-                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
-                  !(self.window?.firstResponder is NSTextView) else { return event }
-            self.grid.cycleFocus(backward: event.modifierFlags.contains(.shift))
-            return nil
+            guard let self, event.window === self.window, event.keyCode == 48 else { return event }
+            let mods = event.modifierFlags.intersection([.command, .control, .option, .shift])
+            // 工作区循环修饰键走 KeyBindings 注册表（cycleWorkspace/Back），不再硬编码 ⌃/⌃⇧
+            let fwd = KeyBindings.binding("cycleWorkspace")
+            let back = KeyBindings.binding("cycleWorkspaceBack")
+            if fwd.key == "\t", mods == fwd.mods { self.cycleWorkspace(backward: false); return nil }
+            if back.key == "\t", mods == back.mods { self.cycleWorkspace(backward: true); return nil }
+            if mods.isEmpty, !(self.window?.firstResponder is NSTextView) {
+                self.grid.cycleFocus(backward: false)
+                return nil
+            }
+            return event
         }
     }
 
-    // MARK: 工具栏
+    // MARK: 布局菜单命令（甲板分段/菜单共用；同步甲板选中态）
 
-    private func setupToolbar() {
-        let toolbar = NSToolbar(identifier: "NSpaceToolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window?.toolbar = toolbar
-        window?.toolbarStyle = .unified
-        syncLayoutControl()
-    }
-
-    private func syncLayoutControl() {
-        layoutControl.selectedSegment = PaneLayout.allCases.firstIndex(of: grid.layout) ?? 0
-    }
-
-    @objc private func navSegmentClicked(_ sender: NSSegmentedControl) {
-        if sender.selectedSegment == 0 { grid.activePane.goBack(nil) }
-        else { grid.activePane.goForward(nil) }
-    }
-
-    @objc private func viewModeSegmentClicked(_ sender: NSSegmentedControl) {
-        guard let mode = PaneViewMode(rawValue: sender.selectedSegment) else { return }
-        grid.activePane.setViewMode(mode)
-    }
-
-    /// 活动窗格/标签变化时同步视图切换器选中态
-    func syncViewModeControl() {
-        viewModeControl.selectedSegment = grid.activePane.activeTab.viewMode.rawValue
-    }
-
-    @objc private func layoutSegmentChanged(_ sender: NSSegmentedControl) {
-        let layouts = PaneLayout.allCases
-        guard sender.selectedSegment >= 0, sender.selectedSegment < layouts.count else { return }
-        grid.apply(layout: layouts[sender.selectedSegment])
-    }
-
-    /// 菜单布局切换后同步工具栏选中态
+    /// 菜单布局切换后同步甲板选中态
     @objc func applyLayout(_ sender: NSMenuItem) {
         grid.applyLayout(sender)
-        syncLayoutControl()
+        deck.syncLayout(grid.layout)
         (NSApp.delegate as? AppDelegate)?.noteStateChanged()
     }
 
@@ -303,137 +421,33 @@ final class MainWindowController: NSWindowController {
     }
 }
 
-extension MainWindowController: @preconcurrency NSToolbarDelegate {
-    private static let layoutItemID = NSToolbarItem.Identifier("layout")
-    private static let sidebarItemID = NSToolbarItem.Identifier("sidebarToggle")
-    private static let navItemID = NSToolbarItem.Identifier("nav")
-    private static let viewModeItemID = NSToolbarItem.Identifier("viewMode")
-    private static let airdropItemID = NSToolbarItem.Identifier("airdrop")
-    private static let terminalItemID = NSToolbarItem.Identifier("terminal")
-    private static let tasksItemID = NSToolbarItem.Identifier("tasks")
-    private static let trashItemID = NSToolbarItem.Identifier("trashSel")
+// MARK: - 甲板动作出口（带选中态/校验的控件）
 
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        // Finder 同款：追踪分隔线把工具栏切成侧栏段/内容段，侧栏材质直通窗顶（穿透+等高）
-        [Self.sidebarItemID, .sidebarTrackingSeparator,
-         Self.navItemID, .flexibleSpace,
-         Self.viewModeItemID, .space,
-         Self.airdropItemID, Self.terminalItemID, Self.tasksItemID, Self.trashItemID, .space,
-         Self.layoutItemID]
+extension MainWindowController: TopDeckDelegate {
+    func deckToggleSidebar() { toggleSidebar(nil) }
+    func deckGoBack() { grid.activePane.goBack(nil) }
+    func deckGoForward() { grid.activePane.goForward(nil) }
+    func deckGoUp() { grid.activePane.goUpFolder(nil) }
+    func deckSetViewMode(_ mode: PaneViewMode) { grid.activePane.setViewMode(mode) }
+    func deckSetLayout(_ layout: PaneLayout) {
+        grid.apply(layout: layout)
+        deck.syncLayout(grid.layout)
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+    func deckNewWorkspace() { newWorkspaceTab(nil) }
+    func deckSelectWorkspace(_ index: Int) { switchWorkspace(to: index) }
+    func deckCloseWorkspace(_ index: Int) { closeWorkspace(at: index) }
+
+    func deckHistory(forward: Bool) -> [URL] {
+        let b = grid.activePane.activeTab.browser
+        return forward ? b.forwardHistory : b.backHistory
     }
 
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    /// 纯图标工具项工厂（隐性语义 + 微 tooltip；action 走响应链到活动窗格）
-    private func iconItem(_ id: NSToolbarItem.Identifier, symbol: String, labelKey: String,
-                          action: Selector, target: AnyObject? = nil) -> NSToolbarItem {
-        let item = NSToolbarItem(itemIdentifier: id)
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L10n.t(labelKey))
-        item.label = L10n.t(labelKey)
-        item.paletteLabel = L10n.t(labelKey)
-        item.toolTip = L10n.t(labelKey)
-        item.isBordered = true
-        item.action = action
-        item.target = target
-        item.autovalidates = true
-        return item
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        switch itemIdentifier {
-        case .sidebarTrackingSeparator:
-            // 绑定手工 mainSplit 的 divider 0——系统据此分段工具栏并透出侧栏材质
-            return NSTrackingSeparatorToolbarItem(identifier: .sidebarTrackingSeparator,
-                                                  splitView: mainSplit, dividerIndex: 0)
-        case Self.sidebarItemID:
-            return iconItem(itemIdentifier, symbol: "sidebar.left", labelKey: "menu.toggleSidebar",
-                            action: #selector(toggleSidebar(_:)), target: self)
-        case Self.navItemID:
-            // 返回/前进合体分段（Finder 惯例）
-            let control = NSSegmentedControl()
-            control.segmentCount = 2
-            control.trackingMode = .momentary
-            control.segmentStyle = .separated
-            control.setImage(NSImage(systemSymbolName: "chevron.left",
-                                     accessibilityDescription: L10n.t("menu.back")), forSegment: 0)
-            control.setImage(NSImage(systemSymbolName: "chevron.right",
-                                     accessibilityDescription: L10n.t("menu.forward")), forSegment: 1)
-            control.setToolTip(L10n.t("menu.back"), forSegment: 0)
-            control.setToolTip(L10n.t("menu.forward"), forSegment: 1)
-            control.target = self
-            control.action = #selector(navSegmentClicked(_:))
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.view = control
-            item.label = L10n.t("toolbar.nav")
-            item.paletteLabel = L10n.t("toolbar.nav")
-            return item
-        case Self.viewModeItemID:
-            let control = viewModeControl
-            control.segmentCount = 3
-            control.trackingMode = .selectOne
-            let symbols = [("square.grid.2x2", "menu.viewAsIcons"), ("list.bullet", "menu.viewAsList"),
-                           ("rectangle.split.3x1", "menu.viewAsColumns")]
-            for (i, pair) in symbols.enumerated() {
-                control.setImage(NSImage(systemSymbolName: pair.0,
-                                         accessibilityDescription: L10n.t(pair.1)), forSegment: i)
-                control.setToolTip(L10n.t(pair.1), forSegment: i)
-                control.setWidth(28, forSegment: i)
-            }
-            control.target = self
-            control.action = #selector(viewModeSegmentClicked(_:))
-            syncViewModeControl()
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.view = control
-            item.label = L10n.t("toolbar.viewMode")
-            item.paletteLabel = L10n.t("toolbar.viewMode")
-            return item
-        case Self.airdropItemID:
-            return iconItem(itemIdentifier, symbol: "dot.radiowaves.left.and.right",
-                            labelKey: "toolbar.airdrop",
-                            action: #selector(FileListViewController.airdropSelected(_:)))
-        case Self.terminalItemID:
-            return iconItem(itemIdentifier, symbol: "terminal",
-                            labelKey: "toolbar.terminal",
-                            action: #selector(FileListViewController.openInTerminal(_:)))
-        case Self.tasksItemID:
-            return iconItem(itemIdentifier, symbol: "arrow.up.arrow.down.circle",
-                            labelKey: "toolbar.tasks",
-                            action: #selector(ProgressWindowController.toggleVisible(_:)),
-                            target: ProgressWindowController.shared)
-        case Self.trashItemID:
-            return iconItem(itemIdentifier, symbol: "trash",
-                            labelKey: "menu.moveToTrash",
-                            action: #selector(FileListViewController.moveToTrash(_:)))
-        case Self.layoutItemID:
-            break
-        default:
-            return nil
-        }
-        let layouts = PaneLayout.allCases
-        layoutControl.segmentCount = layouts.count
-        layoutControl.trackingMode = .selectOne
-        layoutControl.segmentStyle = .separated
-        for (i, layout) in layouts.enumerated() {
-            layoutControl.setImage(NSImage(systemSymbolName: layout.symbolName,
-                                           accessibilityDescription: layout.localizedName), forSegment: i)
-            layoutControl.setToolTip(layout.localizedName, forSegment: i)
-            layoutControl.setWidth(30, forSegment: i)
-        }
-        layoutControl.target = self
-        layoutControl.action = #selector(layoutSegmentChanged(_:))
-        syncLayoutControl()
-
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        item.view = layoutControl
-        item.label = L10n.t("toolbar.layout")
-        item.paletteLabel = L10n.t("toolbar.layout")
-        return item
+    func deckJumpHistory(forward: Bool, index: Int) {
+        if forward { grid.activePane.jumpForwardHistory(to: index) }
+        else { grid.activePane.jumpBackHistory(to: index) }
     }
 }
-
 
 // MARK: - 手工分栏约束（min160/max320，可折叠到 0）
 
@@ -453,8 +467,8 @@ extension MainWindowController: @preconcurrency NSSplitViewDelegate {
         let sidebarW = sidebarWrap.frame.width < 1 ? 0 : min(max(sidebarWrap.frame.width, 160), 320)
         let divider = splitView.dividerThickness
         sidebarWrap.frame = NSRect(x: 0, y: 0, width: sidebarW, height: splitView.bounds.height)
-        grid.view.frame = NSRect(x: sidebarW + (sidebarW > 0 ? divider : 0), y: 0,
-                                 width: splitView.bounds.width - sidebarW - (sidebarW > 0 ? divider : 0),
-                                 height: splitView.bounds.height)
+        contentColumn.frame = NSRect(x: sidebarW + (sidebarW > 0 ? divider : 0), y: 0,
+                                     width: splitView.bounds.width - sidebarW - (sidebarW > 0 ? divider : 0),
+                                     height: splitView.bounds.height)
     }
 }

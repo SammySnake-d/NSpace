@@ -55,6 +55,8 @@ final class PaneGridController: NSViewController {
     }
 
     var onActiveLocationChange: ((URL) -> Void)?
+    /// 活动窗格计数/选中变化上抛（甲板动作按钮 enabled 重验；M17）
+    var onActiveStatusChange: (() -> Void)?
 
     var activePane: PaneViewController { pool[activePaneIndex] }
     var visiblePanes: [PaneViewController] { Array(pool.prefix(layout.paneCount)) }
@@ -101,6 +103,10 @@ final class PaneGridController: NSViewController {
             pane.onLocationChange = { [weak self, weak pane] url in
                 guard let self, let pane else { return }
                 if pane === self.activePane { self.onActiveLocationChange?(url) }
+            }
+            pane.onStatusChange = { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                if pane === self.activePane { self.onActiveStatusChange?() }
             }
             addChild(pane)
             pool.append(pane)
@@ -201,6 +207,7 @@ final class PaneGridController: NSViewController {
         activePaneIndex = index
         refreshActiveHighlight()
         onActiveLocationChange?(activePane.activeTab.browser.current)
+        onActiveStatusChange?()
         view.window?.makeFirstResponder(activePane.focusTarget)
     }
 

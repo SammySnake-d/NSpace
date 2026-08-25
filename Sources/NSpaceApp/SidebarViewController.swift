@@ -11,6 +11,8 @@ final class SidebarViewController: NSViewController {
     var onNavigate: ((URL) -> Void)?
 
     private let stashView = StashShelfView()
+    /// 暂存架专区视图（UISelfTest I-07 居中度量入口；M17 §5）
+    var stashShelfView: StashShelfView { stashView }
     private let outline = NSOutlineView()
     private let scroll = NSScrollView()
     private let banner = NSTextField(labelWithString: "")
@@ -67,7 +69,7 @@ final class SidebarViewController: NSViewController {
         }
         NSLayoutConstraint.activate([
             // QSpace 式顶格：侧栏直通窗口顶，仅留红绿灯行高度（不锚 safeArea/不被工具栏推下）
-            stashView.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
+            stashView.topAnchor.constraint(equalTo: root.topAnchor, constant: 36),
             stashView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             stashView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             stashSeparator.topAnchor.constraint(equalTo: stashView.bottomAnchor),
@@ -372,15 +374,15 @@ final class SidebarLeafCell: NSTableCellView {
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
+            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
             title.trailingAnchor.constraint(lessThanOrEqualTo: eject.leadingAnchor, constant: -4),
             title.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -1),
-            subtitle.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 6),
+            subtitle.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 8),
             subtitle.trailingAnchor.constraint(lessThanOrEqualTo: eject.leadingAnchor, constant: -4),
             subtitle.centerYAnchor.constraint(equalTo: centerYAnchor),
             eject.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             eject.centerYAnchor.constraint(equalTo: centerYAnchor),
-            eject.widthAnchor.constraint(equalToConstant: 18),
+            eject.widthAnchor.constraint(equalToConstant: 20),
         ])
         imageView = icon
         textField = title

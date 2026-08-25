@@ -44,11 +44,45 @@ public struct SessionWindow: Sendable, Codable, Equatable {
     }
 }
 
-public struct SessionSnapshot: Sendable, Codable, Equatable {
-    public var windows: [SessionWindow]
+/// 一个 OS 窗口 = 一组工作区（M17：工作区标签迁出原生 NSWindow tabbing → 自管）。
+/// 每个工作区复用 SessionWindow 编码（布局+窗格+标签+路径+排序+视图模式）。
+public struct SessionWorkspaces: Sendable, Codable, Equatable {
+    public var workspaces: [SessionWindow]
+    public var activeWorkspace: Int
 
-    public init(windows: [SessionWindow]) {
+    public init(workspaces: [SessionWindow], activeWorkspace: Int) {
+        self.workspaces = workspaces
+        self.activeWorkspace = activeWorkspace
+    }
+}
+
+/// 会话快照（M17 结构）：windows 每项 = 一个窗口内的工作区数组。
+/// 旧格式（windows 每项直接是 SessionWindow，即"多窗口各存一份"）解码时一次性迁移：
+/// 全部旧窗口包成【单个】窗口的工作区数组（保留 M13 平铺标签所见）。
+public struct SessionSnapshot: Sendable, Codable, Equatable {
+    public var windows: [SessionWorkspaces]
+
+    public init(windows: [SessionWorkspaces]) {
         self.windows = windows
+    }
+
+    private enum CodingKeys: String, CodingKey { case windows }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // 先试新结构（元素含 workspaces 键）
+        if let ws = try? container.decode([SessionWorkspaces].self, forKey: .windows) {
+            self.windows = ws
+            return
+        }
+        // 回退旧结构：windows 每项是 SessionWindow → 全部包成单窗口的工作区数组
+        let legacy = try container.decode([SessionWindow].self, forKey: .windows)
+        self.windows = legacy.isEmpty ? [] : [SessionWorkspaces(workspaces: legacy, activeWorkspace: 0)]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(windows, forKey: .windows)
     }
 }
 

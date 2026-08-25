@@ -130,6 +130,109 @@ enum UISelfTest {
             }
             try? FileManager.default.removeItem(at: tmp)
 
+            // ── 场景 M17：自绘甲板 + 全高侧栏 + 工作区迁移（§5 验收门）──────────
+            window.contentView?.layoutSubtreeIfNeeded()
+
+            // M17-1：无 NSToolbar（I-10 追踪分隔线体系消亡）
+            record(window.toolbar == nil, "无 NSToolbar（甲板自绘）")
+
+            // M17-2：甲板两行高度 28 / 36
+            let tabH = wc.deck.tabRow.frame.height
+            let toolH = wc.deck.toolbarRow.frame.height
+            record(abs(tabH - TopDeckView.tabRowHeight) < 1.5, "甲板标签行高 28（实得 \(Int(tabH))）")
+            record(abs(toolH - TopDeckView.toolbarRowHeight) < 1.5, "甲板工具条行高 36（实得 \(Int(toolH))）")
+
+            // M17-3：工作区标签条存在（甲板视图树含 workspaceTabBar）+ 初始单工作区
+            let hasTabBar = viewTree(window.contentView).contains { $0 === wc.deck.workspaceTabBar }
+            record(hasTabBar, "工作区标签条存在于甲板")
+            record(wc.workspaceCount == 1, "初始单工作区（\(wc.workspaceCount)）")
+
+            // M17-4：⌘T 新增 / ⌘W 关闭 增删正确
+            wc.newWorkspaceTab(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            let afterNew = wc.workspaceCount
+            record(afterNew == 2, "⌘T 新建工作区 → 2（实得 \(afterNew)）")
+            capture(window, "06-workspaces-2")
+            wc.closeActiveWorkspace(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            let afterClose = wc.workspaceCount
+            record(afterClose == 1, "⌘W 关闭工作区 → 1（实得 \(afterClose)）")
+
+            // M17-5：分割线全高（sidebarColumn.height == contentView.height）
+            let contentH = window.contentView?.frame.height ?? 0
+            let sideH = wc.sidebarColumnFrame.height
+            record(abs(sideH - contentH) < 2,
+                   "侧栏列全高贯通：列高 \(Int(sideH)) == 内容高 \(Int(contentH))")
+
+            // M17-6：侧栏折叠/展开 3 轮，窗口尺寸与右列布局不漂移（I-10 回归）
+            wc.setSidebar(collapsed: false)  // 从确定的展开态起测
+            try? await Task.sleep(for: .milliseconds(250))
+            window.contentView?.layoutSubtreeIfNeeded()
+            let sizeBefore = window.frame.size
+            let contentXBefore = wc.contentColumnFrame.minX
+            var driftFree = true
+            var driftDetail = ""
+            for i in 0..<3 {
+                wc.setSidebar(collapsed: true)   // 折叠
+                try? await Task.sleep(for: .milliseconds(220))
+                window.contentView?.layoutSubtreeIfNeeded()
+                wc.setSidebar(collapsed: false)  // 展开回原态
+                try? await Task.sleep(for: .milliseconds(220))
+                window.contentView?.layoutSubtreeIfNeeded()
+                if window.frame.size != sizeBefore { driftFree = false; driftDetail += " [轮\(i) 尺寸\(Int(window.frame.width))x\(Int(window.frame.height))]" }
+                if abs(wc.contentColumnFrame.minX - contentXBefore) > 2 { driftFree = false; driftDetail += " [轮\(i) 右列X \(Int(contentXBefore))→\(Int(wc.contentColumnFrame.minX))]" }
+            }
+            record(driftFree, "折叠/展开 3 轮窗口尺寸与右列布局不漂移\(driftDetail)")
+
+            // M17-7：暂存架 contentGroup 居中（|中心偏移|≤2pt，I-07 回归）
+            let tmp2 = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nspace-uitest-\(UUID().uuidString).txt")
+            try? Data("y".utf8).write(to: tmp2)
+            wc.sidebar.model.stash?.add([tmp2])
+            try? await Task.sleep(for: .milliseconds(450))
+            window.contentView?.layoutSubtreeIfNeeded()
+            let offset = wc.sidebar.stashShelfView.contentGroupCenterOffsetX
+            record(abs(offset) <= 2, "暂存架 contentGroup 居中（偏移 \(String(format: "%.1f", offset))pt）")
+            // §6.3 B2：常态动作条隐藏（hover 才浮出）+ 浮条为 overlay 不入 Auto Layout 主链
+            record(wc.sidebar.stashShelfView.actionBarHidden, "暂存架常态动作条隐藏（hover-reveal）")
+            record(wc.sidebar.stashShelfView.actionBarIsOverlay, "暂存架浮条为 overlay（不参与主链布局）")
+            if let stash = wc.sidebar.model.stash {
+                let junk = stash.items.compactMap { item -> UUID? in
+                    guard let url = stash.store.resolve(item) else { return item.id }
+                    return url.lastPathComponent.hasPrefix("nspace-uitest-") ? item.id : nil
+                }
+                stash.remove(ids: junk)
+            }
+            try? FileManager.default.removeItem(at: tmp2)
+
+            // M17 截图矩阵：单/双/四窗格 + 折叠态 + 深/浅外观（人查无裁切/错位）
+            wc.setSidebar(collapsed: false)  // 全高侧栏可见（展开态）
+            try? await Task.sleep(for: .milliseconds(250))
+            for (layout, name) in [(PaneLayout.single, "single"), (.dualH, "dual"), (.quad, "quad")] {
+                wc.grid.apply(layout: layout)
+                try? await Task.sleep(for: .milliseconds(320))
+                window.contentView?.layoutSubtreeIfNeeded()
+                capture(window, "10-deck-\(name)")
+            }
+            wc.grid.apply(layout: .dualH)
+            wc.setSidebar(collapsed: true)  // 折叠态截图（红绿灯让位）
+            try? await Task.sleep(for: .milliseconds(320))
+            window.contentView?.layoutSubtreeIfNeeded()
+            capture(window, "11-deck-collapsed")
+            wc.setSidebar(collapsed: false)  // 复原展开
+            try? await Task.sleep(for: .milliseconds(250))
+            // 外观矩阵（展开态，甲板材质深/浅）
+            let savedAppearance = NSApp.appearance
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+            try? await Task.sleep(for: .milliseconds(300))
+            window.contentView?.layoutSubtreeIfNeeded()
+            capture(window, "12-deck-dark")
+            NSApp.appearance = NSAppearance(named: .aqua)
+            try? await Task.sleep(for: .milliseconds(300))
+            window.contentView?.layoutSubtreeIfNeeded()
+            capture(window, "13-deck-light")
+            NSApp.appearance = savedAppearance
+
             // 场景5：聚焦搜索面板开合不崩
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
