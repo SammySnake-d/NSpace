@@ -33,3 +33,12 @@ cp Support/NSpace.icns "$APP/Contents/Resources/NSpace.icns"
 
 codesign --force --sign "${SIGN_IDENTITY:--}" --identifier com.nspace.NSpace "$APP"
 echo "✓ 已构建并签名 $APP (v$VERSION build $BUILD_NUM, sign=${SIGN_IDENTITY:-ad-hoc})"
+
+# LS 注册卫生（I-15 根因回归防护）：清除已消失路径的 com.nspace 注册（并发 worktree 构建残留会
+# 让 LaunchServices 解析到死 bundle → 设默认程序报"未能打开该文件"、TCC 面板丢图标），再注册当前构建
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREG" -dump 2>/dev/null | grep -E "^path:" | grep -i nspace | awk '{print $2}' | sort -u | while read -r p; do
+  [ -d "$p" ] || "$LSREG" -u "$p" >/dev/null 2>&1 || true
+done
+"$LSREG" -f "$APP" >/dev/null 2>&1 || true
+echo "✓ LaunchServices 已清理死注册并注册 $APP"

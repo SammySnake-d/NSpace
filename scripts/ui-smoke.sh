@@ -35,5 +35,12 @@ require_pass "折叠/展开 3 轮窗口尺寸与右列布局不漂移"
 require_pass "暂存架 contentGroup 居中"
 require_pass "暂存架常态动作条隐藏"
 
+# I-19/I-21 回归断言（v0.9.3）
+require_pass "全局搜索面板含「包含隐藏文件」开关且可见"
+require_pass "⌘W 分层：先关顶层设置窗"
+require_pass "⌘W 分层：主窗工作区未被误关"
+require_pass "⌘W 关闭后 MRU 回退到上一个活跃工作区"
+require_pass "关最后窗口后 Dock 重开有窗"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

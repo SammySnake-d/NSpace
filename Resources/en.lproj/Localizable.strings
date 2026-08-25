@@ -252,7 +252,7 @@
 "settings.perm.denied" = "Full Disk Access not granted ⚠";
 "settings.perm.open" = "Open System Settings";
 "settings.perm.recheck" = "Re-check";
-"settings.perm.note" = "With Full Disk Access, NSpace can browse protected folders (Mail, Safari, and other app data). Detection is a read-only probe and never modifies files. After granting it in System Settings, return here and tap “Re-check” to refresh.";
+"settings.perm.note" = "By macOS security design no app can flip this switch for you. NSpace already appears in the System Settings list — just find it and toggle it on (no “+” needed). Return here and tap “Re-check” afterwards. Re-toggle once if it resets after an update.";
 "fda.prompt.title" = "Grant Full Disk Access?";
 "fda.prompt.body" = "NSpace does not yet have Full Disk Access, so some protected folders can't be browsed. Open System Settings to grant it now?";
 "fda.prompt.grant" = "Open Settings";

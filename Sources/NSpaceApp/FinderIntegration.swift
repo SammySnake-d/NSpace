@@ -24,8 +24,11 @@ enum FinderIntegration {
         }
     }
 
-    /// 打开系统设置的完全磁盘访问面板（TCC 引导）
+    /// 打开系统设置的完全磁盘访问面板（TCC 引导）。
+    /// 先跑一次只读探测：访问受保护目录的尝试会让 TCC 自动把 NSpace 挂进 FDA 列表
+    /// （用户无需点"＋"，直接拨开关——与其他 App 的"自动出现在列表"同机制）。
     static func openFullDiskAccessSettings() {
+        _ = hasFullDiskAccess()
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
         NSWorkspace.shared.open(url)
     }

@@ -233,13 +233,57 @@ enum UISelfTest {
             capture(window, "13-deck-light")
             NSApp.appearance = savedAppearance
 
-            // 场景5：聚焦搜索面板开合不崩
+            // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
             try? await Task.sleep(for: .milliseconds(400))
             record(true, "搜索面板打开未崩溃")
             capture(window, "05-search")
-            NSApp.keyWindow?.close()
+            // I-19：全窗口扫描找面板（UITEST 下拿不到 keyWindow），核实隐藏开关存在且可见
+            let panelWin = NSApp.windows.first { w in
+                w.isVisible && !(w.windowController is MainWindowController) &&
+                viewTree(w.contentView).contains { ($0 as? NSButton)?.title == L10n.t("search.includeHidden") }
+            }
+            if let panelWin {
+                capture(panelWin, "05b-search-panel")
+                let hiddenBtn = viewTree(panelWin.contentView).compactMap { $0 as? NSButton }
+                    .first { $0.title == L10n.t("search.includeHidden") }
+                record(hiddenBtn?.isHiddenOrHasHiddenAncestor == false,
+                       "全局搜索面板含「包含隐藏文件」开关且可见")
+                panelWin.close()
+            } else {
+                record(false, "全局搜索面板含「包含隐藏文件」开关且可见")
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+
+            // 场景6（I-21）：⌘W 分层关闭 + MRU 回退 + 关最后窗口后可重开
+            // 6a 分层：设置窗为 key 时 closeTopmost 只关设置窗，不动工作区
+            SettingsWindowController.shared.showWindow(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            let wsCountBefore = wc.workspaces.count
+            (NSApp.delegate as? AppDelegate)?.closeTopmost(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+            record(SettingsWindowController.shared.window?.isVisible != true, "⌘W 分层：先关顶层设置窗")
+            record(wc.workspaces.count == wsCountBefore, "⌘W 分层：主窗工作区未被误关")
+            // 6b MRU：新建 2/3 号（3 活跃）→ 切回 1 号 → ⌘W 关活动 1 号 → 应回退到 3 号（上一个活跃）
+            window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+            wc.newWorkspaceTab(nil)
+            wc.newWorkspaceTab(nil)
+            wc.switchWorkspace(to: 0)
+            (NSApp.delegate as? AppDelegate)?.closeTopmost(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+            record(wc.workspaces.activeIndex == 1 && wc.workspaces.count == 2,
+                   "⌘W 关闭后 MRU 回退到上一个活跃工作区")
+            while wc.workspaces.count > 1 { wc.closeWorkspace(at: wc.workspaces.count - 1) }
+            // 6c 重开：关最后窗口 → 模拟 Dock 重新激活必须能开出新窗
+            window.performClose(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            _ = (NSApp.delegate as? AppDelegate)?
+                .applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+            try? await Task.sleep(for: .milliseconds(400))
+            let reopened = NSApp.windows.contains { $0.isVisible && $0.windowController is MainWindowController }
+            record(reopened, "关最后窗口后 Dock 重开有窗")
 
             finish()
         }

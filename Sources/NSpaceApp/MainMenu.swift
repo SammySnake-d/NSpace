@@ -65,7 +65,8 @@ enum MainMenu {
                                   action: #selector(FileListViewController.moveToOtherPane(_:)), keyEquivalent: "\u{F709}")
         f6.keyEquivalentModifierMask = []
         fileMenu.addItem(.separator())
-        let closeTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWorkspace"), action: #selector(MainWindowController.closeActiveWorkspace(_:)), keyEquivalent: "")
+        // ⌘W 分层关闭（I-21）：路由到 AppDelegate.closeTopmost——浮层优先，主窗才关工作区标签
+        let closeTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWorkspace"), action: #selector(AppDelegate.closeTopmost(_:)), keyEquivalent: "")
         KeyBindings.apply("closeTab", to: closeTabItem)
         let closePaneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closePaneTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
         closePaneTabItem.keyEquivalentModifierMask = [.command, .option]

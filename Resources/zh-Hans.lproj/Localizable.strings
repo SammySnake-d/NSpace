@@ -252,7 +252,7 @@
 "settings.perm.denied" = "尚未授予完全磁盘访问 ⚠";
 "settings.perm.open" = "打开系统设置";
 "settings.perm.recheck" = "重新检测";
-"settings.perm.note" = "授予完全磁盘访问后，NSpace 可浏览受保护目录（如“邮件”“Safari”及其他 App 数据）。检测方式为只读探测，不修改任何文件。在系统设置中勾选后，回此页点“重新检测”即可刷新状态。";
+"settings.perm.note" = "macOS 安全设计：任何 App 都无法替你打开这个开关（QSpace 亦然）。NSpace 已自动出现在系统设置的列表中——点“打开系统设置”后直接找到 NSpace 拨开开关即可，无需点“＋”。授权后回此页点“重新检测”。若重装/更新后开关失效，重新拨一次即可。";
 "fda.prompt.title" = "授予完全磁盘访问？";
 "fda.prompt.body" = "NSpace 尚未获得完全磁盘访问，部分受保护目录将无法浏览。是否现在前往系统设置授权？";
 "fda.prompt.grant" = "去授权";

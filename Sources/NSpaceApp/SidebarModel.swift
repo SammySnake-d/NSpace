@@ -208,7 +208,7 @@ final class SidebarModel {
             (home.appendingPathComponent("Music"), "music.note"),
             (home.appendingPathComponent("Pictures"), "photo"),
             (home.appendingPathComponent("Downloads"), "arrow.down.circle"),
-            (URL(fileURLWithPath: "/Applications"), "app"),
+            // /Applications 不入映射：走 NSWorkspace 真实文件夹图标（原版 A 工具徽标，I-20 用户点名）
         ]
         let target = url.standardizedFileURL.path
         for (u, symbol) in map where u.standardizedFileURL.path == target {

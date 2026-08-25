@@ -235,11 +235,21 @@ final class SearchPanelController: NSObject {
         updateEmptyState()
     }
 
-    /// 双击 = 系统默认打开
+    /// 双击：目录（非包）在当前窗口活动窗格内进入（I-18——不再经 LS 绕一圈弹新窗口）；
+    /// 文件/包保持系统默认程序打开
     @objc private func didDoubleClick(_ sender: Any?) {
         let row = tableView.clickedRow
         guard row >= 0, row < hits.count else { return }
-        NSWorkspace.shared.open(hits[row].url)
+        let url = hits[row].url
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
+        if exists, isDir.boolValue, !isPackage {
+            closePanel()
+            onReveal?(url)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     /// 回车 = 在活动窗格导航到所在目录并选中

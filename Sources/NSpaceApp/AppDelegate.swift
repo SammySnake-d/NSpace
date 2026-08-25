@@ -54,6 +54,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Dock 点击/重新激活且无可见窗口 → 开新窗（I-21：⌘W 关掉最后一个窗口后必须能回来）
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+        }
+        return true
+    }
+
+    /// ⌘W 分层关闭（I-21 用户语义）：目标 = key 窗口，无 key 时取 z 序最顶的可见窗口
+    /// （"位于软件上层的窗口"）。浮层（设置/任务/搜索等）→ 只关它；
+    /// 主窗口 → 关当前工作区标签（最后一个则关窗，可经 Dock 重开）
+    @objc func closeTopmost(_ sender: Any?) {
+        guard let target = NSApp.keyWindow ?? NSApp.orderedWindows.first(where: { $0.isVisible }) else { return }
+        if let wc = target.windowController as? MainWindowController {
+            wc.closeActiveWorkspace(sender)
+        } else if target.styleMask.contains(.closable) {
+            target.performClose(sender)
+        } else {
+            target.orderOut(sender)
+        }
+    }
+
     /// open-URL 路由：目录 → 开窗定位；文件 → 父目录 + 选中该文件（替代 Finder 的入口）。
     /// 打开模式（externalOpenTarget）：activePane 且已有窗口 → 复用活动窗格新建窗格标签定位。
     func application(_ application: NSApplication, open urls: [URL]) {
