@@ -53,12 +53,19 @@ enum MainMenu {
         let goItem = main.addItem(withTitle: L10n.t("menu.go"), action: nil, keyEquivalent: "")
         let goMenu = NSMenu(title: L10n.t("menu.go"))
         goItem.submenu = goMenu
+        goMenu.addItem(withTitle: L10n.t("menu.back"),
+                       action: #selector(PaneViewController.goBack(_:)), keyEquivalent: "[")
+        goMenu.addItem(withTitle: L10n.t("menu.forward"),
+                       action: #selector(PaneViewController.goForward(_:)), keyEquivalent: "]")
         let upItem = goMenu.addItem(withTitle: L10n.t("menu.goUp"),
-                                    action: #selector(MainWindowController.goUpFolder(_:)), keyEquivalent: "\u{F700}")
+                                    action: #selector(PaneViewController.goUpFolder(_:)), keyEquivalent: "\u{F700}")
         upItem.keyEquivalentModifierMask = [.command]
+        goMenu.addItem(.separator())
         let homeItem = goMenu.addItem(withTitle: L10n.t("menu.goHome"),
-                                      action: #selector(MainWindowController.goHome(_:)), keyEquivalent: "h")
+                                      action: #selector(PaneViewController.goHome(_:)), keyEquivalent: "h")
         homeItem.keyEquivalentModifierMask = [.command, .shift]
+        goMenu.addItem(withTitle: L10n.t("menu.goToPath"),
+                       action: #selector(PaneViewController.editPath(_:)), keyEquivalent: "l")
 
         // 窗口
         let windowItem = main.addItem(withTitle: L10n.t("menu.window"), action: nil, keyEquivalent: "")

@@ -30,3 +30,9 @@
 "kind.folder" = "文件夹";
 "kind.document" = "文稿";
 "empty.folder" = "文件夹为空";
+"menu.back" = "返回";
+"menu.forward" = "前进";
+"menu.goToPath" = "前往路径";
+"addressbar.placeholder" = "输入路径，回车前往";
+"addressbar.subfolders" = "子文件夹";
+"addressbar.noSubfolders" = "（无子文件夹）";

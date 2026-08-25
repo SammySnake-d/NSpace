@@ -30,3 +30,9 @@
 "kind.folder" = "Folder";
 "kind.document" = "Document";
 "empty.folder" = "Folder is empty";
+"menu.back" = "Back";
+"menu.forward" = "Forward";
+"menu.goToPath" = "Go to Path";
+"addressbar.placeholder" = "Type a path, press Return";
+"addressbar.subfolders" = "Subfolders";
+"addressbar.noSubfolders" = "(No Subfolders)";
