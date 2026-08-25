@@ -205,10 +205,17 @@ final class PaneGridController: NSViewController {
     }
 
     private func refreshActiveHighlight() {
-        // 单窗格不描色（无歧义时不加视觉噪声）
+        // 单窗格不描色（无歧义时不加视觉噪声）；非活动窗格仅多窗格时暗化
+        let multi = layout.paneCount > 1
         for (i, pane) in pool.enumerated() {
-            pane.setActive(layout.paneCount > 1 && i == activePaneIndex)
+            let active = multi && i == activePaneIndex
+            pane.setActive(active, dimmed: multi && !active)
         }
+    }
+
+    /// 外观变更后重刷各窗格描色/暗化（强调色/高亮开关/暗化 alpha 即时生效）
+    func refreshTheme() {
+        refreshActiveHighlight()
     }
 
     /// Tab 键循环窗格焦点

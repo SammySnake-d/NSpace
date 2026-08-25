@@ -444,16 +444,45 @@ final class PaneViewController: NSViewController {
         }
     }
 
-    // MARK: 活动窗格高亮
+    // MARK: 活动窗格高亮 / 非活动窗格暗化
 
-    func setActive(_ active: Bool) {
+    /// 非活动窗格内容暗化覆盖层（懒建；alpha=偏好值，0 或活动时隐藏）
+    private var dimOverlay: NSView?
+
+    func setActive(_ active: Bool, dimmed: Bool = false) {
         isActivePane = active
         applyActiveTint()
+        // 非活动窗格暗化（QSpace 外观项）：盖半透明黑覆盖 contentContainer；
+        // dimmed 由 grid 传入（仅多窗格的非活动窗格为真），单窗格恒不暗化
+        let alpha = Preferences.inactivePaneDimming
+        if dimmed, alpha > 0 {
+            let overlay = ensureDimOverlay()
+            overlay.frame = contentContainer.bounds
+            overlay.layer?.opacity = Float(alpha)
+            overlay.isHidden = false
+            contentContainer.addSubview(overlay)   // 置于内容之上（mountActiveTab 清空后重挂）
+        } else {
+            dimOverlay?.isHidden = true
+        }
+    }
+
+    /// 懒建暗化覆盖层（autoresizing 随 contentContainer 缩放；不用约束以便随内容视图重挂存活）
+    private func ensureDimOverlay() -> NSView {
+        if let overlay = dimOverlay { return overlay }
+        let overlay = NSView()
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.black.cgColor
+        overlay.frame = contentContainer.bounds
+        overlay.autoresizingMask = [.width, .height]
+        dimOverlay = overlay
+        return overlay
     }
 
     private func applyActiveTint() {
-        addressArea.layer?.backgroundColor = isActivePane
-            ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+        // 高亮开关（偏好）关时不描色；强调色走 Theme.accent（可自定义主题色）
+        let highlight = isActivePane && Preferences.activePaneHighlight
+        addressArea.layer?.backgroundColor = highlight
+            ? Theme.accent.withAlphaComponent(0.10).cgColor
             : NSColor.clear.cgColor
     }
 

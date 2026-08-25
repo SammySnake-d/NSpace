@@ -145,7 +145,7 @@ private final class SegmentButton: NSButton {
 
     private func setDropHighlight(_ on: Bool) {
         layer?.backgroundColor = on
-            ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+            ? Theme.accent.withAlphaComponent(0.10).cgColor
             : NSColor.clear.cgColor
     }
 

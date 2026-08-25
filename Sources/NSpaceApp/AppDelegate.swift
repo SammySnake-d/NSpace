@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
+        Theme.applyAppearance()   // 外观：启动即套明暗模式（跟随系统/浅色/深色）
         // 组合根（BG-2）：声明式注入 What —— 胶囊节点 + 冲突裁决者 + 进度订阅
         Task { @MainActor in
             await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])

@@ -6,6 +6,9 @@ import NSpaceContracts
 /// kind 显示串与图标按 UTType 缓存（万级目录滚动零重复计算）
 @MainActor
 enum Formatters {
+    /// 列表/单元格字号（外观设置项；读 Preferences.listFontSize）——变更后经列重建路径重刷
+    static var listFontSize: CGFloat { CGFloat(Preferences.listFontSize) }
+
     static let date: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium

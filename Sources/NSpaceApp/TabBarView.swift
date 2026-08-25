@@ -84,7 +84,7 @@ private final class TabItemView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 5
         layer?.backgroundColor = isActive
-            ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
+            ? Theme.accent.withAlphaComponent(0.18).cgColor
             : NSColor.clear.cgColor
 
         label.stringValue = title

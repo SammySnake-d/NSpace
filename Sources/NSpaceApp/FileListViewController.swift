@@ -70,7 +70,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.onDragExited = { [weak self] in self?.cancelSpringLoad() }
         tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
-        tableView.rowHeight = 22
+        tableView.rowHeight = Self.rowHeight(for: Formatters.listFontSize)
         tableView.usesAutomaticRowHeights = false
         tableView.allowsMultipleSelection = true
         tableView.usesAlternatingRowBackgroundColors = true
@@ -100,6 +100,10 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         NotificationCenter.default.addObserver(
             self, selector: #selector(scrollBoundsChanged(_:)),
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        // 列显隐 / 列表字号变更广播：重建可选列（含 reloadData）并按字号同步行高——即时生效
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(columnsOrFontChanged(_:)),
+            name: .nspaceColumnsChanged, object: nil)
 
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
@@ -155,6 +159,17 @@ final class FileListViewController: NSViewController, FileRevealTarget {
                       rightAlign: c.right, sortable: c.sortable)
         }
         tableView.reloadData()
+    }
+
+    /// 行高随字号（大字号给更高行高避免裁切）：>=13 用 24，否则 22
+    private static func rowHeight(for fontSize: CGFloat) -> CGFloat {
+        fontSize >= 13 ? 24 : 22
+    }
+
+    /// 列显隐/字号变更广播处理：重建列（含 reloadData 令单元格重取字号）+ 同步行高
+    @objc private func columnsOrFontChanged(_ note: Notification) {
+        tableView.rowHeight = Self.rowHeight(for: Formatters.listFontSize)
+        rebuildOptionalColumns()
     }
 
     @objc private func toggleColumn(_ sender: NSMenuItem) {
