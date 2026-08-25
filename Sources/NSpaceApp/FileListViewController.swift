@@ -1,4 +1,5 @@
 import AppKit
+import QuickLookUI
 import UniformTypeIdentifiers
 import NSpaceContracts
 import FolderSize
