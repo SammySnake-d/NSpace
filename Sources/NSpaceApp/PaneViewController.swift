@@ -48,6 +48,10 @@ final class PaneViewController: NSViewController {
 
         breadcrumb.onNavigate = { [weak self] url in self?.navigate(to: url) }
         breadcrumb.onBeginEditing = { [weak self] in self?.beginPathEditing() }
+        breadcrumb.onDropFiles = { [weak self] urls, target, forceCopy in
+            // 拖文件到面包屑分段 = 投进该祖先目录（语义同列表投放，经 coordinator 判卷提交）
+            self?.coordinator?.dropTransfer(urls: urls, into: target, forceCopy: forceCopy)
+        }
         pathEditor.onCommit = { [weak self] url in
             self?.endPathEditing()
             self?.navigate(to: url)

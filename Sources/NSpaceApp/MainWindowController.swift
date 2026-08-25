@@ -1,6 +1,7 @@
 import AppKit
 import NSpaceKernel
 import BookmarkStore
+import StashStore
 
 /// 主窗口：工具栏（侧边栏开关+布局切换）+ [侧边栏 | 窗格网格]；Tab 键循环窗格焦点
 @MainActor
@@ -9,6 +10,8 @@ final class MainWindowController: NSWindowController {
     let grid: PaneGridController
     let coordinator: FileOpsCoordinator
     let sidebar: SidebarViewController
+    /// 暂存架控制器（M7）：内容经 StashStore 胶囊持久化，行呈现在侧边栏
+    let stashShelf: StashShelfController
     private let splitVC = NSSplitViewController()
     private var keyMonitor: Any?
     private let layoutControl = NSSegmentedControl()
@@ -21,6 +24,7 @@ final class MainWindowController: NSWindowController {
             .appendingPathComponent("NSpace")
         let model = SidebarModel(bookmarkStore: BookmarkStore(directory: supportDir))
         self.sidebar = SidebarViewController(model: model)
+        self.stashShelf = StashShelfController(store: StashStore(directory: supportDir))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
@@ -32,6 +36,10 @@ final class MainWindowController: NSWindowController {
         super.init(window: window)
 
         grid.coordinator = coordinator
+        // 暂存架接线：批量复制/移动经 coordinator 提交，"当前窗格"落点来自 grid
+        stashShelf.coordinator = coordinator
+        stashShelf.grid = grid
+        sidebar.model.stash = stashShelf
 
         // 侧边栏 item：系统 sidebar 材质 + 折叠动画 + toggleSidebar 联动
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)

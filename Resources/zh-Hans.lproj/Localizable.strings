@@ -104,3 +104,14 @@
 "sidebar.remove" = "移除";
 "menu.toggleSidebar" = "显示/隐藏侧边栏";
 "sidebar.readOnly" = "只读";
+
+/* M7 拖拽 + 暂存架 */
+"sidebar.stash" = "暂存架";
+"stash.empty" = "拖入文件以暂存";
+"stash.missing" = "（目标已丢失）";
+"stash.copyHere" = "复制到当前窗格";
+"stash.moveHere" = "移动到当前窗格";
+"stash.airdrop" = "AirDrop 发送";
+"stash.remove" = "从暂存架移除";
+"stash.clear" = "清空暂存架";
+"stash.airdropFailed" = "AirDrop 不可用，请检查隔空投送设置";

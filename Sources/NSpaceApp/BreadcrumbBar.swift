@@ -6,6 +6,8 @@ import AppKit
 final class BreadcrumbBar: NSView {
     var onNavigate: ((URL) -> Void)?
     var onBeginEditing: (() -> Void)?
+    /// 拖文件到分段的投放意图上抛：(urls, 目标祖先目录, ⌥强制复制) → Pane → coordinator
+    var onDropFiles: ((_ urls: [URL], _ target: URL, _ forceCopy: Bool) -> Void)?
 
     private let stack = NSStackView()
     private let scroll = NSScrollView()
@@ -64,6 +66,9 @@ final class BreadcrumbBar: NSView {
             let title = index == 0 ? "/" : segURL.lastPathComponent
             let button = SegmentButton(title: title, url: segURL)
             button.onClick = { [weak self] in self?.onNavigate?(segURL) }
+            button.onDropFiles = { [weak self] urls, target, forceCopy in
+                self?.onDropFiles?(urls, target, forceCopy)
+            }
             stack.addArrangedSubview(button)
 
             if index < components.count - 1 {
@@ -89,11 +94,13 @@ final class BreadcrumbBar: NSView {
     }
 }
 
-/// 路径分段按钮
+/// 路径分段按钮：点击导航 + 文件投放目标（拖文件到分段=投进该祖先目录）
 @MainActor
 private final class SegmentButton: NSButton {
     let url: URL
     var onClick: (() -> Void)?
+    /// 投放回调：(urls, 本分段目录, ⌥强制复制)
+    var onDropFiles: ((_ urls: [URL], _ target: URL, _ forceCopy: Bool) -> Void)?
 
     init(title: String, url: URL) {
         self.url = url
@@ -106,12 +113,72 @@ private final class SegmentButton: NSButton {
         target = self
         action = #selector(clicked)
         setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        registerForDraggedTypes([.fileURL])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
     @objc private func clicked() { onClick?() }
+
+    // MARK: 投放目标（语义同列表：默认同卷移动/跨卷复制、⌥ 复制）
+
+    private func dragOperation(_ info: any NSDraggingInfo) -> NSDragOperation {
+        guard let urls = info.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return [] }
+        // 拒绝把目录投进它自己/子孙
+        guard urls.allSatisfy({ !FileOpsCoordinator.isSelfOrDescendant(destination: url, ofSource: $0) }) else {
+            return []
+        }
+        let forceCopy = info.draggingSourceOperationMask == .copy
+        // 全部来源已在本分段目录：移动是无操作 → 拒绝（⌥ 复制放行）
+        let destPath = url.standardizedFileURL.path
+        if !forceCopy, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == destPath }) {
+            return []
+        }
+        if forceCopy { return .copy }
+        return urls.allSatisfy({ FileOpsCoordinator.isSameVolume($0, url) }) ? .move : .copy
+    }
+
+    private func setDropHighlight(_ on: Bool) {
+        layer?.backgroundColor = on
+            ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+            : NSColor.clear.cgColor
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let op = dragOperation(sender)
+        setDropHighlight(op != [])
+        return op
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dragOperation(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        setDropHighlight(false)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        setDropHighlight(false)
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        dragOperation(sender) != []
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        setDropHighlight(false)
+        guard let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return false }
+        onDropFiles?(urls, url, sender.draggingSourceOperationMask == .copy)
+        return true
+    }
 }
 
 /// 分段间箭头：点击弹出该级子目录菜单（懒构建）

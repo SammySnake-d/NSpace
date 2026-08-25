@@ -104,3 +104,14 @@
 "sidebar.remove" = "Remove";
 "menu.toggleSidebar" = "Show/Hide Sidebar";
 "sidebar.readOnly" = "Read-only";
+
+/* M7 Drag & Drop + Stash */
+"sidebar.stash" = "Stash";
+"stash.empty" = "Drop files here to stash";
+"stash.missing" = "(target missing)";
+"stash.copyHere" = "Copy to Active Pane";
+"stash.moveHere" = "Move to Active Pane";
+"stash.airdrop" = "Send via AirDrop";
+"stash.remove" = "Remove from Stash";
+"stash.clear" = "Clear Stash";
+"stash.airdropFailed" = "AirDrop is unavailable. Check AirDrop settings.";
