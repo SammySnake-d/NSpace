@@ -97,9 +97,16 @@ final class SidebarModel {
         volumeGroup.children = volumeInfo.volumes().map { vol in
             let icon = NSWorkspace.shared.icon(forFile: vol.url.path)
             icon.size = NSSize(width: 16, height: 16)
-            let free = ByteCountFormatter.string(fromByteCount: vol.availableCapacity, countStyle: .file)
+            // 只读卷（DMG 等）可用容量为 0：显示"只读"而非误导性的"0 KB 可用"
+            let subtitle: String?
+            if vol.availableCapacity > 0 {
+                let free = ByteCountFormatter.string(fromByteCount: vol.availableCapacity, countStyle: .file)
+                subtitle = String(format: L10n.t("sidebar.available"), free)
+            } else {
+                subtitle = L10n.t("sidebar.readOnly")
+            }
             return SidebarLeafNode(payload: .volume(vol), title: vol.name, icon: icon, url: vol.url,
-                                   subtitle: String(format: L10n.t("sidebar.available"), free))
+                                   subtitle: subtitle)
         }
 
         groups = [favorites, bookmarkGroup, volumeGroup]

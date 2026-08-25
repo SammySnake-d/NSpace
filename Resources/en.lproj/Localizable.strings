@@ -103,3 +103,4 @@
 "sidebar.rename" = "Rename";
 "sidebar.remove" = "Remove";
 "menu.toggleSidebar" = "Show/Hide Sidebar";
+"sidebar.readOnly" = "Read-only";

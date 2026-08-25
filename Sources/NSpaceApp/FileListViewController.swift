@@ -300,7 +300,7 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
             let cell = tableView.makeView(withIdentifier: .init("nameCell"), owner: nil) as? NameCellView
                 ?? NameCellView(identifier: .init("nameCell"))
             let cut = coordinator?.isCut(item.url) ?? false
-            cell.configure(icon: Formatters.icon(forTypeID: item.contentTypeID, isDirectory: item.isDirectory),
+            cell.configure(icon: Formatters.icon(for: item),
                            name: item.name, dimmed: item.isHidden || cut)
             return cell
         }
