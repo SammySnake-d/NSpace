@@ -44,13 +44,18 @@ final class TabBarView: NSView {
             scroll.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -2),
             stack.heightAnchor.constraint(equalTo: scroll.heightAnchor),
             addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             addButton.widthAnchor.constraint(equalToConstant: 20),
         ])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    /// 甲板样式（M17）：透明底，透出 TopDeckView 的 .titlebar 材质（工作区标签条复用同一标签语法）
+    func useTransparentBackground() {
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
 
     func update(titles: [String], active: Int) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -104,7 +109,7 @@ private final class TabItemView: NSView {
         addSubview(label)
         addSubview(closeButton)
         NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 12),
             label.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 1),

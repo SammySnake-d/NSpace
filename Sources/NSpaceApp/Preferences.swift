@@ -124,6 +124,13 @@ enum Preferences {
         set { d.set(newValue, forKey: "paneTabLimit") }
     }
 
+    /// 工作区标签上限（0=不限制；>0 时新建工作区超限覆盖最老——移除 index 0，同 QSpace 语义）。
+    /// 语义层级：paneTabLimit 管窗格内标签，workspaceTabLimit 管窗口内工作区（M17）
+    static var workspaceTabLimit: Int {
+        get { d.integer(forKey: "workspaceTabLimit") }  // 未设=0=不限制
+        set { d.set(newValue, forKey: "workspaceTabLimit") }
+    }
+
     /// 外部 open-URL 打开目录的落点："newTab"（默认，现行为=开新窗/工作区标签）/
     /// "activePane"（已有窗口时在活动窗格新建窗格标签定位，不每次开新窗）
     static var externalOpenTarget: String {

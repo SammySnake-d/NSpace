@@ -50,6 +50,21 @@ extension Notification.Name {
     static let nspaceThemeChanged = Notification.Name("nspaceThemeChanged")
 }
 
+extension NSImage {
+    /// 官方 SF Symbol 取像（§6.1：一律官方原版，禁自绘 path / 禁 emoji 文字充当图标）；
+    /// 系统无此符号时回退到 fallback。
+    static func officialSymbol(_ name: String, fallback: String? = nil,
+                              accessibility: String? = nil) -> NSImage? {
+        if let img = NSImage(systemSymbolName: name, accessibilityDescription: accessibility) {
+            return img
+        }
+        if let fallback {
+            return NSImage(systemSymbolName: fallback, accessibilityDescription: accessibility)
+        }
+        return nil
+    }
+}
+
 extension NSColor {
     /// 从 6 位 hex（RRGGBB，可含前缀 #）构造 sRGB 颜色；长度/进制非法返回 nil
     convenience init?(hex: String) {

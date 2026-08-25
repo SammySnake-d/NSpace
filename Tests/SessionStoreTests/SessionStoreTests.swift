@@ -13,14 +13,19 @@ import SessionStore
 
     static func sample() -> SessionSnapshot {
         SessionSnapshot(windows: [
-            SessionWindow(layoutRaw: 5,
-                          panes: [
-                            SessionPane(tabs: [SessionTab(path: "/tmp"),
-                                               SessionTab(path: "/usr", sortKey: "size", sortAscending: false)],
-                                        activeTabIndex: 1),
-                            SessionPane(tabs: [SessionTab(path: "/", includeHidden: true)], activeTabIndex: 0),
-                          ],
-                          activePaneIndex: 1),
+            SessionWorkspaces(workspaces: [
+                SessionWindow(layoutRaw: 5,
+                              panes: [
+                                SessionPane(tabs: [SessionTab(path: "/tmp"),
+                                                   SessionTab(path: "/usr", sortKey: "size", sortAscending: false)],
+                                            activeTabIndex: 1),
+                                SessionPane(tabs: [SessionTab(path: "/", includeHidden: true)], activeTabIndex: 0),
+                              ],
+                              activePaneIndex: 1),
+                SessionWindow(layoutRaw: 1,
+                              panes: [SessionPane(tabs: [SessionTab(path: "/etc")], activeTabIndex: 0)],
+                              activePaneIndex: 0),
+            ], activeWorkspace: 0),
         ])
     }
 
@@ -57,10 +62,30 @@ import SessionStore
         // 连续 save 只留最后一份（防抖合并）
         var snap = Self.sample()
         await store.save(snap)
-        snap.windows[0].activePaneIndex = 0
+        snap.windows[0].activeWorkspace = 1
         await store.save(snap)
         await store.flush()
         let loaded = await SessionStore(directory: dir).load()
-        #expect(loaded?.windows[0].activePaneIndex == 0)
+        #expect(loaded?.windows[0].activeWorkspace == 1)
+    }
+
+    /// 旧格式（windows 每项直接是 SessionWindow）一次性迁移：包成单窗口的工作区数组
+    @Test func legacyFormatMigratesToWorkspaces() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // 手写旧结构 JSON（M13：windows=[SessionWindow]，各存一份）
+        let legacyJSON = """
+        {"windows":[
+          {"layoutRaw":1,"activePaneIndex":0,"panes":[{"activeTabIndex":0,"tabs":[{"path":"/tmp","sortKey":"name","sortAscending":true,"includeHidden":false}]}]},
+          {"layoutRaw":2,"activePaneIndex":0,"panes":[{"activeTabIndex":0,"tabs":[{"path":"/usr","sortKey":"name","sortAscending":true,"includeHidden":false}]}]}
+        ]}
+        """
+        try Data(legacyJSON.utf8).write(to: dir.appendingPathComponent("session.json"))
+        let loaded = await store.load()
+        // 两个旧窗口 → 一个窗口的两个工作区
+        #expect(loaded?.windows.count == 1)
+        #expect(loaded?.windows[0].workspaces.count == 2)
+        #expect(loaded?.windows[0].activeWorkspace == 0)
+        #expect(loaded?.windows[0].workspaces[1].layoutRaw == 2)
     }
 }
