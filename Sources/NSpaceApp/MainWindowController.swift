@@ -314,8 +314,9 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
     private static let trashItemID = NSToolbarItem.Identifier("trashSel")
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        // QSpace 式图标组（隐性语义：图标+tooltip，零文字）
-        [Self.navItemID, .flexibleSpace,
+        // Finder 同款：追踪分隔线把工具栏切成侧栏段/内容段，侧栏材质直通窗顶（穿透+等高）
+        [Self.sidebarItemID, .sidebarTrackingSeparator,
+         Self.navItemID, .flexibleSpace,
          Self.viewModeItemID, .space,
          Self.airdropItemID, Self.terminalItemID, Self.tasksItemID, Self.trashItemID, .space,
          Self.layoutItemID]
@@ -343,6 +344,10 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .sidebarTrackingSeparator:
+            // 绑定手工 mainSplit 的 divider 0——系统据此分段工具栏并透出侧栏材质
+            return NSTrackingSeparatorToolbarItem(identifier: .sidebarTrackingSeparator,
+                                                  splitView: mainSplit, dividerIndex: 0)
         case Self.sidebarItemID:
             return iconItem(itemIdentifier, symbol: "sidebar.left", labelKey: "menu.toggleSidebar",
                             action: #selector(toggleSidebar(_:)), target: self)
@@ -369,8 +374,8 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
             let control = viewModeControl
             control.segmentCount = 3
             control.trackingMode = .selectOne
-            let symbols = [("square.grid.2x2", "menu.asIcons"), ("list.bullet", "menu.asList"),
-                           ("rectangle.split.3x1", "menu.asColumns")]
+            let symbols = [("square.grid.2x2", "menu.viewAsIcons"), ("list.bullet", "menu.viewAsList"),
+                           ("rectangle.split.3x1", "menu.viewAsColumns")]
             for (i, pair) in symbols.enumerated() {
                 control.setImage(NSImage(systemSymbolName: pair.0,
                                          accessibilityDescription: L10n.t(pair.1)), forSegment: i)

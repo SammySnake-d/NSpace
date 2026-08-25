@@ -12,6 +12,7 @@ final class StashShelfView: NSView {
     private let stackPile = StashPileView()
     private let countButton = NSButton()
     private let actionsStack = NSStackView()
+    private let contentGroup = NSStackView()
     private let dropCatcher = StashDropCatcher()
     private var heightConstraint: NSLayoutConstraint?
 
@@ -48,11 +49,13 @@ final class StashShelfView: NSView {
         actionsStack.orientation = .vertical
         actionsStack.spacing = 10
         actionsStack.alignment = .centerX
+        // 与 QSpace 一一对应：复制到…/移动到…/AirDrop/清空/更多（管理菜单）
         let actions: [(String, String, StashAction?)] = [
             ("doc.on.doc", "stash.copyHere", .copyHere),
             ("arrow.right.square", "stash.moveHere", .moveHere),
             ("dot.radiowaves.left.and.right", "stash.airdrop", .airdrop),
-            ("trash", "stash.clear", nil),  // nil = 清空
+            ("trash", "stash.clear", nil),        // nil+trash = 清空
+            ("ellipsis.circle", "stash.manage", nil),  // nil+ellipsis = 更多（管理菜单）
         ]
         var buttons: [NSButton] = []
         for (symbol, key, action) in actions {
@@ -69,20 +72,26 @@ final class StashShelfView: NSView {
             } else {
                 button.action = #selector(clearAll(_:))
             }
+            if symbol == "ellipsis.circle" { button.action = #selector(showManageMenuFromButton(_:)) }
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 23).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 20).isActive = true
             buttons.append(button)
+            actionsStack.addArrangedSubview(button)
         }
-        // 2×2 网格：复制/移动 上排，AirDrop/清空 下排
-        for pair in [[buttons[0], buttons[1]], [buttons[2], buttons[3]]] {
-            let row = NSStackView(views: pair)
-            row.orientation = .horizontal
-            row.spacing = 6
-            actionsStack.addArrangedSubview(row)
-        }
+        _ = buttons
 
-        for sub in [emptyIcon, emptyLabel, stackPile, countButton, actionsStack] {
+        // 牌堆列（堆+计数）
+        let pileColumn = NSStackView(views: [stackPile, countButton])
+        pileColumn.orientation = .vertical
+        pileColumn.spacing = 2
+        pileColumn.alignment = .centerX
+        contentGroup.addArrangedSubview(pileColumn)
+        contentGroup.addArrangedSubview(actionsStack)
+        contentGroup.orientation = .horizontal
+        contentGroup.spacing = 16
+        contentGroup.alignment = .centerY
+        for sub in [emptyIcon, emptyLabel, contentGroup] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addSubview(sub)
         }
@@ -107,16 +116,12 @@ final class StashShelfView: NSView {
             emptyIcon.trailingAnchor.constraint(equalTo: emptyLabel.leadingAnchor, constant: -6),
             emptyIcon.centerYAnchor.constraint(equalTo: emptyLabel.centerYAnchor),
 
-            // 牌堆列（堆+计数）与 2×2 操作组作为整体水平居中（QSpace 居中规格）
-            stackPile.centerXAnchor.constraint(equalTo: centerXAnchor, constant: -34),
-            stackPile.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            // 动态居中：牌堆列+操作列打包整体居中（随侧栏宽度自适应，无硬编码偏移）
+            contentGroup.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentGroup.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            contentGroup.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
             stackPile.widthAnchor.constraint(equalToConstant: 96),
             stackPile.heightAnchor.constraint(equalToConstant: 92),
-            countButton.centerXAnchor.constraint(equalTo: stackPile.centerXAnchor),
-            countButton.topAnchor.constraint(equalTo: stackPile.bottomAnchor, constant: 2),
-
-            actionsStack.leadingAnchor.constraint(equalTo: stackPile.trailingAnchor, constant: 14),
-            actionsStack.centerYAnchor.constraint(equalTo: stackPile.centerYAnchor),
         ])
         refresh()
     }
@@ -137,9 +142,7 @@ final class StashShelfView: NSView {
         let empty = items.isEmpty
         emptyIcon.isHidden = !empty
         emptyLabel.isHidden = !empty
-        stackPile.isHidden = empty
-        countButton.isHidden = empty
-        actionsStack.isHidden = empty
+        contentGroup.isHidden = empty
         heightConstraint?.constant = empty ? Self.emptyHeight : Self.filledHeight
 
         guard let controller, !empty else { return }
@@ -202,6 +205,11 @@ final class StashShelfView: NSView {
 
     @objc private func clearAll(_ sender: Any?) {
         controller?.clearAll()
+    }
+
+    /// "更多"钮：弹条目管理菜单（与 "N ⌄" 同源）
+    @objc private func showManageMenuFromButton(_ sender: NSButton) {
+        showManageMenu(sender)
     }
 
     // MARK: 整区投放目标（文件与目录都收；子视图统一转发到这三个方法）
