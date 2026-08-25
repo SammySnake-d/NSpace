@@ -67,3 +67,8 @@
 ## v2 蓄水池（架构已预留胶囊位）
 
 批量重命名 / 压缩与压缩包浏览 / 文件哈希 / 文件夹同步 / 着色规则 / 工作区全局快捷键 / FTP/SFTP/S3/WebDAV/网盘 / QSpace 桌面 / 快捷启动
+
+## Issues（已知缺陷）
+
+- 🐛 **.app 图标显示空白**（2026-08-25 用户报告）：列表视图对应用程序显示空白方框。根因：Formatters 用 UTType 通用图标快路径，app bundle 的真实图标必须按文件路径读（NSWorkspace.icon(forFile:)）。修复：isPackage/.app 走 per-file 图标+路径缓存；彻底方案随 M10 IconThumb 胶囊接入。
+- 🐛 只读卷显示"0 KB 可用"（如 DMG）：可用容量为 0 时应隐藏副标题或显示"只读"。
