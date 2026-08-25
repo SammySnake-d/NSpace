@@ -7,6 +7,7 @@ import Transfer
 import DirectoryWatch
 import FolderSize
 import IconThumb
+import ArchiveEngine
 
 // CLI-First 探针：绕过 UI 编排单独驱动每个胶囊节点（L-readonly / L-irreversible）。
 // 不进 .app、不进生产二进制。每接入一个胶囊就加一个子命令。
@@ -22,6 +23,8 @@ func usage() -> Never {
       nspace-probe watch <目录>                    # L-readonly: DirectoryWatch(监听打印信号, 10 秒后退出)
       nspace-probe size <目录>                     # L-readonly: FolderSize(递归大小 + 耗时)
       nspace-probe thumb <文件> [--size 128]       # L-readonly: IconThumb(缩略图像素宽高)
+      nspace-probe compress <源…> [--format zip|tar.gz] [--into <目录>]   # L-irreversible: ArchiveEngine(经内核全链路)
+      nspace-probe extract <压缩包…> [--into <目录>] [--no-wrapper]        # L-irreversible: ArchiveEngine
     """)
     exit(2)
 }
@@ -45,6 +48,10 @@ case "size":
     await runSize(rest)
 case "thumb":
     await runThumb(rest)
+case "compress":
+    await runCompress(rest)
+case "extract":
+    await runExtract(rest)
 default:
     FileHandle.standardError.write("未知子命令: \(command)\n".data(using: .utf8)!)
     usage()
@@ -157,6 +164,80 @@ func stateName(_ s: RunState) -> String {
     case .cancelled: "取消"
     case .failed: "失败"
     }
+}
+
+// MARK: - compress / extract（活体不可逆：走 内核→ArchiveEngine 全链路）
+
+func driveArchive(_ kernel: OperationKernel, _ spec: OperationSpec) async {
+    let id = await kernel.submit(spec)
+    for await p in await kernel.projections() where p.id == id {
+        let pct = p.bytesTotal > 0 ? Int(Double(p.bytesDone) / Double(p.bytesTotal) * 100) : 0
+        print("[\(stateName(p.state))] \(p.filesDone)/\(p.filesTotal) 文件, \(p.bytesDone)/\(p.bytesTotal) 字节 (\(pct)%) \(p.currentPath ?? "")")
+        guard p.state.isTerminal else { continue }
+        switch p.state {
+        case .completed:
+            if let r = await kernel.receipt(id) {
+                for u in r.createdURLs { print("→ \(u.path)") }
+            }
+            print("✓ 完成"); exit(0)
+        case .cancelled: print("已取消"); exit(3)
+        case let .failed(message, cls): fail("✗ 失败(\(cls)): \(message)")
+        default: break
+        }
+    }
+}
+
+func runCompress(_ args: [String]) async {
+    var sources: [URL] = []
+    var format = "zip"
+    var into: URL?
+    var i = 0
+    while i < args.count {
+        switch args[i] {
+        case "--format":
+            i += 1
+            guard i < args.count, ["zip", "tar.gz"].contains(args[i]) else { fail("--format 取值: zip|tar.gz") }
+            format = args[i]
+        case "--into":
+            i += 1
+            guard i < args.count else { usage() }
+            into = URL(fileURLWithPath: (args[i] as NSString).expandingTildeInPath)
+        default:
+            sources.append(URL(fileURLWithPath: (args[i] as NSString).expandingTildeInPath))
+        }
+        i += 1
+    }
+    guard !sources.isEmpty else { usage() }
+
+    let kernel = OperationKernel()
+    await kernel.register(ArchiveEngineNode(), for: [.compress, .extract])
+    await driveArchive(kernel, OperationSpec(kind: .compress, sources: sources, destination: into,
+                                             archiveOptions: ArchiveOptions(format: format)))
+}
+
+func runExtract(_ args: [String]) async {
+    var sources: [URL] = []
+    var into: URL?
+    var wrapper = true
+    var i = 0
+    while i < args.count {
+        switch args[i] {
+        case "--into":
+            i += 1
+            guard i < args.count else { usage() }
+            into = URL(fileURLWithPath: (args[i] as NSString).expandingTildeInPath)
+        case "--no-wrapper": wrapper = false
+        default:
+            sources.append(URL(fileURLWithPath: (args[i] as NSString).expandingTildeInPath))
+        }
+        i += 1
+    }
+    guard !sources.isEmpty else { usage() }
+
+    let kernel = OperationKernel()
+    await kernel.register(ArchiveEngineNode(), for: [.compress, .extract])
+    await driveArchive(kernel, OperationSpec(kind: .extract, sources: sources,
+                                             archiveOptions: ArchiveOptions(extractInto: into, createWrapper: wrapper)))
 }
 
 // MARK: - watch（活体只读：FSEvents 监听真实目录，10 秒后退出）

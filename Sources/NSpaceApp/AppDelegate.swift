@@ -2,6 +2,7 @@ import AppKit
 import NSpaceKernel
 import Transfer
 import LocalOps
+import ArchiveEngine
 import SessionStore
 
 @MainActor
@@ -23,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])
             await kernel.register(LocalOpsNode(), for: [.rename, .newFolder, .newFile, .trash])
+            await kernel.register(ArchiveEngineNode(), for: [.compress, .extract])
             await kernel.setArbiter(conflictSheet)
             ProgressWindowController.shared.start(kernel: kernel)
             // 性能自证入口（北极星验收用，非产品路径）：NSPACE_PERF_DIRS=a:b:c:d → 四宫格各导航一目录

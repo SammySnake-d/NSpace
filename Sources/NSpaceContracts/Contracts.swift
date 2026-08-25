@@ -73,16 +73,47 @@ public protocol ClassifiedError: Error, Sendable {
 public struct OperationSpec: Sendable {
     public enum Kind: String, Sendable {
         case copy, move, trash, duplicate, newFolder, newFile, rename
+        /// 压缩为归档包（ArchiveEngine）
+        case compress
+        /// 从归档包解压（ArchiveEngine）
+        case extract
     }
     public let kind: Kind
     public let sources: [URL]
     public let destination: URL?
-    /// rename / newFolder / newFile 用
+    /// rename / newFolder / newFile 用；compress 时可选：归档包基名（省扩展名，nil=节点从源推导）
     public let newName: String?
+    /// compress / extract 专用选项（其余 kind 恒为 nil，向后兼容）
+    public let archiveOptions: ArchiveOptions?
 
-    public init(kind: Kind, sources: [URL], destination: URL? = nil, newName: String? = nil) {
+    public init(kind: Kind, sources: [URL], destination: URL? = nil, newName: String? = nil,
+                archiveOptions: ArchiveOptions? = nil) {
         self.kind = kind; self.sources = sources
         self.destination = destination; self.newName = newName
+        self.archiveOptions = archiveOptions
+    }
+}
+
+/// 归档能力选项（compress / extract 用；Sendable 值类型）
+public struct ArchiveOptions: Sendable, Equatable {
+    /// 归档格式："zip" / "tar.gz"（compress 用；extract 按压缩包扩展名自行分发，此字段忽略）
+    public let format: String
+    /// 加密口令；nil / 空 = 不加密。zip 走 ZipCrypto（弱加密，见 Contract 注释）
+    public let password: String?
+    /// compress 后是否保留原文件（false = 打包成功后移到废纸篓／删除源，本 v1 恒保留由 UI 决策）
+    public let keepOriginal: Bool
+    /// extract 目标目录；nil = 解到压缩包所在目录
+    public let extractInto: URL?
+    /// extract 是否确保创建"包裹文件夹"（顶层多于一个条目时先建同名文件夹再解；只有一个条目则忽略）
+    public let createWrapper: Bool
+
+    public init(format: String = "zip", password: String? = nil, keepOriginal: Bool = true,
+                extractInto: URL? = nil, createWrapper: Bool = true) {
+        self.format = format
+        self.password = password
+        self.keepOriginal = keepOriginal
+        self.extractInto = extractInto
+        self.createWrapper = createWrapper
     }
 }
 

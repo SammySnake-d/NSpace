@@ -49,6 +49,38 @@ enum Preferences {
         set { d.set(newValue, forKey: "sidebarGroupOrder") }
     }
 
+    // MARK: 归档默认值（ArchiveEngine 能力；FileOpsCoordinator 据此构造 ArchiveOptions）
+
+    /// 压缩默认格式："zip" / "tar.gz"
+    static var archiveFormat: String {
+        get { d.string(forKey: "archiveFormat") ?? "zip" }
+        set { d.set(newValue, forKey: "archiveFormat") }
+    }
+
+    /// 压缩后保留原文件（false = 打包成功后把原文件移到废纸篓）
+    static var archiveKeepOriginal: Bool {
+        get { d.object(forKey: "archiveKeepOriginal") as? Bool ?? true }
+        set { d.set(newValue, forKey: "archiveKeepOriginal") }
+    }
+
+    /// 解压确保创建包裹文件夹（顶层多于一个条目时先建同名文件夹；只有一个条目则忽略）
+    static var extractCreateWrapper: Bool {
+        get { d.object(forKey: "extractCreateWrapper") as? Bool ?? true }
+        set { d.set(newValue, forKey: "extractCreateWrapper") }
+    }
+
+    /// 解压后保留压缩包（false = 解压成功后把压缩包移到废纸篓）
+    static var extractKeepArchive: Bool {
+        get { d.object(forKey: "extractKeepArchive") as? Bool ?? true }
+        set { d.set(newValue, forKey: "extractKeepArchive") }
+    }
+
+    /// 归档格式候选（popup 渲染用）
+    static let archiveFormatOptions: [(id: String, nameKey: String)] = [
+        ("zip", "settings.archiveFormat.zip"),
+        ("tar.gz", "settings.archiveFormat.targz"),
+    ]
+
     /// 终端候选（bundle id；auto 特殊值）
     static let terminalOptions: [(id: String, nameKey: String)] = [
         ("auto", "settings.terminal.auto"),
