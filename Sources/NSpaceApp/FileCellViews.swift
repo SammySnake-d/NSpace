@@ -239,9 +239,27 @@ final class TextCellView: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
-    func configure(_ text: String, alignment: NSTextAlignment) {
+    /// 普通文本（种类列等）；日期列传 monospacedDigits=true → 等宽数字，刷新不抖动（塔夫特）
+    func configure(_ text: String, alignment: NSTextAlignment, monospacedDigits: Bool = false) {
+        let size = Formatters.listFontSize  // 每次配置重取字号（列重建时即时生效）
         label.stringValue = text
-        label.font = .systemFont(ofSize: Formatters.listFontSize)  // 每次配置重取字号（列重建时即时生效）
+        label.textColor = .secondaryLabelColor  // 复用格重置（上轮可能被大小列改成 attributed/labelColor）
+        label.font = monospacedDigits
+            ? .monospacedDigitSystemFont(ofSize: size, weight: .regular)
+            : .systemFont(ofSize: size)
+        label.alignment = alignment
+    }
+
+    /// 大小列：数值 labelColor + 单位 secondaryLabelColor（墨色三级，单位灰阶退后），等宽数字。
+    func configureSize(value: String, unit: String, alignment: NSTextAlignment) {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: Formatters.listFontSize, weight: .regular)
+        let s = NSMutableAttributedString(string: value,
+            attributes: [.font: font, .foregroundColor: NSColor.labelColor])
+        if !unit.isEmpty {
+            s.append(NSAttributedString(string: " " + unit,
+                attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        label.attributedStringValue = s
         label.alignment = alignment
     }
 }
