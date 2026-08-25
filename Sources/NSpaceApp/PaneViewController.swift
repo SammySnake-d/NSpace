@@ -1,5 +1,6 @@
 import AppKit
 import NSpaceContracts
+import SessionStore
 
 /// 窗格内容视图模式（M9：每窗格每标签独立；⌘1 图标 / ⌘2 列表 / ⌘3 分栏）
 enum PaneViewMode: Int {
@@ -385,6 +386,47 @@ final class PaneViewController: NSViewController {
         case .list: activeTab.listVC.select(urls: urls)
         case .icons: activeTab.iconVC?.select(urls: urls)
         case .columns: activeTab.columnVC?.select(urls: urls)
+        }
+    }
+
+    // MARK: 会话快照/恢复（M11；SessionStore 契约）
+
+    func sessionPane() -> SessionPane {
+        let sessionTabs = tabs.map { tab in
+            SessionTab(path: tab.browser.current.path,
+                       sortKey: tab.model.sort.key.rawValue,
+                       sortAscending: tab.model.sort.ascending,
+                       includeHidden: tab.model.includeHidden,
+                       viewMode: tab.viewMode.rawValue)
+        }
+        return SessionPane(tabs: sessionTabs, activeTabIndex: activeTabIndex)
+    }
+
+    /// 按快照重建标签（丢弃 init 占位标签；路径已消失回退个人目录——容错矩阵）
+    func restoreSession(_ pane: SessionPane) {
+        guard !pane.tabs.isEmpty else { return }
+        for tab in tabs { tab.model.stopWatching() }
+        tabs.removeAll()
+        let fm = FileManager.default
+        for st in pane.tabs {
+            var isDir: ObjCBool = false
+            let url = (fm.fileExists(atPath: st.path, isDirectory: &isDir) && isDir.boolValue)
+                ? URL(fileURLWithPath: st.path)
+                : fm.homeDirectoryForCurrentUser
+            let tab = appendTab(at: url)
+            if let key = SortSpec.Key(rawValue: st.sortKey) {
+                tab.model.sort = SortSpec(key: key, ascending: st.sortAscending,
+                                          foldersFirst: tab.model.sort.foldersFirst)
+            }
+            tab.model.includeHidden = st.includeHidden
+            if let raw = st.viewMode, let vm = PaneViewMode(rawValue: raw) {
+                tab.viewMode = vm
+            }
+        }
+        activeTabIndex = min(max(0, pane.activeTabIndex), tabs.count - 1)
+        if isViewLoaded {
+            mountActiveTab()
+            refreshChrome()
         }
     }
 

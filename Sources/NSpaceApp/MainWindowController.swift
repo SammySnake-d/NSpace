@@ -87,6 +87,7 @@ final class MainWindowController: NSWindowController {
         }
         window?.title = parts.joined(separator: " | ")
         window?.representedURL = url
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
     }
 
     // MARK: 工作区标签（⌘T / 标签栏"+"按钮都走这里）
@@ -152,6 +153,7 @@ final class MainWindowController: NSWindowController {
     @objc func applyLayout(_ sender: NSMenuItem) {
         grid.applyLayout(sender)
         syncLayoutControl()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
     }
 
     // MARK: 聚焦搜索（⌘F 当前文件夹 / ⌥⌘F 全局）

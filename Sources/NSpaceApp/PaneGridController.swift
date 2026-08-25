@@ -1,4 +1,5 @@
 import AppKit
+import SessionStore
 
 /// 窗格布局（QSpace 12 布局的 v1 子集）
 enum PaneLayout: Int, CaseIterable {
@@ -220,6 +221,23 @@ final class PaneGridController: NSViewController {
     /// 全部窗格（含隐藏池）应用标签栏显隐
     func setPaneTabBarsVisible(_ visible: Bool) {
         for pane in pool { pane.setTabBarVisible(visible) }
+    }
+
+    // MARK: 会话快照/恢复（M11）
+
+    func sessionWindow() -> SessionWindow {
+        SessionWindow(layoutRaw: layout.rawValue,
+                      panes: visiblePanes.map { $0.sessionPane() },
+                      activePaneIndex: activePaneIndex)
+    }
+
+    func restoreSession(_ w: SessionWindow) {
+        _ = view  // 先强制 loadView（窗格池就位）
+        if let l = PaneLayout(rawValue: w.layoutRaw) { apply(layout: l) }
+        for (pane, sp) in zip(visiblePanes, w.panes) {
+            pane.restoreSession(sp)
+        }
+        setActivePane(min(max(0, w.activePaneIndex), layout.paneCount - 1))
     }
 
     // MARK: 菜单命令

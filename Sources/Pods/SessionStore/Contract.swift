@@ -8,13 +8,16 @@ public struct SessionTab: Sendable, Codable, Equatable {
     public var sortKey: String
     public var sortAscending: Bool
     public var includeHidden: Bool
+    /// 视图模式原始值（icons/list/columns 的 Int raw）；旧档案缺省 nil=列表
+    public var viewMode: Int?
 
     public init(path: String, sortKey: String = "name", sortAscending: Bool = true,
-                includeHidden: Bool = false) {
+                includeHidden: Bool = false, viewMode: Int? = nil) {
         self.path = path
         self.sortKey = sortKey
         self.sortAscending = sortAscending
         self.includeHidden = includeHidden
+        self.viewMode = viewMode
     }
 }
 

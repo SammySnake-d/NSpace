@@ -2,6 +2,7 @@ import AppKit
 import NSpaceKernel
 import Transfer
 import LocalOps
+import SessionStore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -9,6 +10,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 冲突裁决面板（内核唯一 arbiter）——强持有，内核只存弱语义引用
     private let conflictSheet = ConflictSheet()
     private var windowControllers: [MainWindowController] = []
+    /// 会话快照唯一 Commit Owner（M11）
+    let sessionStore = SessionStore(
+        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NSpace"))
+    /// 恢复完成前的状态变化不落盘（防启动过程把半成品覆盖上次会话）
+    private var sessionReady = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
@@ -27,8 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     wc.grid.visiblePanes[i + 1].navigate(to: dir)
                 }
             } else {
-                openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+                await restoreSessionOrDefault()
             }
+            sessionReady = true
             NSApp.activate()
         }
     }
@@ -66,6 +74,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func newWindow(_ sender: Any?) {
         openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
     }
+
+    // MARK: 会话恢复与保存（M11：重开即回到工作状态）
+
+    private func restoreSessionOrDefault() async {
+        guard let snapshot = await sessionStore.load(), !snapshot.windows.isEmpty else {
+            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            return
+        }
+        // 保存的每个"窗口"= 一个工作区标签：首个成窗，其余并入其标签组（M13 语义）
+        var first: MainWindowController?
+        for w in snapshot.windows {
+            let dir = URL(fileURLWithPath: w.panes.first?.tabs.first?.path ?? NSHomeDirectory())
+            let wc = openWindow(at: dir, orderFront: first == nil)
+            wc.grid.restoreSession(w)
+            if let firstWindow = first?.window, let newWindow = wc.window {
+                firstWindow.addTabbedWindow(newWindow, ordered: .above)
+            }
+            if first == nil { first = wc }
+        }
+        first?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 状态变化落盘请求（位置/布局/标签变化处调用；SessionStore 内部 1s 防抖合并）
+    func noteStateChanged() {
+        guard sessionReady else { return }
+        let snapshot = SessionSnapshot(windows: windowControllers.compactMap { wc in
+            wc.window != nil ? wc.grid.sessionWindow() : nil
+        })
+        guard !snapshot.windows.isEmpty else { return }
+        Task { await sessionStore.save(snapshot) }
+    }
+
+    /// 退出前强制落盘（同步等待 ≤1s；防抖中的快照不丢）
+    func applicationWillTerminate(_ notification: Notification) {
+        let snapshot = SessionSnapshot(windows: windowControllers.compactMap { wc in
+            wc.window != nil ? wc.grid.sessionWindow() : nil
+        })
+        let store = sessionStore
+        let done = DispatchSemaphore(value: 0)
+        Task.detached {
+            if !snapshot.windows.isEmpty { await store.save(snapshot) }
+            await store.flush()
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 1)
+    }
 }
 
 extension AppDelegate: NSWindowDelegate {
@@ -75,6 +129,7 @@ extension AppDelegate: NSWindowDelegate {
             wc.teardown()
         }
         windowControllers.removeAll { $0.window === window }
+        noteStateChanged()
     }
 
     /// ⌘Z 路由到该窗口的文件操作撤销栈（撤销废纸篓等）
