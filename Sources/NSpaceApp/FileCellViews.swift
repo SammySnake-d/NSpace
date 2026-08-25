@@ -167,7 +167,7 @@ final class NameCellView: NSTableCellView {
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
-            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
+            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])

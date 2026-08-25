@@ -66,7 +66,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         return wrap(stack)
     }
@@ -97,7 +97,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let row = NSStackView(views: [label, keyPopup, orderPopup])
         row.orientation = .horizontal
         row.spacing = 8
-        label.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 132).isActive = true
         return row
     }
 
@@ -114,7 +114,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let label = fieldLabel(labelKey)
         let radios = NSStackView()
         radios.orientation = .horizontal
-        radios.spacing = 10
+        radios.spacing = 8
         for (i, key) in optionKeys.enumerated() {
             let b = NSButton(radioButtonWithTitle: L10n.t(key), target: self, action: action)
             b.tag = i
@@ -125,7 +125,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let row = NSStackView(views: [label, radios])
         row.orientation = .horizontal
         row.spacing = 8
-        label.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 132).isActive = true
         return row
     }
 
@@ -143,7 +143,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let row = NSStackView(views: [label, popup])
         row.orientation = .horizontal
         row.spacing = 8
-        label.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 132).isActive = true
         return row
     }
 

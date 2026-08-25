@@ -19,15 +19,15 @@ enum Toast {
         pill.material = .hudWindow
         pill.state = .active
         pill.wantsLayer = true
-        pill.layer?.cornerRadius = 14
+        pill.layer?.cornerRadius = 16
         pill.translatesAutoresizingMaskIntoConstraints = false
         pill.addSubview(label)
         contentView.addSubview(pill)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
-            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 6),
-            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -6),
+            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -16),
+            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -8),
             pill.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             pill.bottomAnchor.constraint(equalTo: contentView.safeAreaLayoutGuide.bottomAnchor, constant: -32),
         ])

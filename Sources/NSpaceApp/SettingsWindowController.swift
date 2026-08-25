@@ -83,7 +83,7 @@ final class SettingsWindowController: NSWindowController {
         let row = NSStackView(views: [label, popup])
         row.orientation = .horizontal
         row.spacing = 8
-        label.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 152).isActive = true
         return row
     }
 
@@ -130,7 +130,7 @@ final class SettingsWindowController: NSWindowController {
                                         NSBox.separatorLine(), note])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         return wrap(stack)
     }
@@ -180,7 +180,7 @@ final class SettingsWindowController: NSWindowController {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 6
+        stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
 
         let hint = NSTextField(wrappingLabelWithString: L10n.t("settings.shortcutHint"))

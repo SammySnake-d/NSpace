@@ -28,7 +28,7 @@ final class ArchiveSettingsPage: NSObject, SettingsPage {
         let formatRow = NSStackView(views: [formatLabel, formatPopup])
         formatRow.orientation = .horizontal
         formatRow.spacing = 8
-        formatLabel.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        formatLabel.widthAnchor.constraint(equalToConstant: 152).isActive = true
 
         // 压缩后保留原文件
         let keepOriginal = checkbox("settings.archiveKeepOriginal",
@@ -58,7 +58,7 @@ final class ArchiveSettingsPage: NSObject, SettingsPage {
                                         NSBox.separatorLine(), cryptoNote])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
 
         let container = NSView()
