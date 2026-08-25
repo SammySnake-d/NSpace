@@ -8,7 +8,7 @@ OWN-WORLD: 现有主题系统（Theme.accent / appearanceMode / accentColorHex�
        仍可辨识的是拓扑：一条贯通全高的分割线，左列暂存牌堆压顶，右列三层甲板。
 STORY: 打开即是四件事同屏可扫——哪个窗格有焦点、路径在哪、暂存架里有什么、任务跑到哪。
 FIRST VIEWPORT: 左列 = 红绿灯行(28) + 暂存架(148) + 书签/iCloud/位置；右列 = 工作区标签条(28)
-       + 图标工具条(36) + 窗格矩阵(每窗格自带地址栏) + 状态栏(22)。
+       + 图标工具条(36) + 窗格矩阵(每窗格自带地址栏) + 状态栏(24)。
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review,
        the verdict, and DESIGN.md.
 -->
@@ -19,6 +19,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - **配色零新增**：不引入任何新品牌色。全部取现有 Theme/系统语义色（controlAccentColor 途径的 Theme.accent、labelColor 族、separatorColor、系统材质）。
 - **北极星不回退**：四窗格闲置 CPU 0.0%。甲板全部是静态控件，禁止常驻动画/定时器。
 - **元架构门禁**：BG-1（甲板视图不得直接调 FileManager 写 API）、FG-1（无假按钮——每个图标必须接真动作）、快捷键一律走 KeyBindings 注册表、新可配项进 Preferences。
+- **确定性网格（frontend-design-methodology.md:84，机械执法 scripts/grid-lint.sh 已入 pre-commit）**：
+  一切新增 UI 尺寸（constraint constant/spacing/edgeInsets）严格收敛 4pt 阶梯；仅 |值|≤2 的发丝线/视错觉
+  修正与 0.5 小数豁免；存量偏离已入 grid-lint-allow.txt 基线（M18 清零），新代码禁止新增登记。
 
 ## 1. 窗口结构（弃 NSToolbar）
 
@@ -39,7 +42,7 @@ NSWindow: styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSiz
 │ 书签           │        窗格矩阵（每窗格自带地址栏/窗格标签条）    │
 │ iCloud        │                                                │
 │ 位置           │────────────────────────────────────────────────│
-│               │ 287 项 · 已选 3 项 · 可用 42.21 GB        (22) │ ← 状态栏（现有）
+│               │ 287 项 · 已选 3 项 · 可用 42.21 GB        (24) │ ← 状态栏（22→24 网格收敛）
 └───────────────┴────────────────────────────────────────────────┘
         ↑ 唯一一条垂直分割线，从窗口顶贯通到底 = 用户要的"等高贯通"
 ```
@@ -49,7 +52,7 @@ NSWindow: styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSiz
 - 右列（contentColumn）：顶部甲板 TopDeckView = NSVisualEffectView(material: .titlebar) 内两行
   （标签条 28 + 工具条 36 + 两条发丝线），甲板下是现 PaneGridController.view，底部现状态栏。
 - 分割：沿用现 manual NSSplitView（min160/max320/可折叠逻辑保留）。**侧栏折叠时**：甲板需给红绿灯
-  让位——contentColumn 顶部行 leading inset 78pt（仅折叠态）。
+  让位——contentColumn 顶部行 leading inset 80pt（仅折叠态，4pt 阶梯）。
 - 窗口拖动：甲板与红绿灯行空白处可拖（自定义 NSView.mouseDownCanMoveWindow=true 且命中非控件区）；
   双击甲板空白 = 系统缩放行为（依系统偏好 AppleActionOnDoubleClick）。
 
@@ -94,6 +97,7 @@ FG-1：迁移时逐个接回 action+validate，禁止先摆图标后补功能。
 ## 5. 验收门（DoD——全绿才算完成）
 
 1. `swift build` 0 error；`./scripts/test.sh` 全绿；meta-doctor 退出 0（pre-commit 自动拦）。
+1b. `GRID_LINT_ALL=1 ./scripts/grid-lint.sh` 退出 0（M17 范围文件不靠基线，全量收敛）。
 2. `./scripts/ui-smoke.sh` 现 13 断言全过 + 新增断言：无 NSToolbar；甲板两行高度 28/36；
    工作区标签条存在且 ⌘T/⌘W 增删正确；分割线全高（sidebarColumn.frame.height == contentView.height）；
    侧栏折叠/展开 3 轮窗口尺寸与右列布局不漂移（I-10 回归）；暂存架 contentGroup 居中（|center 差|≤2pt）。
@@ -101,3 +105,7 @@ FG-1：迁移时逐个接回 action+validate，禁止先摆图标后补功能。
 4. 北极星复测：4 窗格闲置 top 采样 ≥6 次 CPU 0.0%。
 5. 窗口 frame/侧栏宽度/会话（含工作区数组迁移）持久化 E2E 过（ui-smoke 两阶段法）。
 6. 功能零丢失：原工具栏每个动作在甲板上可点且 validate 正确；搜索/设置/预览等原生组件未被触碰。
+7. **网格收敛顺手项（已从 grid-lint 基线移除，本次必须收敛，否则 pre-commit 拦截）**：
+   StatusBarView 高 22→24；PaneViewController 地址栏 26→24；SidebarViewController 暂存顶距 34→36、
+   杂项 6→8、18→16 或 20；StashShelfView 10→12、-6→-8；TabBarView 3→4、-6→-8。
+   其余存量偏离（设置页/Toast/FileCellViews）留在基线，M18 清零。
