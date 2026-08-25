@@ -35,7 +35,10 @@ enum UISelfTest {
                     window.setFrame(NSRect(x: 120, y: 120, width: parts[0], height: parts[1]),
                                     display: true)
                     // 显式走自管持久化（模拟用户拖拽结束的落盘路径）
-                    wc.persistFrameNow()
+                    // 走真实链路：发 didEndLiveResize 通知 → 观察者 persistFrameNow（不许直调捷径，
+                    // 否则测不到观察者接线断裂——用户 2026-08-26 质询后加固）
+                    NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification,
+                                                    object: wc.window)
                     try? await Task.sleep(for: .milliseconds(300))
                     record(true, "SETFRAME \(Int(parts[0]))x\(Int(parts[1])) 已设置并退出")
                 }

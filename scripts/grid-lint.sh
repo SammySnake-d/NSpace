@@ -18,7 +18,7 @@ else
     TARGETS=$(printf '%s\n' "$staged" | sed "s|^|$ROOT/|" | tr '\n' ' ')
 fi
 
-violations=$(grep -rnE '(equalToConstant:|constant:|spacing[[:space:]]*[:=]|NSEdgeInsets\()' \
+violations=$( { grep -rnE '(equalToConstant:|constant:|spacing[[:space:]]*[:=]|NSEdgeInsets\()' \
     $TARGETS --include='*.swift' 2>/dev/null \
   | grep -v 'UISelfTest.swift' \
   | awk -F: '
@@ -40,7 +40,7 @@ violations=$(grep -rnE '(equalToConstant:|constant:|spacing[[:space:]]*[:=]|NSEd
         n=split(file, parts, "/"); base=parts[n]
         printf "%s:%s  %s = %s\n", base, lineno, key, val
       }
-    }' | sort -u)
+    }' | sort -u; } || true)
 
 fail=0; out=""
 while IFS= read -r v; do
