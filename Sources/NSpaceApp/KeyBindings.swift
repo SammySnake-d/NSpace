@@ -47,6 +47,11 @@ enum KeyBindings {
     // 工作区数字直达 ⌘1..9（I-13 用户点名，QSpace 肌肉记忆）
     + (1...9).map { Entry(id: "workspace\($0)", titleKey: "menu.gotoWorkspace\($0)",
                           defaultKey: "\($0)", defaultMods: [.command]) }
+    // 窗格布局 ⌃⌘1..5（M19：从菜单硬编码迁入注册表；titleKey 复用 PaneLayout 各布局名键）
+    + PaneLayout.allCases.enumerated().map { i, layout in
+        Entry(id: "layout\(i + 1)", titleKey: layout.titleKey,
+              defaultKey: "\(i + 1)", defaultMods: [.control, .command])
+    }
 
     static func entry(_ id: String) -> Entry? {
         registry.first { $0.id == id }

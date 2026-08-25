@@ -106,15 +106,15 @@ enum MainMenu {
         }
         viewMenu.addItem(.separator())
 
-        // 布局子菜单（⌃⌘1..5）
+        // 布局子菜单（默认 ⌃⌘1..5；M19 迁注册表，可在设置改键）
         let layoutItem = viewMenu.addItem(withTitle: L10n.t("menu.layout"), action: nil, keyEquivalent: "")
         let layoutMenu = NSMenu(title: L10n.t("menu.layout"))
         layoutItem.submenu = layoutMenu
         for (i, layout) in PaneLayout.allCases.enumerated() {
             let item = layoutMenu.addItem(withTitle: layout.localizedName,
                                           action: #selector(MainWindowController.applyLayout(_:)),
-                                          keyEquivalent: "\(i + 1)")
-            item.keyEquivalentModifierMask = [.control, .command]
+                                          keyEquivalent: "")
+            KeyBindings.apply("layout\(i + 1)", to: item)
             item.tag = layout.rawValue
             item.image = NSImage(systemSymbolName: layout.symbolName, accessibilityDescription: nil)
         }

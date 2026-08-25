@@ -18,15 +18,18 @@ enum PaneLayout: Int, CaseIterable {
         }
     }
 
-    var localizedName: String {
+    /// 本地化名键（菜单/设置窗/注册表共用，避免键散落）
+    var titleKey: String {
         switch self {
-        case .single: L10n.t("layout.single")
-        case .dualH: L10n.t("layout.dualH")
-        case .dualV: L10n.t("layout.dualV")
-        case .tripleH: L10n.t("layout.tripleH")
-        case .quad: L10n.t("layout.quad")
+        case .single: "layout.single"
+        case .dualH: "layout.dualH"
+        case .dualV: "layout.dualV"
+        case .tripleH: "layout.tripleH"
+        case .quad: "layout.quad"
         }
     }
+
+    var localizedName: String { L10n.t(titleKey) }
 
     var symbolName: String {
         switch self {
