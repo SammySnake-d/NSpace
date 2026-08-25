@@ -90,6 +90,10 @@ final class MainWindowController: NSWindowController {
             let r = NSRectFromString(saved)
             if r.width >= 600, r.height >= 400 { window.setFrame(r, display: false) }
         }
+        // 外部化默认布局（新窗口/新工作区标签生效；会话恢复会覆盖）
+        if let l = PaneLayout(rawValue: Preferences.defaultLayoutRaw), l != grid.layout {
+            grid.apply(layout: l)
+        }
         savedSidebarWidth = {
             let w = UserDefaults.standard.double(forKey: "sidebarWidth")
             return w > 0 ? min(max(w, 160), 320) : 200

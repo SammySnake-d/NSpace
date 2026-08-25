@@ -35,7 +35,7 @@ final class SidebarViewController: NSViewController {
         outline.headerView = nil
         outline.style = .sourceList
         outline.floatsGroupRows = false
-        outline.rowSizeStyle = .default
+        outline.rowSizeStyle = .small  // QSpace 式紧凑行高
         outline.dataSource = self
         outline.delegate = self
         outline.registerForDraggedTypes([.fileURL, Self.reorderType])
@@ -352,6 +352,7 @@ final class SidebarLeafCell: NSTableCellView {
 
     func configure(leaf: SidebarLeafNode, ejectable: Bool, ejectTarget: AnyObject, ejectAction: Selector) {
         icon.image = leaf.icon
+        icon.contentTintColor = leaf.tint  // Finder 式蓝色收藏（nil=原色）
         title.stringValue = leaf.title
         // 标题色：显式覆盖优先（暂存操作行/丢失项）；否则目标丢失置灰
         title.textColor = leaf.titleColor ?? (leaf.url == nil ? .tertiaryLabelColor : .labelColor)

@@ -16,9 +16,9 @@ final class StashShelfView: NSView {
     private let dropCatcher = StashDropCatcher()
     private var heightConstraint: NSLayoutConstraint?
 
-    /// 空态 88pt，有货 200pt（QSpace 牌堆规格）
-    private static let emptyHeight: CGFloat = 88
-    private static let filledHeight: CGFloat = 200
+    /// 空态 56pt（内联提示行），有货 176pt——最大化利用空间（用户点名占空比）
+    private static let emptyHeight: CGFloat = 56
+    private static let filledHeight: CGFloat = 176
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -30,7 +30,7 @@ final class StashShelfView: NSView {
 
         emptyIcon.image = NSImage(systemSymbolName: "tray.and.arrow.down",
                                   accessibilityDescription: L10n.t("sidebar.stash"))
-        emptyIcon.symbolConfiguration = .init(pointSize: 22, weight: .light)
+        emptyIcon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
         emptyIcon.contentTintColor = .tertiaryLabelColor
         emptyLabel.font = .systemFont(ofSize: 11)
         emptyLabel.textColor = .tertiaryLabelColor
@@ -99,16 +99,17 @@ final class StashShelfView: NSView {
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
 
-            emptyIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyIcon.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 2),
-            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyLabel.topAnchor.constraint(equalTo: emptyIcon.bottomAnchor, constant: 4),
+            // 空态内联一行：图标+文字（56pt 高占空比最小化）
+            emptyIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            emptyIcon.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
+            emptyLabel.leadingAnchor.constraint(equalTo: emptyIcon.trailingAnchor, constant: 6),
+            emptyLabel.centerYAnchor.constraint(equalTo: emptyIcon.centerYAnchor),
 
             // 牌堆居中（给右侧操作条留位），计数钮居其下
             stackPile.centerXAnchor.constraint(equalTo: centerXAnchor, constant: -12),
             stackPile.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10),
-            stackPile.widthAnchor.constraint(equalToConstant: 112),
-            stackPile.heightAnchor.constraint(equalToConstant: 112),
+            stackPile.widthAnchor.constraint(equalToConstant: 96),
+            stackPile.heightAnchor.constraint(equalToConstant: 92),
             countButton.centerXAnchor.constraint(equalTo: stackPile.centerXAnchor),
             countButton.topAnchor.constraint(equalTo: stackPile.bottomAnchor, constant: 4),
 
@@ -318,7 +319,7 @@ private final class StashPileView: NSView {
     override func layout() {
         super.layout()
         // 错位堆叠：底层往左上偏 6pt/层，顶层居中（macOS 拖拽堆惯例）
-        let size: CGFloat = 84
+        let size: CGFloat = 72
         let visibleLayers = layers.filter { !$0.isHidden }
         for (pos, iv) in visibleLayers.enumerated() {
             let depth = CGFloat(visibleLayers.count - 1 - pos)  // 顶层（最后）depth=0
@@ -335,7 +336,7 @@ private final class StashPileView: NSView {
             let idx = tail.count - (layers.count - i)  // 对齐尾部
             if idx >= 0, let url = Array(tail)[idx] {
                 let img = NSWorkspace.shared.icon(forFile: url.path)
-                img.size = NSSize(width: 84, height: 84)
+                img.size = NSSize(width: 72, height: 72)
                 iv.image = img
                 iv.isHidden = false
             } else if idx >= 0 {

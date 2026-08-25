@@ -13,16 +13,19 @@ public struct FileItem: Sendable, Hashable {
     public let size: Int64?
     public let modified: Date?
     public let created: Date?
+    /// 添加到所在目录的日期（列筛选用）
+    public let added: Date?
     /// UTType.identifier；kind 显示串按此缓存派生
     public let contentTypeID: String?
 
     public init(url: URL, name: String, isDirectory: Bool, isPackage: Bool,
                 isSymlink: Bool, isHidden: Bool, size: Int64?,
-                modified: Date?, created: Date?, contentTypeID: String?) {
+                modified: Date?, created: Date?, added: Date? = nil, contentTypeID: String?) {
         self.url = url; self.name = name
         self.isDirectory = isDirectory; self.isPackage = isPackage
         self.isSymlink = isSymlink; self.isHidden = isHidden
         self.size = size; self.modified = modified; self.created = created
+        self.added = added
         self.contentTypeID = contentTypeID
     }
 }

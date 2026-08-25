@@ -69,7 +69,8 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.usesAutomaticRowHeights = false
         tableView.allowsMultipleSelection = true
         tableView.usesAlternatingRowBackgroundColors = true
-        tableView.columnAutoresizingStyle = .noColumnAutoresizing
+        // 名称列弹性吃剩余宽、其余窄固定（QSpace/Finder 语义）——窄窗格四列俱全
+        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
@@ -79,10 +80,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
         tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
 
-        addColumn(id: "name", title: L10n.t("column.name"), width: 280, min: 140)
-        addColumn(id: "dateModified", title: L10n.t("column.dateModified"), width: 140, min: 90)
-        addColumn(id: "size", title: L10n.t("column.size"), width: 76, min: 56, rightAlign: true)
-        addColumn(id: "kind", title: L10n.t("column.kind"), width: 110, min: 70)
+        addColumn(id: "name", title: L10n.t("column.name"), width: 280, min: 110, sortable: true)
+        rebuildOptionalColumns()
+        // 列头右键：QSpace 式可选列勾选
+        let headerMenu = NSMenu()
+        headerMenu.delegate = self
+        tableView.headerView?.menu = headerMenu
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -115,14 +118,48 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         model.reload()
     }
 
-    private func addColumn(id: String, title: String, width: CGFloat, min: CGFloat, rightAlign: Bool = false) {
+    /// 可选列注册表（名称恒在；sortable=false 的列 SortSpec 尚未支持排序，诚实不给排序原型）
+    static let optionalColumns: [(id: String, titleKey: String, width: CGFloat, min: CGFloat, right: Bool, sortable: Bool)] = [
+        ("dateModified", "column.dateModified", 128, 88, false, true),
+        ("created", "column.created", 128, 88, false, false),
+        ("added", "column.added", 128, 88, false, false),
+        ("size", "column.size", 68, 52, true, true),
+        ("kind", "column.kind", 92, 64, false, true),
+    ]
+
+    private func addColumn(id: String, title: String, width: CGFloat, min: CGFloat,
+                           rightAlign: Bool = false, sortable: Bool = false) {
         let col = NSTableColumn(identifier: .init(id))
         col.title = title
         col.width = width
         col.minWidth = min
-        col.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: true)
+        col.resizingMask = [.userResizingMask, .autoresizingMask]
+        if sortable { col.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: true) }
         if rightAlign { col.headerCell.alignment = .right }
         tableView.addTableColumn(col)
+    }
+
+    /// 按偏好重建可选列（列头勾选变化时调用）
+    private func rebuildOptionalColumns() {
+        for col in tableView.tableColumns where col.identifier.rawValue != "name" {
+            tableView.removeTableColumn(col)
+        }
+        let visible = Preferences.visibleColumns
+        for c in Self.optionalColumns where visible.contains(c.id) {
+            addColumn(id: c.id, title: L10n.t(c.titleKey), width: c.width, min: c.min,
+                      rightAlign: c.right, sortable: c.sortable)
+        }
+        tableView.reloadData()
+    }
+
+    @objc private func toggleColumn(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        var visible = Preferences.visibleColumns
+        if let i = visible.firstIndex(of: id) { visible.remove(at: i) } else { visible.append(id) }
+        Preferences.visibleColumns = visible
+        // 广播：所有窗格列表同步重建（简化：本窗格即时，其他窗格下次快照时也一致——
+        // 列集合在 viewFor 里按当前列渲染，直接全部通知）
+        NotificationCenter.default.post(name: .nspaceColumnsChanged, object: nil)
     }
 
     private var lastSnapshotDirectory: URL?
@@ -406,9 +443,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         // 选中文件夹则进其内，否则用当前目录
         let dir: URL = selectedItems.first(where: { $0.isDirectory })?.url ?? currentDirectory
         let ws = NSWorkspace.shared
-        // iTerm 优先（用户主力终端）；可配置默认终端进设置窗（TODO M15）
-        let terminal = ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
-            ?? ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
+        // 终端选择走设置（auto=iTerm 优先回退 Terminal）
+        let choice = Preferences.terminalChoice
+        let terminal: URL? = choice == "auto"
+            ? (ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
+               ?? ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal"))
+            : ws.urlForApplication(withBundleIdentifier: choice)
         guard let terminal else { NSSound.beep(); return }
         ws.open([dir], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
     }
@@ -470,6 +510,35 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
     }
 }
 
+// MARK: - 列头右键菜单（可选列勾选，QSpace 式）
+
+extension FileListViewController: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let visible = Preferences.visibleColumns
+        for c in Self.optionalColumns {
+            let item = menu.addItem(withTitle: L10n.t(c.titleKey),
+                                    action: #selector(toggleColumn(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = c.id
+            item.state = visible.contains(c.id) ? .on : .off
+        }
+        menu.addItem(.separator())
+        let reset = menu.addItem(withTitle: L10n.t("column.reset"),
+                                 action: #selector(resetColumns(_:)), keyEquivalent: "")
+        reset.target = self
+    }
+
+    @objc private func resetColumns(_ sender: Any?) {
+        Preferences.visibleColumns = ["dateModified", "size", "kind"]
+        NotificationCenter.default.post(name: .nspaceColumnsChanged, object: nil)
+    }
+}
+
+extension Notification.Name {
+    static let nspaceColumnsChanged = Notification.Name("nspaceColumnsChanged")
+}
+
 // MARK: - 数据源 / 委托
 
 extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
@@ -496,6 +565,10 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         switch colID {
         case "dateModified":
             cell.configure(item.modified.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left)
+        case "created":
+            cell.configure(item.created.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left)
+        case "added":
+            cell.configure(item.added.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left)
         case "size":
             // 文件用快照字节数；目录快照为 nil → 已回填的 FolderSize 结果，否则占位"—"
             let bytes = item.size ?? sizeOverlay[item.url]

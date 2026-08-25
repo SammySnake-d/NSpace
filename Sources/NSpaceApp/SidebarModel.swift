@@ -33,15 +33,18 @@ final class SidebarLeafNode {
     let subtitle: String?
     /// 标题色覆盖（操作行等非导航行不按 url==nil 置灰）
     let titleColor: NSColor?
+    /// 图标着色（Finder 式蓝色收藏图标）
+    let tint: NSColor?
 
     init(payload: Payload, title: String, icon: NSImage, url: URL?, subtitle: String? = nil,
-         titleColor: NSColor? = nil) {
+         titleColor: NSColor? = nil, tint: NSColor? = nil) {
         self.payload = payload
         self.title = title
         self.icon = icon
         self.url = url
         self.subtitle = subtitle
         self.titleColor = titleColor
+        self.tint = tint
     }
 }
 
@@ -126,8 +129,11 @@ final class SidebarModel {
         let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         let candidates: [(String, URL, String)] = [
             (L10n.t("sidebar.home"), home, "house"),
-            (L10n.t("sidebar.desktop"), home.appendingPathComponent("Desktop"), "menubar.dock.rectangle"),
+            (L10n.t("sidebar.desktop"), home.appendingPathComponent("Desktop"), "desktopcomputer"),
             (L10n.t("sidebar.documents"), home.appendingPathComponent("Documents"), "doc"),
+            (L10n.t("sidebar.movies"), home.appendingPathComponent("Movies"), "film"),
+            (L10n.t("sidebar.music"), home.appendingPathComponent("Music"), "music.note"),
+            (L10n.t("sidebar.pictures"), home.appendingPathComponent("Pictures"), "photo"),
             (L10n.t("sidebar.downloads"), home.appendingPathComponent("Downloads"), "arrow.down.circle"),
             (L10n.t("sidebar.applications"), URL(fileURLWithPath: "/Applications"), "app"),
             (L10n.t("sidebar.icloud"), icloud, "icloud"),
@@ -136,7 +142,9 @@ final class SidebarModel {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
             let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
                 ?? NSWorkspace.shared.icon(for: .folder)
-            return SidebarLeafNode(payload: .place(url), title: name, icon: icon, url: url)
+            // Finder 式蓝色收藏图标
+            return SidebarLeafNode(payload: .place(url), title: name, icon: icon, url: url,
+                                   tint: .systemBlue)
         }
     }
 }

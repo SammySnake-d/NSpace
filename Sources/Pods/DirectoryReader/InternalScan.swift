@@ -6,7 +6,7 @@ import NSpaceContracts
 
 private let prefetchKeys: [URLResourceKey] = [
     .nameKey, .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isHiddenKey,
-    .fileSizeKey, .contentModificationDateKey, .creationDateKey, .contentTypeKey,
+    .fileSizeKey, .contentModificationDateKey, .creationDateKey, .addedToDirectoryDateKey, .contentTypeKey,
 ]
 
 func scanDirectory(_ request: ReadRequest) throws -> [FileItem] {
@@ -45,6 +45,7 @@ func scanDirectory(_ request: ReadRequest) throws -> [FileItem] {
             size: (rv.isDirectory ?? false) ? nil : rv.fileSize.map(Int64.init),
             modified: rv.contentModificationDate,
             created: rv.creationDate,
+            added: rv.addedToDirectoryDate,
             contentTypeID: rv.contentType?.identifier))
     }
     return items

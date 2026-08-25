@@ -26,27 +26,30 @@ enum MainMenu {
         let fileMenu = NSMenu(title: L10n.t("menu.file"))
         fileItem.submenu = fileMenu
         fileMenu.addItem(withTitle: L10n.t("menu.newWindow"), action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
-        fileMenu.addItem(withTitle: L10n.t("menu.newTab"), action: #selector(MainWindowController.newWorkspaceTab(_:)), keyEquivalent: "t")
-        let paneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newPaneTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "t")
-        paneTabItem.keyEquivalentModifierMask = [.command, .option]
+        let newTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newTab"), action: #selector(MainWindowController.newWorkspaceTab(_:)), keyEquivalent: "")
+        KeyBindings.apply("newTab", to: newTabItem)
+        let paneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newPaneTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "")
+        KeyBindings.apply("newPaneTab", to: paneTabItem)
         let newFolderItem = fileMenu.addItem(withTitle: L10n.t("menu.newFolder"),
-                                             action: #selector(FileListViewController.newFolderHere(_:)), keyEquivalent: "N")
-        newFolderItem.keyEquivalentModifierMask = [.command, .shift]
+                                             action: #selector(FileListViewController.newFolderHere(_:)), keyEquivalent: "")
+        KeyBindings.apply("newFolder", to: newFolderItem)
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: L10n.t("menu.open"),
                          action: #selector(FileListViewController.openSelected(_:)), keyEquivalent: "o")
         let qlItem = fileMenu.addItem(withTitle: L10n.t("menu.quickLook"),
-                         action: #selector(FileListViewController.toggleQuickLook(_:)), keyEquivalent: " ")
-        qlItem.keyEquivalentModifierMask = []
-        fileMenu.addItem(withTitle: L10n.t("menu.getInfo"),
-                         action: #selector(FileListViewController.getInfo(_:)), keyEquivalent: "i")
+                         action: #selector(FileListViewController.toggleQuickLook(_:)), keyEquivalent: "")
+        KeyBindings.apply("quickLook", to: qlItem)
+        let infoItem = fileMenu.addItem(withTitle: L10n.t("menu.getInfo"),
+                         action: #selector(FileListViewController.getInfo(_:)), keyEquivalent: "")
+        KeyBindings.apply("getInfo", to: infoItem)
         fileMenu.addItem(withTitle: L10n.t("menu.rename"),
                          action: #selector(FileListViewController.renameSelected(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: L10n.t("menu.duplicate"),
-                         action: #selector(FileListViewController.duplicateItems(_:)), keyEquivalent: "d")
+        let dupItem = fileMenu.addItem(withTitle: L10n.t("menu.duplicate"),
+                         action: #selector(FileListViewController.duplicateItems(_:)), keyEquivalent: "")
+        KeyBindings.apply("duplicate", to: dupItem)
         let trashItem = fileMenu.addItem(withTitle: L10n.t("menu.moveToTrash"),
-                                         action: #selector(FileListViewController.moveToTrash(_:)), keyEquivalent: "\u{8}")
-        trashItem.keyEquivalentModifierMask = [.command]
+                                         action: #selector(FileListViewController.moveToTrash(_:)), keyEquivalent: "")
+        KeyBindings.apply("moveToTrash", to: trashItem)
         fileMenu.addItem(.separator())
         // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆）
         let f5 = fileMenu.addItem(withTitle: L10n.t("menu.copyToOtherPane"),
@@ -56,7 +59,8 @@ enum MainMenu {
                                   action: #selector(FileListViewController.moveToOtherPane(_:)), keyEquivalent: "\u{F709}")
         f6.keyEquivalentModifierMask = []
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: L10n.t("menu.closeTab"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let closeTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closeTab"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "")
+        KeyBindings.apply("closeTab", to: closeTabItem)
         let closePaneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closePaneTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
         closePaneTabItem.keyEquivalentModifierMask = [.command, .option]
         let closeWinItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
@@ -73,8 +77,8 @@ enum MainMenu {
         editMenu.addItem(withTitle: L10n.t("menu.copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: L10n.t("menu.paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         let copyPathItem = editMenu.addItem(withTitle: L10n.t("menu.copyPath"),
-                                            action: #selector(FileListViewController.copyPath(_:)), keyEquivalent: "c")
-        copyPathItem.keyEquivalentModifierMask = [.command, .shift]
+                                            action: #selector(FileListViewController.copyPath(_:)), keyEquivalent: "")
+        KeyBindings.apply("copyPath", to: copyPathItem)
         editMenu.addItem(withTitle: L10n.t("menu.selectAll"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
         // 显示
@@ -109,43 +113,49 @@ enum MainMenu {
         viewMenu.addItem(.separator())
         let sidebarItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleSidebar"),
                                            action: #selector(MainWindowController.toggleSidebar(_:)),
-                                           keyEquivalent: "s")
-        sidebarItem.keyEquivalentModifierMask = [.command, .option]
-        viewMenu.addItem(withTitle: L10n.t("menu.togglePaneTabBar"),
+                                           keyEquivalent: "")
+        KeyBindings.apply("toggleSidebar", to: sidebarItem)
+        let paneBarItem = viewMenu.addItem(withTitle: L10n.t("menu.togglePaneTabBar"),
                          action: #selector(MainWindowController.togglePaneTabBar(_:)), keyEquivalent: "")
+        KeyBindings.apply("togglePaneTabBar", to: paneBarItem)
         viewMenu.addItem(.separator())
         let hiddenItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleHidden"),
                                           action: #selector(FileListViewController.toggleHiddenFiles(_:)),
-                                          keyEquivalent: ".")
-        hiddenItem.keyEquivalentModifierMask = [.command, .shift]
-        viewMenu.addItem(withTitle: L10n.t("menu.refresh"),
-                         action: #selector(FileListViewController.refresh(_:)), keyEquivalent: "r")
+                                          keyEquivalent: "")
+        KeyBindings.apply("toggleHidden", to: hiddenItem)
+        let refreshItem = viewMenu.addItem(withTitle: L10n.t("menu.refresh"),
+                         action: #selector(FileListViewController.refresh(_:)), keyEquivalent: "")
+        KeyBindings.apply("refresh", to: refreshItem)
 
         // 前往
         let goItem = main.addItem(withTitle: L10n.t("menu.go"), action: nil, keyEquivalent: "")
         let goMenu = NSMenu(title: L10n.t("menu.go"))
         goItem.submenu = goMenu
-        goMenu.addItem(withTitle: L10n.t("menu.back"),
-                       action: #selector(PaneViewController.goBack(_:)), keyEquivalent: "[")
-        goMenu.addItem(withTitle: L10n.t("menu.forward"),
-                       action: #selector(PaneViewController.goForward(_:)), keyEquivalent: "]")
+        let backItem = goMenu.addItem(withTitle: L10n.t("menu.back"),
+                       action: #selector(PaneViewController.goBack(_:)), keyEquivalent: "")
+        KeyBindings.apply("back", to: backItem)
+        let fwdItem = goMenu.addItem(withTitle: L10n.t("menu.forward"),
+                       action: #selector(PaneViewController.goForward(_:)), keyEquivalent: "")
+        KeyBindings.apply("forward", to: fwdItem)
         let upItem = goMenu.addItem(withTitle: L10n.t("menu.goUp"),
-                                    action: #selector(PaneViewController.goUpFolder(_:)), keyEquivalent: "\u{F700}")
-        upItem.keyEquivalentModifierMask = [.command]
+                                    action: #selector(PaneViewController.goUpFolder(_:)), keyEquivalent: "")
+        KeyBindings.apply("goUp", to: upItem)
         goMenu.addItem(.separator())
         let homeItem = goMenu.addItem(withTitle: L10n.t("menu.goHome"),
                                       action: #selector(PaneViewController.goHome(_:)), keyEquivalent: "h")
         homeItem.keyEquivalentModifierMask = [.command, .shift]
-        goMenu.addItem(withTitle: L10n.t("menu.goToPath"),
-                       action: #selector(PaneViewController.editPath(_:)), keyEquivalent: "l")
+        let pathItem = goMenu.addItem(withTitle: L10n.t("menu.goToPath"),
+                       action: #selector(PaneViewController.editPath(_:)), keyEquivalent: "")
+        KeyBindings.apply("goToPath", to: pathItem)
         goMenu.addItem(.separator())
-        // 聚焦搜索：⌘F 当前文件夹 / ⌥⌘F 全局
-        goMenu.addItem(withTitle: L10n.t("menu.searchHere"),
-                       action: #selector(MainWindowController.showSearchHere(_:)), keyEquivalent: "f")
+        // 聚焦搜索：默认 ⌘F 当前文件夹 / ⇧⌘F 全局（可在设置改键）
+        let hereSearch = goMenu.addItem(withTitle: L10n.t("menu.searchHere"),
+                       action: #selector(MainWindowController.showSearchHere(_:)), keyEquivalent: "")
+        KeyBindings.apply("searchHere", to: hereSearch)
         let globalSearch = goMenu.addItem(withTitle: L10n.t("menu.searchGlobal"),
                                           action: #selector(MainWindowController.showSearchGlobal(_:)),
-                                          keyEquivalent: "f")
-        globalSearch.keyEquivalentModifierMask = [.command, .option]
+                                          keyEquivalent: "")
+        KeyBindings.apply("searchGlobal", to: globalSearch)
 
         // 窗口
         let windowItem = main.addItem(withTitle: L10n.t("menu.window"), action: nil, keyEquivalent: "")

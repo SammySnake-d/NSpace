@@ -149,6 +149,10 @@ final class PaneViewController: NSViewController {
     private func appendTab(at url: URL) -> Tab {
         let browser = BrowserState(url: url)
         let model = DirectoryViewModel(directory: url)
+        // 外部化默认偏好：新标签按设置初始化（隐藏文件/文件夹置顶/视图模式）
+        model.includeHidden = Preferences.showHiddenByDefault
+        model.sort = SortSpec(key: model.sort.key, ascending: model.sort.ascending,
+                              foldersFirst: Preferences.foldersFirst)
         let listVC = FileListViewController(model: model)
         listVC.coordinator = coordinator
         listVC.onNavigate = { [weak self] target in self?.navigate(to: target) }
@@ -163,6 +167,7 @@ final class PaneViewController: NSViewController {
             self.updateStatusCounts()
         }
         let tab = Tab(browser: browser, model: model, listVC: listVC)
+        tab.viewMode = PaneViewMode(rawValue: Preferences.defaultViewModeRaw) ?? .list
         tabs.append(tab)
         return tab
     }
