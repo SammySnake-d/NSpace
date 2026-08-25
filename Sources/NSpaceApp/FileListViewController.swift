@@ -17,6 +17,8 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     weak var coordinator: FileOpsCoordinator?
     /// 导航意图上抛（由 Pane 历史协调）
     var onNavigate: ((URL) -> Void)?
+    /// 返回上一步意图上抛（Backspace=back 时；交 Pane 走 browser 历史）
+    var onNavigateBack: (() -> Void)?
     /// 用户交互上抛（窗格焦点协调）
     var onInteract: (() -> Void)?
     /// 选中变化上抛（状态栏"已选 M 项"）
@@ -62,6 +64,8 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.onInteract = { [weak self] in self?.onInteract?() }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         tableView.onReturn = { [weak self] in self?.beginRenameSelected() }
+        tableView.onOpenSelected = { [weak self] in self?.openSelected(nil) }
+        tableView.onBackspaceAction = { [weak self] in self?.handleBackspace() }
         tableView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
         tableView.onDragExited = { [weak self] in self?.cancelSpringLoad() }
         tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
@@ -323,7 +327,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     @objc private func didDoubleClick(_ sender: Any?) {
         let row = tableView.clickedRow
-        guard row >= 0, row < model.items.count else { return }
+        // 双击空白（clickedRow<0）：按使用习惯前往上层文件夹
+        if row < 0 {
+            if Preferences.doubleClickBlank { goUp() }
+            return
+        }
+        guard row < model.items.count else { return }
         open(model.items[row])
     }
 
@@ -332,6 +341,23 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             onNavigate?(item.url)
         } else {
             NSWorkspace.shared.open(item.url)
+        }
+    }
+
+    /// 前往上层文件夹（双击空白 / Backspace=up 共用；已在根目录则不动）
+    private func goUp() {
+        let parent = currentDirectory.deletingLastPathComponent().standardizedFileURL
+        guard parent.path != currentDirectory.standardizedFileURL.path else { return }
+        onNavigate?(parent)
+    }
+
+    /// Backspace 键分发（使用习惯：忽略/返回/移废纸篓/上层）
+    private func handleBackspace() {
+        switch Preferences.backspaceAction {
+        case "back": onNavigateBack?()
+        case "delete": coordinator?.moveToTrash(selectedURLs)
+        case "up": goUp()
+        default: break  // ignore：不拦截
         }
     }
 
@@ -644,11 +670,13 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard urls.allSatisfy({ !FileOpsCoordinator.isSelfOrDescendant(destination: target, ofSource: $0) }) else {
             cancelSpringLoad(); return []
         }
-        // ⌥ 按下时 AppKit 已把源掩码过滤为 .copy → 强制复制
-        let forceCopy = info.draggingSourceOperationMask == .copy
-        // 全部来源已在目标目录：移动是无操作 → 拒绝（⌥ 复制放行，语义=制作副本）
+        // ⌥ 按下时 AppKit 已把源掩码过滤为 .copy
+        let optionCopy = info.draggingSourceOperationMask == .copy
+        // 落点是移动还是复制：按拖放偏好 + ⌥ 统一判定（视觉反馈与实际提交共用同一逻辑）
+        let willMove = FileOpsCoordinator.effectiveMove(urls: urls, into: target, optionCopy: optionCopy)
+        // 移动落在同目录是无操作 → 拒绝（复制放行，语义=制作副本）
         let destPath = target.standardizedFileURL.path
-        if !forceCopy, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == destPath }) {
+        if willMove, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == destPath }) {
             cancelSpringLoad(); return []
         }
         if targetRow >= 0 {
@@ -658,9 +686,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
             tableView.setDropRow(-1, dropOperation: .on)  // 整表高亮 = 投进当前目录
             cancelSpringLoad()
         }
-        if forceCopy { return .copy }
-        // Finder 惯例：同卷=移动、跨卷=复制（光标反馈与实际提交一致）
-        return urls.allSatisfy({ FileOpsCoordinator.isSameVolume($0, target) }) ? .move : .copy
+        // 光标反馈与实际提交一致（同卷移动 / 跨卷复制 / 偏好覆盖）
+        return willMove ? .move : .copy
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo,

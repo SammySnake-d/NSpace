@@ -149,13 +149,15 @@ final class PaneViewController: NSViewController {
     private func appendTab(at url: URL) -> Tab {
         let browser = BrowserState(url: url)
         let model = DirectoryViewModel(directory: url)
-        // 外部化默认偏好：新标签按设置初始化（隐藏文件/文件夹置顶/视图模式）
+        // 外部化默认偏好：新标签按设置初始化（隐藏文件/默认排序键与升降序/文件夹置顶/视图模式）
         model.includeHidden = Preferences.showHiddenByDefault
-        model.sort = SortSpec(key: model.sort.key, ascending: model.sort.ascending,
+        let defaultSortKey = SortSpec.Key(rawValue: Preferences.defaultSortKey) ?? .name
+        model.sort = SortSpec(key: defaultSortKey, ascending: Preferences.defaultSortAscending,
                               foldersFirst: Preferences.foldersFirst)
         let listVC = FileListViewController(model: model)
         listVC.coordinator = coordinator
         listVC.onNavigate = { [weak self] target in self?.navigate(to: target) }
+        listVC.onNavigateBack = { [weak self] in self?.goBack(nil) }
         listVC.onInteract = { [weak self] in self?.onRequestFocus?() }
         // 状态栏数据源：快照应用/选中变化 → 仅当该标签仍是活动标签时刷新计数
         listVC.onContentChange = { [weak self, weak listVC] in
@@ -216,7 +218,11 @@ final class PaneViewController: NSViewController {
     }
 
     func openNewTab(at url: URL? = nil) {
-        appendTab(at: url ?? activeTab.browser.current)
+        let target = url ?? activeTab.browser.current
+        // 窗格标签上限（QSpace 语义）：>0 且已达上限 → 先覆盖最老（移除 index 0）再追加
+        let limit = Preferences.paneTabLimit
+        if limit > 0, tabs.count >= limit { closeTab(at: 0) }
+        appendTab(at: target)
         switchTab(to: tabs.count - 1)
         onRequestFocus?()
     }

@@ -169,12 +169,25 @@ final class FileOpsCoordinator {
 
     // MARK: 拖拽投放（列表/面包屑/暂存架共用；Finder 惯例：同卷移动、跨卷复制、⌥ 强制复制）
 
-    /// 拖拽落点提交：内部判卷决定 kind（默认同卷=移动、跨卷=复制；forceCopy=⌥ 强制复制）
+    /// 拖拽落点提交：内部按拖放偏好 + ⌥ 判定 kind（auto=同卷移动跨卷复制；forceCopy=⌥ 强制复制）
     func dropTransfer(urls: [URL], into destination: URL, forceCopy: Bool,
                       onComplete: (@MainActor (Bool) -> Void)? = nil) {
         guard !urls.isEmpty else { onComplete?(false); return }
-        let sameVolume = urls.allSatisfy { Self.isSameVolume($0, destination) }
-        transfer(urls: urls, into: destination, move: !forceCopy && sameVolume, onComplete: onComplete)
+        let move = Self.effectiveMove(urls: urls, into: destination, optionCopy: forceCopy)
+        transfer(urls: urls, into: destination, move: move, onComplete: onComplete)
+    }
+
+    /// 拖放落点"移动还是复制"的唯一判定（validateDrop 视觉反馈与 dropTransfer 实际提交共用）：
+    /// - auto：Finder 惯例——⌥ 强制复制、同卷移动、跨卷复制
+    /// - copy：恒复制
+    /// - move：同卷恒移动、跨卷退化复制（忽略 ⌥）
+    static func effectiveMove(urls: [URL], into destination: URL, optionCopy: Bool) -> Bool {
+        let sameVolume = urls.allSatisfy { isSameVolume($0, destination) }
+        switch Preferences.dragBehavior {
+        case "copy": return false
+        case "move": return sameVolume
+        default:     return !optionCopy && sameVolume
+        }
     }
 
     /// 显式复制/移动到目录（暂存架批量操作用；onComplete(true) 表示操作完成）

@@ -40,7 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             sessionReady = true
             NSApp.activate()
-            if UISelfTest.isEnabled { UISelfTest.run(delegate: self) }
+            if UISelfTest.isEnabled {
+                UISelfTest.run(delegate: self)
+            } else if ProcessInfo.processInfo.environment["NSPACE_PERF_DIRS"] == nil {
+                // 权限引导：未授权且未勾"不再提示" → 主窗口就绪后弹一次 sheet（自测/性能跑不打扰）
+                promptFullDiskAccessIfNeeded()
+            }
         }
     }
 
@@ -48,17 +53,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// open-URL 路由：目录 → 开窗定位；文件 → 父目录 + 选中该文件（替代 Finder 的入口）
+    /// open-URL 路由：目录 → 开窗定位；文件 → 父目录 + 选中该文件（替代 Finder 的入口）。
+    /// 打开模式（externalOpenTarget）：activePane 且已有窗口 → 复用活动窗格新建窗格标签定位。
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
-            if isDir.boolValue {
+            let directory = isDir.boolValue ? url : url.deletingLastPathComponent()
+            let selecting: URL? = isDir.boolValue ? nil : url
+            if Preferences.externalOpenTarget == "activePane", let wc = activeMainWindowController() {
+                // 复用已有窗口的活动窗格：新建窗格标签定位（文件则显露选中）
+                let pane = wc.grid.activePane
+                pane.openNewTab(at: directory)
+                if let selecting { pane.activeTab.listVC.prepareReveal(selecting, rename: false) }
+                wc.window?.makeKeyAndOrderFront(nil)
+            } else if isDir.boolValue {
                 openWindow(at: url)
             } else {
                 openWindow(at: url.deletingLastPathComponent(), selecting: url)
             }
         }
+    }
+
+    /// 活动主窗口（打开模式=activePane 的落点）：优先 keyWindow，其次 mainWindow，再退回任一存活窗口
+    private func activeMainWindowController() -> MainWindowController? {
+        if let key = NSApp.keyWindow?.windowController as? MainWindowController { return key }
+        if let main = NSApp.mainWindow?.windowController as? MainWindowController { return main }
+        return windowControllers.last { $0.window != nil }
     }
 
     @discardableResult
@@ -72,6 +93,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettings(_ sender: Any?) {
         SettingsWindowController.shared.showWindow(sender)
+    }
+
+    /// 完全磁盘访问自动引导：未授权且未勾"不再提示" → 在主窗口上弹一次说明 sheet。
+    /// 三钮：去授权（开系统设置）/ 稍后（本次略过，下次再问）/ 不再提示（落 Preferences 标志）。
+    private func promptFullDiskAccessIfNeeded() {
+        guard !Preferences.fdaPromptDismissed, !FinderIntegration.hasFullDiskAccess(),
+              let window = windowControllers.first(where: { $0.window != nil })?.window else { return }
+        let alert = NSAlert()
+        alert.messageText = L10n.t("fda.prompt.title")
+        alert.informativeText = L10n.t("fda.prompt.body")
+        alert.addButton(withTitle: L10n.t("fda.prompt.grant"))
+        alert.addButton(withTitle: L10n.t("fda.prompt.later"))
+        alert.addButton(withTitle: L10n.t("fda.prompt.never"))
+        alert.beginSheetModal(for: window) { response in
+            MainActor.assumeIsolated {
+                switch response {
+                case .alertFirstButtonReturn: FinderIntegration.openFullDiskAccessSettings()
+                case .alertThirdButtonReturn: Preferences.fdaPromptDismissed = true
+                default: break  // 稍后
+                }
+            }
+        }
     }
 
     @objc func newWindow(_ sender: Any?) {

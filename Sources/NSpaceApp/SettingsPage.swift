@@ -12,5 +12,7 @@ protocol SettingsPage {
 enum SettingsPages {
     static var extraPages: [any SettingsPage] = [
         ArchiveSettingsPage(),
+        BehaviorSettingsPage(),      // 使用习惯 + 打开模式
+        PermissionsSettingsPage(),   // 权限（完全磁盘访问）
     ]
 }
