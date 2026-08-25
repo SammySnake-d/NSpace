@@ -33,7 +33,7 @@ final class PermissionsSettingsPage: NSObject, SettingsPage {
                                         NSBox.separatorLine(), note])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
 
         let v = NSView()

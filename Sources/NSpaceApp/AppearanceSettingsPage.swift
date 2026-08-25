@@ -26,7 +26,7 @@ final class AppearanceSettingsPage: NSObject, SettingsPage {
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         refreshAccentSelection()
 
@@ -120,7 +120,7 @@ final class AppearanceSettingsPage: NSObject, SettingsPage {
         b.wantsLayer = true
         b.target = self
         b.action = #selector(accentChanged(_:))
-        b.layer?.cornerRadius = 9
+        b.layer?.cornerRadius = 8
         b.layer?.backgroundColor = color.cgColor
         b.layer?.borderColor = NSColor.controlBackgroundColor.cgColor
         if showGlyph {
@@ -131,8 +131,8 @@ final class AppearanceSettingsPage: NSObject, SettingsPage {
             b.contentTintColor = .white
         }
         NSLayoutConstraint.activate([
-            b.widthAnchor.constraint(equalToConstant: 18),
-            b.heightAnchor.constraint(equalToConstant: 18),
+            b.widthAnchor.constraint(equalToConstant: 16),
+            b.heightAnchor.constraint(equalToConstant: 16),
         ])
         return b
     }
@@ -173,7 +173,7 @@ final class AppearanceSettingsPage: NSObject, SettingsPage {
         let row = NSStackView(views: [label, popup])
         row.orientation = .horizontal
         row.spacing = 8
-        label.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 152).isActive = true
         return row
     }
 
@@ -213,7 +213,7 @@ final class AppearanceSettingsPage: NSObject, SettingsPage {
         let row = NSStackView(views: [label, slider, dimValueLabel])
         row.orientation = .horizontal
         row.spacing = 8
-        label.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 152).isActive = true
         return row
     }
 
