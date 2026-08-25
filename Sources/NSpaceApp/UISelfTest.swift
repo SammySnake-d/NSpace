@@ -236,6 +236,25 @@ enum UISelfTest {
             capture(window, "13-deck-light")
             NSApp.appearance = savedAppearance
 
+            // ── 场景 M21：等宽数字列对齐 + 选中药丸渲染（列表模式）───────────────
+            wc.grid.apply(layout: .single)
+            pane.setViewMode(.list)
+            try? await Task.sleep(for: .milliseconds(450))
+            window.contentView?.layoutSubtreeIfNeeded()
+            capture(window, "20-list-columns")          // 亲查大小/日期列等宽对齐 + 单位灰阶
+            let pillVisible = pane.uiTestSelectFirstItemsAndPillVisible(2)
+            try? await Task.sleep(for: .milliseconds(250))
+            window.contentView?.layoutSubtreeIfNeeded()
+            record(pillVisible, "列表选中 → 状态栏 accent 药丸可见")
+            capture(window, "21-status-pill")           // 亲查"已选 N 项 · 大小"药丸渲染
+            // 深色下再截一张（药丸底 10% accent 明暗重解析核实）
+            let savedAppr2 = NSApp.appearance
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+            try? await Task.sleep(for: .milliseconds(300))
+            window.contentView?.layoutSubtreeIfNeeded()
+            capture(window, "22-status-pill-dark")
+            NSApp.appearance = savedAppr2
+
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
