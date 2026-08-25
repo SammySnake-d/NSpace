@@ -12,7 +12,11 @@ final class MainWindowController: NSWindowController {
     let sidebar: SidebarViewController
     /// 暂存架控制器（M7）：内容经 StashStore 胶囊持久化，行呈现在侧边栏
     let stashShelf: StashShelfController
-    private let splitVC = NSSplitViewController()
+    /// 手工 NSSplitView（弃 NSSplitViewController：其恢复/调宽会在 splitView 上留必需
+    /// 等式约束，布局扰动时反推窗口坍缩——UI 探针实锤 W==320/W==220/H==52 泄漏）
+    private let mainSplit = NSSplitView()
+    private let sidebarWrap = NSVisualEffectView()
+    private var savedSidebarWidth: CGFloat = 200
     private var keyMonitor: Any?
     private let layoutControl = NSSegmentedControl()
     private let viewModeControl = NSSegmentedControl()
@@ -33,11 +37,12 @@ final class MainWindowController: NSWindowController {
             backing: .buffered, defer: false)
         window.minSize = NSSize(width: 600, height: 400)
         window.center()
-        window.setFrameAutosaveName("NSpaceMainWindow")
         // M13：窗口级工作区标签（QSpace 语义——标签对象=整个分屏布局）
         window.tabbingMode = .automatic
         window.tabbingIdentifier = "NSpaceMain"
         super.init(window: window)
+        // AppKit 经典坑:控制器默认级联窗口会屏蔽 setFrameAutosaveName 的恢复——必须显式关闭
+        shouldCascadeWindows = false
 
         grid.coordinator = coordinator
         // 暂存架接线：批量复制/移动经 coordinator 提交，"当前窗格"落点来自 grid
@@ -45,16 +50,64 @@ final class MainWindowController: NSWindowController {
         stashShelf.grid = grid
         sidebar.model.stash = stashShelf
 
-        // 侧边栏 item：系统 sidebar 材质 + 折叠动画 + toggleSidebar 联动
-        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
-        sidebarItem.minimumThickness = 160
-        sidebarItem.maximumThickness = 320
-        sidebarItem.canCollapse = true
-        let contentItem = NSSplitViewItem(viewController: grid)
-        splitVC.addSplitViewItem(sidebarItem)
-        splitVC.addSplitViewItem(contentItem)
-        splitVC.splitView.autosaveName = "NSpaceSidebarSplit"  // 折叠/宽度状态自动记忆
-        window.contentViewController = splitVC
+        // 手工分栏：sidebar 材质用 NSVisualEffectView 包裹；宽度/折叠自管持久化
+        mainSplit.isVertical = true
+        mainSplit.dividerStyle = .thin
+        mainSplit.delegate = self
+        sidebarWrap.material = .sidebar
+        sidebarWrap.blendingMode = .behindWindow
+        let sv = sidebar.view
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        sidebarWrap.addSubview(sv)
+        NSLayoutConstraint.activate([
+            sv.topAnchor.constraint(equalTo: sidebarWrap.topAnchor),
+            sv.bottomAnchor.constraint(equalTo: sidebarWrap.bottomAnchor),
+            sv.leadingAnchor.constraint(equalTo: sidebarWrap.leadingAnchor),
+            sv.trailingAnchor.constraint(equalTo: sidebarWrap.trailingAnchor),
+        ])
+        for pane in [sidebarWrap, grid.view] {
+            pane.translatesAutoresizingMaskIntoConstraints = true
+            pane.autoresizingMask = [.width, .height]
+            mainSplit.addArrangedSubview(pane)
+        }
+        let host = NSViewController()
+        host.view = NSView()
+        host.addChild(sidebar)
+        host.addChild(grid)
+        mainSplit.translatesAutoresizingMaskIntoConstraints = false
+        host.view.addSubview(mainSplit)
+        NSLayoutConstraint.activate([
+            mainSplit.topAnchor.constraint(equalTo: host.view.topAnchor),
+            mainSplit.bottomAnchor.constraint(equalTo: host.view.bottomAnchor),
+            mainSplit.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            mainSplit.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+        ])
+        window.contentViewController = host
+        // 自管 frame 持久化恢复——必须在 contentViewController 赋值【之后】：
+        // 该赋值会把窗口压回内容适配尺寸(600×400 钳制)，先恢复会被盖掉
+        // （用户"尺寸没有持久化"的完整根因；弃 autosave 因其携带系统平铺 tilingState）
+        if let saved = UserDefaults.standard.string(forKey: "windowFrame") {
+            let r = NSRectFromString(saved)
+            if r.width >= 600, r.height >= 400 { window.setFrame(r, display: false) }
+        }
+        savedSidebarWidth = {
+            let w = UserDefaults.standard.double(forKey: "sidebarWidth")
+            return w > 0 ? min(max(w, 160), 320) : 200
+        }()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let collapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed")
+            self.mainSplit.setPosition(collapsed ? 0 : self.savedSidebarWidth, ofDividerAt: 0)
+        }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(splitDidResize(_:)),
+            name: NSSplitView.didResizeSubviewsNotification, object: mainSplit)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowFrameChanged(_:)),
+            name: NSWindow.didEndLiveResizeNotification, object: window)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowFrameChanged(_:)),
+            name: NSWindow.didMoveNotification, object: window)
 
         sidebar.onNavigate = { [weak self] url in self?.grid.activePane.navigate(to: url) }
         grid.onActiveLocationChange = { [weak self] url in self?.updateTitle(for: url) }
@@ -72,11 +125,40 @@ final class MainWindowController: NSWindowController {
 
     /// 窗口关闭时由 AppDelegate 调用（事件监视器必须显式拆除）
     func teardown() {
+        NotificationCenter.default.removeObserver(self)
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
         sidebar.model.stop()
+    }
+
+    // MARK: 侧栏宽度自管持久化（替代 NSSplitView.autosaveName）
+
+    /// frame 持久化落盘（拖拽结束/移动/关窗时调；全屏态不записыв）
+    func persistFrameNow() {
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "windowFrame")
+    }
+
+    @objc private func splitDidResize(_ note: Notification) {
+        let w = sidebarWrap.frame.width
+        if w >= 160 {
+            savedSidebarWidth = w
+            UserDefaults.standard.set(w, forKey: "sidebarWidth")
+            UserDefaults.standard.set(false, forKey: "sidebarCollapsed")
+        }
+    }
+
+    @objc private func windowFrameChanged(_ note: Notification) {
+        persistFrameNow()
+    }
+
+    /// 自实现侧栏折叠（⌘⌥S / 工具栏钮）：宽度 0 ⟷ 记忆宽度
+    @objc func toggleSidebar(_ sender: Any?) {
+        let collapsed = sidebarWrap.frame.width < 1
+        mainSplit.setPosition(collapsed ? savedSidebarWidth : 0, ofDividerAt: 0)
+        UserDefaults.standard.set(!collapsed, forKey: "sidebarCollapsed")
     }
 
     private func updateTitle(for url: URL) {
@@ -219,6 +301,7 @@ final class MainWindowController: NSWindowController {
 
 extension MainWindowController: @preconcurrency NSToolbarDelegate {
     private static let layoutItemID = NSToolbarItem.Identifier("layout")
+    private static let sidebarItemID = NSToolbarItem.Identifier("sidebarToggle")
     private static let navItemID = NSToolbarItem.Identifier("nav")
     private static let viewModeItemID = NSToolbarItem.Identifier("viewMode")
     private static let airdropItemID = NSToolbarItem.Identifier("airdrop")
@@ -228,7 +311,7 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // QSpace 式图标组（隐性语义：图标+tooltip，零文字）
-        [.toggleSidebar, .sidebarTrackingSeparator,
+        [Self.sidebarItemID,
          Self.navItemID, .flexibleSpace,
          Self.viewModeItemID, .space,
          Self.airdropItemID, Self.terminalItemID, Self.tasksItemID, Self.trashItemID, .space,
@@ -257,6 +340,9 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case Self.sidebarItemID:
+            return iconItem(itemIdentifier, symbol: "sidebar.left", labelKey: "menu.toggleSidebar",
+                            action: #selector(toggleSidebar(_:)), target: self)
         case Self.navItemID:
             // 返回/前进合体分段（Finder 惯例）
             let control = NSSegmentedControl()
@@ -337,5 +423,30 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
         item.label = L10n.t("toolbar.layout")
         item.paletteLabel = L10n.t("toolbar.layout")
         return item
+    }
+}
+
+
+// MARK: - 手工分栏约束（min160/max320，可折叠到 0）
+
+extension MainWindowController: @preconcurrency NSSplitViewDelegate {
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat,
+                   ofSubviewAt dividerIndex: Int) -> CGFloat { 160 }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat,
+                   ofSubviewAt dividerIndex: Int) -> CGFloat { 320 }
+
+    func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {
+        subview === sidebarWrap
+    }
+
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        // 窗口缩放时侧栏保持宽度、内容区吃增量（Finder 语义）
+        let sidebarW = sidebarWrap.frame.width < 1 ? 0 : min(max(sidebarWrap.frame.width, 160), 320)
+        let divider = splitView.dividerThickness
+        sidebarWrap.frame = NSRect(x: 0, y: 0, width: sidebarW, height: splitView.bounds.height)
+        grid.view.frame = NSRect(x: sidebarW + (sidebarW > 0 ? divider : 0), y: 0,
+                                 width: splitView.bounds.width - sidebarW - (sidebarW > 0 ? divider : 0),
+                                 height: splitView.bounds.height)
     }
 }

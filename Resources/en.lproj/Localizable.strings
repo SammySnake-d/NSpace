@@ -171,3 +171,4 @@
 "menu.addBookmark" = "Add to Bookmarks";
 "stash.manage" = "Manage Stash";
 "stash.dragHint" = "Drag to take the whole stack";
+"progress.empty" = "No active tasks";

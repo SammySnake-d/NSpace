@@ -171,3 +171,4 @@
 "menu.addBookmark" = "添加到书签";
 "stash.manage" = "管理暂存项";
 "stash.dragHint" = "拖动可整摞取出";
+"progress.empty" = "暂无进行中的任务";

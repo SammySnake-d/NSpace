@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             sessionReady = true
             NSApp.activate()
+            if UISelfTest.isEnabled { UISelfTest.run(delegate: self) }
         }
     }
 

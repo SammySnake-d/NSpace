@@ -13,11 +13,12 @@ final class ProgressWindowController: NSWindowController {
     private var rows: [UUID: ProgressRowView] = [:]
     private var rates: [UUID: (bytes: Int64, at: Date)] = [:]
     private let stack = NSStackView()
+    private let emptyLabel = NSTextField(labelWithString: L10n.t("progress.empty"))
     private var pendingShow: Task<Void, Never>?
     private var pendingHide: Task<Void, Never>?
 
     private init() {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 80),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 120),
                             styleMask: [.titled, .closable, .utilityWindow],
                             backing: .buffered, defer: false)
         panel.title = L10n.t("progress.title")
@@ -38,7 +39,23 @@ final class ProgressWindowController: NSWindowController {
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
+        emptyLabel.font = .systemFont(ofSize: 12)
+        emptyLabel.textColor = .tertiaryLabelColor
+        emptyLabel.alignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(emptyLabel)
+        NSLayoutConstraint.activate([
+            emptyLabel.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            content.heightAnchor.constraint(greaterThanOrEqualToConstant: 96),
+        ])
         panel.contentView = content
+        updateEmptyState()
+    }
+
+    /// 空态:无任务时给"暂无任务"说明,而不是一块空白(用户报告)
+    private func updateEmptyState() {
+        emptyLabel.isHidden = !rows.isEmpty
     }
 
     @available(*, unavailable)
@@ -49,6 +66,8 @@ final class ProgressWindowController: NSWindowController {
         if window?.isVisible == true {
             window?.orderOut(nil)
         } else {
+            updateEmptyState()
+            window?.center()
             window?.makeKeyAndOrderFront(nil)
         }
     }
@@ -78,6 +97,7 @@ final class ProgressWindowController: NSWindowController {
             row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24).isActive = true
         }
         row.update(p, rate: rate(for: p))
+        updateEmptyState()
         window?.layoutIfNeeded()
         scheduleVisibility()
     }

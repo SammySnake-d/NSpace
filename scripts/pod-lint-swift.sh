@@ -41,7 +41,9 @@ fi
 
 # ---- BG-1: 展示层禁写权威状态（NSpaceApp 内禁用写型 FileManager API 与直接 JSON 落盘） ----
 if [ -d "$APP" ]; then
-  whits="$(grep -rnE 'FileManager\.[a-zA-Z]*\.(copyItem|moveItem|removeItem|trashItem|createDirectory|createFile)|copyfile\(' "$APP" 2>/dev/null | grep -vE ':[0-9]+:\s*//')"
+  # UISelfTest.swift 豁免：UI 自测通道（NSPACE_UITEST 环境变量门控，非产品路径）需要
+  # 建/删临时夹具文件——属测试 harness，同 Tests/ 性质，不构成展示层写权威状态
+  whits="$(grep -rnE 'FileManager\.[a-zA-Z]*\.(copyItem|moveItem|removeItem|trashItem|createDirectory|createFile)|copyfile\(' "$APP" 2>/dev/null | grep -v 'UISelfTest.swift' | grep -vE ':[0-9]+:\s*//')"
   if [ -n "$whits" ]; then
     echo "✗ [NSpaceApp] 展示层直接调用写型文件 API (BG-1，必须经 OperationSpec Command):"
     echo "$whits" | sed 's/^/      /'; rc=1

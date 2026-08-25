@@ -256,12 +256,15 @@ final class PaneViewController: NSViewController {
         let v = vc.view
         v.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.addSubview(v)
-        NSLayoutConstraint.activate([
+        // 999 优先级:内容视图(分栏/网格)自身的尺寸诉求绝不外推改变窗口尺寸(用户报告的 bug)
+        let edges = [
             v.topAnchor.constraint(equalTo: contentContainer.topAnchor),
             v.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
             v.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
             v.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-        ])
+        ]
+        for c in edges { c.priority = .init(999) }
+        NSLayoutConstraint.activate(edges)
         // 窗格本身被布局切走时不恢复（由 resumePane 统一恢复）
         if !isPaneSuspended {
             activeTab.model.resume()

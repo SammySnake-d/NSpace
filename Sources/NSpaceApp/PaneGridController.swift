@@ -168,6 +168,9 @@ final class PaneGridController: NSViewController {
         let nominal = NSSize(width: 1200, height: 800)
         for (i, sub) in subviews.enumerated() {
             sub.translatesAutoresizingMaskIntoConstraints = true
+            // 必设 [.width,.height]：默认 none 会把残留 frame 转成必需固定尺寸约束，
+            // 经约束引擎反推窗口坍缩（视图/布局切换后窗口被改尺寸的真凶，探针点名）
+            sub.autoresizingMask = [.width, .height]
             sub.frame = vertical
                 ? NSRect(x: CGFloat(i) * nominal.width / n, y: 0,
                          width: nominal.width / n, height: nominal.height)

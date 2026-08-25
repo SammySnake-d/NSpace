@@ -108,7 +108,7 @@ enum MainMenu {
         }
         viewMenu.addItem(.separator())
         let sidebarItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleSidebar"),
-                                           action: #selector(NSSplitViewController.toggleSidebar(_:)),
+                                           action: #selector(MainWindowController.toggleSidebar(_:)),
                                            keyEquivalent: "s")
         sidebarItem.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(withTitle: L10n.t("menu.togglePaneTabBar"),
