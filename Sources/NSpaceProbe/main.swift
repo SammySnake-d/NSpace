@@ -1,8 +1,12 @@
 import Foundation
+import CoreGraphics
 import NSpaceContracts
 import NSpaceKernel
 import DirectoryReader
 import Transfer
+import DirectoryWatch
+import FolderSize
+import IconThumb
 
 // CLI-First 探针：绕过 UI 编排单独驱动每个胶囊节点（L-readonly / L-irreversible）。
 // 不进 .app、不进生产二进制。每接入一个胶囊就加一个子命令。
@@ -15,6 +19,9 @@ func usage() -> Never {
     用法:
       nspace-probe list <目录> [--hidden] [--sort name|dateModified|size|kind] [--desc]   # L-readonly: DirectoryReader
       nspace-probe copy <源…> <目标目录> [--move] [--on-conflict skip|replace|keepBoth|merge]  # L-irreversible: Transfer(经内核全链路)
+      nspace-probe watch <目录>                    # L-readonly: DirectoryWatch(监听打印信号, 10 秒后退出)
+      nspace-probe size <目录>                     # L-readonly: FolderSize(递归大小 + 耗时)
+      nspace-probe thumb <文件> [--size 128]       # L-readonly: IconThumb(缩略图像素宽高)
     """)
     exit(2)
 }
@@ -32,6 +39,12 @@ case "list":
     await runList(rest)
 case "copy":
     await runCopy(rest)
+case "watch":
+    await runWatch(rest)
+case "size":
+    await runSize(rest)
+case "thumb":
+    await runThumb(rest)
 default:
     FileHandle.standardError.write("未知子命令: \(command)\n".data(using: .utf8)!)
     usage()
@@ -143,5 +156,87 @@ func stateName(_ s: RunState) -> String {
     case .completed: "完成"
     case .cancelled: "取消"
     case .failed: "失败"
+    }
+}
+
+// MARK: - watch（活体只读：FSEvents 监听真实目录，10 秒后退出）
+
+func runWatch(_ args: [String]) async {
+    guard let first = args.first else { usage() }
+    let dir = URL(fileURLWithPath: (first as NSString).expandingTildeInPath)
+
+    let watcher = DirectoryWatch().watch(dir)
+    if let err = watcher.startupError {
+        fail("监听启动失败(\(err.errorClass)): \(err.localizedDescription)")
+    }
+    print("监听 \(dir.path) …（10 秒后自动退出；在别处 touch 该目录以触发信号）")
+
+    await withTaskGroup(of: Void.self) { group in
+        group.addTask {
+            var n = 0
+            for await _ in watcher.signals {
+                n += 1
+                print("· 变化信号 #\(n)")
+            }
+        }
+        group.addTask {
+            try? await Task.sleep(for: .seconds(10))
+        }
+        // 任一子任务先结束（10 秒计时到）即收尾
+        await group.next()
+        watcher.stop()
+        group.cancelAll()
+    }
+    print("停止监听")
+}
+
+// MARK: - size（活体只读：FolderSize 递归求和真实目录）
+
+func runSize(_ args: [String]) async {
+    guard let first = args.first else { usage() }
+    let dir = URL(fileURLWithPath: (first as NSString).expandingTildeInPath)
+
+    do {
+        let t0 = Date()
+        let bytes = try await FolderSize().size(of: dir)
+        let ms = Int(Date().timeIntervalSince(t0) * 1000)
+        print("\(dir.path)\n  \(bytes) 字节 (\(byteString(bytes)))，耗时 \(ms)ms")
+    } catch {
+        fail("计算失败: \(error.localizedDescription)")
+    }
+}
+
+func byteString(_ b: Int64) -> String {
+    let f = ByteCountFormatter()
+    f.countStyle = .file
+    return f.string(fromByteCount: b)
+}
+
+// MARK: - thumb（活体只读：IconThumb 生成真实文件缩略图）
+
+func runThumb(_ args: [String]) async {
+    var file: URL?
+    var size: CGFloat = 128
+    var i = 0
+    while i < args.count {
+        switch args[i] {
+        case "--size":
+            i += 1
+            guard i < args.count, let v = Double(args[i]) else { fail("--size 需正数") }
+            size = CGFloat(v)
+        default:
+            file = URL(fileURLWithPath: (args[i] as NSString).expandingTildeInPath)
+        }
+        i += 1
+    }
+    guard let file else { usage() }
+
+    let t0 = Date()
+    let image = await IconThumb().thumbnail(for: file, size: size)
+    let ms = Int(Date().timeIntervalSince(t0) * 1000)
+    if let image {
+        print("缩略图 \(image.width)×\(image.height) 像素（请求 size=\(Int(size)), scale=2），耗时 \(ms)ms")
+    } else {
+        fail("无缩略图（不支持类型/文件不存在/生成失败），耗时 \(ms)ms")
     }
 }
