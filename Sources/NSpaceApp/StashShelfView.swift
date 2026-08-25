@@ -1,8 +1,9 @@
 import AppKit
 import StashStore
 
-/// 暂存架专区（QSpace 式堆叠牌堆，M14/M16）：多项叠成一摞 + "N ⌄" 下拉管理 + 纯图标操作条。
-/// 拖动牌堆 = 整摞文件一起拖出；隐性语义：操作零文字，图标 + tooltip。
+/// 暂存架专区（QSpace 式堆叠牌堆，M14/M16/M17）：B2 hover-reveal——
+/// 常态只见牌堆 + 计数药丸（居中）；悬停 150ms 底部浮出动作条（overlay 浮层，不改布局）；
+/// 拖拽悬停显示 accent 发丝内圈投放高亮。隐性语义：操作零文字，官方 SF Symbol + tooltip。
 @MainActor
 final class StashShelfView: NSView {
     private(set) weak var controller: StashShelfController?
@@ -11,10 +12,16 @@ final class StashShelfView: NSView {
     private let emptyLabel = NSTextField(labelWithString: L10n.t("stash.empty"))
     private let stackPile = StashPileView()
     private let countButton = NSButton()
-    private let actionsStack = NSStackView()
     private let contentGroup = NSStackView()
     private let dropCatcher = StashDropCatcher()
+    /// hover 浮出的动作条（overlay：frame 定位，不入 Auto Layout 主链，不改布局——FG-4 空间防抖）
+    private let floatBar = NSVisualEffectView()
+    private let floatButtons = NSStackView()
+    /// 拖拽投放高亮：accent 发丝内圈（frame 定位的 overlay 环）
+    private let ringView = NSView()
     private var heightConstraint: NSLayoutConstraint?
+    private var hoverTimer: Timer?
+    private var tracking: NSTrackingArea?
 
     /// 恒定高度（空/满一致不跳变）：牌堆区视觉稳定居中（QSpace 规格）
     private static let emptyHeight: CGFloat = 148
@@ -25,78 +32,56 @@ final class StashShelfView: NSView {
         wantsLayer = true
         registerForDraggedTypes([.fileURL])
 
-        emptyIcon.image = NSImage(systemSymbolName: "tray.and.arrow.down",
-                                  accessibilityDescription: L10n.t("sidebar.stash"))
+        emptyIcon.image = NSImage.officialSymbol("tray.and.arrow.down",
+                                                 accessibility: L10n.t("sidebar.stash"))
         emptyIcon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
         emptyIcon.contentTintColor = .tertiaryLabelColor
         emptyLabel.font = .systemFont(ofSize: 11)
         emptyLabel.textColor = .tertiaryLabelColor
 
-        // "N ⌄" / "名称 ⌄"：点击弹出条目管理菜单（隐性语义：数字即入口）
+        // 计数药丸："N ⌄" / "名称 ⌄"（10% accent 浅底、tabular-nums）；点击=逐项管理菜单
         countButton.bezelStyle = .accessoryBarAction
         countButton.isBordered = false
-        countButton.font = .systemFont(ofSize: 12, weight: .medium)
+        countButton.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         countButton.imagePosition = .imageTrailing
-        countButton.image = NSImage(systemSymbolName: "chevron.down",
-                                    accessibilityDescription: L10n.t("stash.manage"))
+        countButton.image = NSImage.officialSymbol("chevron.down", accessibility: L10n.t("stash.manage"))
         countButton.symbolConfiguration = .init(pointSize: 8, weight: .semibold)
         countButton.contentTintColor = .labelColor
         countButton.toolTip = L10n.t("stash.manage")
         countButton.target = self
         countButton.action = #selector(showManageMenu(_:))
+        countButton.wantsLayer = true
+        countButton.layer?.cornerRadius = 8
 
-        // 纯图标操作条（竖排；FG-1：空暂存架时隐藏）
-        actionsStack.orientation = .vertical
-        actionsStack.spacing = 10
-        actionsStack.alignment = .centerX
-        // 与 QSpace 一一对应：复制到…/移动到…/AirDrop/清空/更多（管理菜单）
-        let actions: [(String, String, StashAction?)] = [
-            ("doc.on.doc", "stash.copyHere", .copyHere),
-            ("arrow.right.square", "stash.moveHere", .moveHere),
-            ("dot.radiowaves.left.and.right", "stash.airdrop", .airdrop),
-            ("trash", "stash.clear", nil),        // nil+trash = 清空
-            ("ellipsis.circle", "stash.manage", nil),  // nil+ellipsis = 更多（管理菜单）
-        ]
-        var buttons: [NSButton] = []
-        for (symbol, key, action) in actions {
-            let button = NSButton()
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L10n.t(key))
-            button.symbolConfiguration = .init(pointSize: 13, weight: .medium)
-            button.isBordered = false
-            button.contentTintColor = .secondaryLabelColor
-            button.toolTip = L10n.t(key)  // 隐性语义 + 微 tooltip
-            button.target = self
-            if let action {
-                button.action = #selector(performAction(_:))
-                button.tag = action.tag
-            } else {
-                button.action = #selector(clearAll(_:))
-            }
-            if symbol == "ellipsis.circle" { button.action = #selector(showManageMenuFromButton(_:)) }
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: 24).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 20).isActive = true
-            buttons.append(button)
-            actionsStack.addArrangedSubview(button)
-        }
-        _ = buttons
+        // 牌堆列（堆 + 计数药丸）——常态唯一可见组，148pt 区内居中
+        contentGroup.orientation = .vertical
+        contentGroup.spacing = 2
+        contentGroup.alignment = .centerX
+        contentGroup.addArrangedSubview(stackPile)
+        contentGroup.addArrangedSubview(countButton)
 
-        // 牌堆列（堆+计数）
-        let pileColumn = NSStackView(views: [stackPile, countButton])
-        pileColumn.orientation = .vertical
-        pileColumn.spacing = 2
-        pileColumn.alignment = .centerX
-        contentGroup.addArrangedSubview(pileColumn)
-        contentGroup.addArrangedSubview(actionsStack)
-        contentGroup.orientation = .horizontal
-        contentGroup.spacing = 16
-        contentGroup.alignment = .centerY
         for sub in [emptyIcon, emptyLabel, contentGroup] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addSubview(sub)
         }
-        // 顶层透明捕手（最后添加=z序最前）：本系统上未注册子视图会吞拖放冒泡，
-        // 逐个转发不彻底——改为单点全域接管；hitTest=nil 让点击穿透到按钮/牌堆
+
+        // hover 浮条（overlay 材质 + 发丝框 + 阴影，五钮 20×20 间距 4：拷贝/移动/AirDrop/清空/更多）
+        buildFloatBar()
+
+        // accent 发丝内圈（拖拽悬停投放高亮；frame 定位）
+        ringView.wantsLayer = true
+        ringView.layer?.borderWidth = 1
+        ringView.layer?.cornerRadius = 8
+        ringView.isHidden = true
+        addSubview(ringView)
+        // accent 相关三处 layer 色（药丸底 / 投放环边框 / 环底）集中一次设置，
+        // 并在主题广播 / 明暗切换时重解析——原先在 init 一次性取 cgColor，运行期改强调色/外观不刷新。
+        applyAccentColors()
+        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged),
+                                               name: .nspaceThemeChanged, object: nil)
+
+        // 顶层透明捕手（最后添加=z序最前）：拖放目标查找按注册视图进行、不受 hitTest 影响，
+        // 单点全域接管；hitTest=nil 让点击/hover 穿透到按钮/牌堆
         dropCatcher.shelf = self
         dropCatcher.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dropCatcher)
@@ -111,23 +96,100 @@ final class StashShelfView: NSView {
         NSLayoutConstraint.activate([
             height,
             // 空态：图标+文字整体居中（恒高区内视觉稳定）
-            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 10),
+            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 12),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            emptyIcon.trailingAnchor.constraint(equalTo: emptyLabel.leadingAnchor, constant: -6),
+            emptyIcon.trailingAnchor.constraint(equalTo: emptyLabel.leadingAnchor, constant: -8),
             emptyIcon.centerYAnchor.constraint(equalTo: emptyLabel.centerYAnchor),
-
-            // 动态居中：牌堆列+操作列打包整体居中（随侧栏宽度自适应，无硬编码偏移）
+            // 牌堆组整体居中（随侧栏宽度自适应，无硬编码偏移；牌堆可放大 112×100）
             contentGroup.centerXAnchor.constraint(equalTo: centerXAnchor),
-            contentGroup.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            contentGroup.centerYAnchor.constraint(equalTo: centerYAnchor),
             contentGroup.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
-            stackPile.widthAnchor.constraint(equalToConstant: 96),
-            stackPile.heightAnchor.constraint(equalToConstant: 92),
+            stackPile.widthAnchor.constraint(equalToConstant: 112),
+            stackPile.heightAnchor.constraint(equalToConstant: 100),
         ])
         refresh()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    /// accent 三处 layer 色集中设置（外观感知：controlAccentColor 随明暗解析）
+    private func applyAccentColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let accent = Theme.accent
+            countButton.layer?.backgroundColor = accent.withAlphaComponent(0.10).cgColor
+            ringView.layer?.borderColor = accent.cgColor
+            ringView.layer?.backgroundColor = accent.withAlphaComponent(0.06).cgColor
+        }
+    }
+
+    @objc private func themeChanged() { applyAccentColors() }
+
+    /// 系统明暗切换：controlAccentColor 等外观相关色需重解析
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyAccentColors()
+    }
+
+    /// hover 浮条（overlay：所有子钮 frame 由自身 Auto Layout 决定，但 floatBar 本身 frame 定位）
+    private func buildFloatBar() {
+        floatBar.material = .menu
+        floatBar.blendingMode = .withinWindow
+        floatBar.state = .active
+        floatBar.wantsLayer = true
+        floatBar.layer?.cornerRadius = 8
+        floatBar.layer?.borderWidth = 1
+        floatBar.layer?.borderColor = NSColor.separatorColor.cgColor
+        floatBar.shadow = {
+            let s = NSShadow()
+            s.shadowColor = NSColor.black.withAlphaComponent(0.28)
+            s.shadowBlurRadius = 8
+            s.shadowOffset = NSSize(width: 0, height: -1)
+            return s
+        }()
+        floatBar.isHidden = true
+        floatBar.translatesAutoresizingMaskIntoConstraints = true  // overlay：不入 Auto Layout 主链
+
+        // 五钮：拷贝/移动/AirDrop/清空/更多（§6.1 官方符号；20×20）
+        let specs: [(String, String?, String, Selector, Int)] = [
+            ("doc.on.doc", nil, "stash.copyHere", #selector(performAction(_:)), StashAction.copyHere.tag),
+            ("arrow.forward.square", nil, "stash.moveHere", #selector(performAction(_:)), StashAction.moveHere.tag),
+            ("airdrop", "dot.radiowaves.left.and.right", "stash.airdrop", #selector(performAction(_:)), StashAction.airdrop.tag),
+            ("trash", nil, "stash.clear", #selector(clearAll(_:)), 0),
+            ("ellipsis.circle", nil, "stash.manage", #selector(showManageMenuFromButton(_:)), 0),
+        ]
+        for (symbol, fallback, key, action, tag) in specs {
+            let button = NSButton()
+            button.image = NSImage.officialSymbol(symbol, fallback: fallback, accessibility: L10n.t(key))
+            button.symbolConfiguration = .init(pointSize: 12, weight: .medium)
+            button.isBordered = false
+            button.contentTintColor = .secondaryLabelColor
+            button.toolTip = L10n.t(key)
+            button.target = self
+            button.action = action
+            button.tag = tag
+            button.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 20),
+                button.heightAnchor.constraint(equalToConstant: 20),
+            ])
+            floatButtons.addArrangedSubview(button)
+        }
+        floatButtons.orientation = .horizontal
+        floatButtons.alignment = .centerY
+        floatButtons.spacing = 4
+        floatButtons.translatesAutoresizingMaskIntoConstraints = false
+        floatBar.addSubview(floatButtons)
+        NSLayoutConstraint.activate([
+            floatButtons.topAnchor.constraint(equalTo: floatBar.topAnchor, constant: 4),
+            floatButtons.bottomAnchor.constraint(equalTo: floatBar.bottomAnchor, constant: -4),
+            floatButtons.leadingAnchor.constraint(equalTo: floatBar.leadingAnchor, constant: 8),
+            floatButtons.trailingAnchor.constraint(equalTo: floatBar.trailingAnchor, constant: -8),
+        ])
+        addSubview(floatBar)  // 加为子视图但 frame 定位（不入主链）
+    }
 
     /// 控制器注入（幂等）：接管 onChange 驱动本区刷新
     func attach(_ controller: StashShelfController) {
@@ -137,6 +199,18 @@ final class StashShelfView: NSView {
         controller.start()
     }
 
+    // MARK: UISelfTest 度量入口（§6.3）
+    /// 常态动作条隐藏（hover 才浮出）
+    var actionBarHidden: Bool { floatBar.isHidden }
+    /// 浮条为 overlay（frame 定位，不参与 Auto Layout 主链）
+    var actionBarIsOverlay: Bool { floatBar.translatesAutoresizingMaskIntoConstraints }
+    /// I-07 回归探针：填充态 contentGroup 相对本区中心的水平偏移（|·|≤2pt 视为居中）
+    var contentGroupCenterOffsetX: CGFloat {
+        guard !contentGroup.isHidden else { return 0 }
+        layoutSubtreeIfNeeded()
+        return contentGroup.frame.midX - bounds.midX
+    }
+
     private func refresh() {
         let items = controller?.items ?? []
         let empty = items.isEmpty
@@ -144,6 +218,7 @@ final class StashShelfView: NSView {
         emptyLabel.isHidden = !empty
         contentGroup.isHidden = empty
         heightConstraint?.constant = empty ? Self.emptyHeight : Self.filledHeight
+        if empty { hideFloatBar() }
 
         guard let controller, !empty else { return }
         let resolved: [(item: StashItem, url: URL?)] = items.map { ($0, controller.store.resolve($0)) }
@@ -160,6 +235,56 @@ final class StashShelfView: NSView {
     private func allResolvedURLs() -> [URL] {
         guard let controller else { return [] }
         return controller.items.compactMap { controller.store.resolve($0) }
+    }
+
+    // MARK: overlay 定位（floatBar 底部居中 / ringView 内嵌）——不影响主链布局
+
+    override func layout() {
+        super.layout()
+        ringView.frame = bounds.insetBy(dx: 4, dy: 4)
+        let barSize = floatBar.fittingSize
+        let w = max(barSize.width, 132)
+        let h = max(barSize.height, 28)
+        floatBar.frame = NSRect(x: (bounds.width - w) / 2,
+                                y: 8,
+                                width: w, height: h)
+    }
+
+    // MARK: hover-reveal（悬停 150ms 浮出，移出即隐；拖拽期间不浮出）
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        scheduleFloatBar()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hideFloatBar()
+    }
+
+    private func scheduleFloatBar() {
+        guard !(controller?.items.isEmpty ?? true) else { return }  // 空态无动作
+        hoverTimer?.invalidate()
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !(self.controller?.items.isEmpty ?? true), self.ringView.isHidden else { return }
+                self.floatBar.isHidden = false
+            }
+        }
+    }
+
+    private func hideFloatBar() {
+        hoverTimer?.invalidate()
+        hoverTimer = nil
+        floatBar.isHidden = true
     }
 
     // MARK: "N ⌄" 条目管理菜单
@@ -196,7 +321,7 @@ final class StashShelfView: NSView {
         controller?.remove(ids: [id])
     }
 
-    // MARK: 操作（图标条）
+    // MARK: 操作（浮条图标钮）
 
     @objc private func performAction(_ sender: NSButton) {
         guard let action = StashAction.from(tag: sender.tag) else { return }
@@ -221,9 +346,9 @@ final class StashShelfView: NSView {
     }
 
     func dropHighlight(_ on: Bool) {
-        layer?.backgroundColor = on
-            ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
-            : NSColor.clear.cgColor
+        // 拖拽悬停：隐浮条，显 accent 发丝内圈（原位反馈，不改布局）
+        if on { hideFloatBar() }
+        ringView.isHidden = !on
     }
 
     func dropOperation(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -303,7 +428,7 @@ private final class StashPileView: NSView {
         }
     }
 
-    private var shelf: StashShelfView? { superview as? StashShelfView }
+    private var shelf: StashShelfView? { superview?.superview as? StashShelfView }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let op = shelf?.dropOperation(sender) ?? []
@@ -328,8 +453,8 @@ private final class StashPileView: NSView {
 
     override func layout() {
         super.layout()
-        // 错位堆叠：底层往左上偏 6pt/层，顶层居中（macOS 拖拽堆惯例）
-        let size: CGFloat = 72
+        // 错位堆叠：底层往左上偏 6pt/层，顶层居中（macOS 拖拽堆惯例；牌堆放大到 ~112×100）
+        let size: CGFloat = 80
         let visibleLayers = layers.filter { !$0.isHidden }
         for (pos, iv) in visibleLayers.enumerated() {
             let depth = CGFloat(visibleLayers.count - 1 - pos)  // 顶层（最后）depth=0
@@ -346,12 +471,12 @@ private final class StashPileView: NSView {
             let idx = tail.count - (layers.count - i)  // 对齐尾部
             if idx >= 0, let url = Array(tail)[idx] {
                 let img = NSWorkspace.shared.icon(forFile: url.path)
-                img.size = NSSize(width: 72, height: 72)
+                img.size = NSSize(width: 80, height: 80)
                 iv.image = img
                 iv.isHidden = false
             } else if idx >= 0 {
-                iv.image = NSImage(systemSymbolName: "questionmark.square.dashed",
-                                   accessibilityDescription: L10n.t("stash.missing"))
+                iv.image = NSImage.officialSymbol("questionmark.square.dashed",
+                                                  accessibility: L10n.t("stash.missing"))
                 iv.isHidden = false
             } else {
                 iv.isHidden = true
