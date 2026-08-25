@@ -548,6 +548,19 @@ final class PaneViewController: NSViewController {
         if activeTab.browser.goUp() != nil { applyLocation() }
     }
 
+    /// 导航历史（长按历史菜单用）：最近的在前
+    var backHistory: [URL] { activeTab.browser.backHistory }
+    var forwardHistory: [URL] { activeTab.browser.forwardHistory }
+
+    /// 跳到后退/前进历史第 index 项（0=最近）
+    func jumpBackHistory(to index: Int) {
+        if activeTab.browser.jumpBack(to: index) != nil { applyLocation() }
+    }
+
+    func jumpForwardHistory(to index: Int) {
+        if activeTab.browser.jumpForward(to: index) != nil { applyLocation() }
+    }
+
     @objc func editPath(_ sender: Any?) {
         beginPathEditing()
     }

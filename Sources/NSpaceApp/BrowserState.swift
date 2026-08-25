@@ -15,6 +15,28 @@ final class BrowserState {
     var canGoForward: Bool { !forwardStack.isEmpty }
     var canGoUp: Bool { current.standardizedFileURL.path != "/" }
 
+    /// 后退/前进历史（最近的在前，供导航长按历史菜单展示；§3）
+    var backHistory: [URL] { backStack.reversed() }
+    var forwardHistory: [URL] { forwardStack.reversed() }
+
+    /// 跳到后退历史第 index 项（0=最近）：回退 index+1 步，路径逐一进前进栈（浏览器语义）
+    @discardableResult
+    func jumpBack(to index: Int) -> URL? {
+        guard index >= 0, index < backStack.count else { return nil }
+        var last: URL?
+        for _ in 0...index { last = goBack() }
+        return last
+    }
+
+    /// 跳到前进历史第 index 项（0=最近）：前进 index+1 步
+    @discardableResult
+    func jumpForward(to index: Int) -> URL? {
+        guard index >= 0, index < forwardStack.count else { return nil }
+        var last: URL?
+        for _ in 0...index { last = goForward() }
+        return last
+    }
+
     /// 新导航：清空前进栈（浏览器语义）
     func navigate(to url: URL) {
         guard url != current else { return }

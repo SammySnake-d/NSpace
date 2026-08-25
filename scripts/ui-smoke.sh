@@ -16,4 +16,24 @@ CODE=$?
 echo "==== UI 冒烟报告 (exit=$CODE) ===="
 cat /tmp/nspace-ui/report.txt 2>/dev/null || echo "(无报告)"
 echo "截图: $(ls /tmp/nspace-ui/*.png 2>/dev/null | wc -l | tr -d ' ') 张 → /tmp/nspace-ui/"
+
+# M17 新增断言存在性校验（防断言被误删/跑空即"绿"）：报告须含以下 PASS 行
+REPORT=/tmp/nspace-ui/report.txt
+require_pass() {
+  if ! grep -qF "PASS $1" "$REPORT" 2>/dev/null; then
+    echo "✗ 缺 M17 断言或未通过: $1"; CODE=1
+  fi
+}
+require_pass "无 NSToolbar"
+require_pass "甲板标签行高 28"
+require_pass "甲板工具条行高 36"
+require_pass "工作区标签条存在于甲板"
+require_pass "⌘T 新建工作区"
+require_pass "⌘W 关闭工作区"
+require_pass "侧栏列全高贯通"
+require_pass "折叠/展开 3 轮窗口尺寸与右列布局不漂移"
+require_pass "暂存架 contentGroup 居中"
+require_pass "暂存架常态动作条隐藏"
+
+echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

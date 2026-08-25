@@ -13,9 +13,15 @@ enum KeyBindings {
 
     /// 常用命令注册表（设置窗按此渲染；新增可配快捷键 = 加一行）
     static let registry: [Entry] = [
-        Entry(id: "newTab", titleKey: "menu.newTab", defaultKey: "t", defaultMods: [.command]),
+        Entry(id: "newTab", titleKey: "menu.newWorkspace", defaultKey: "t", defaultMods: [.command]),
         Entry(id: "newPaneTab", titleKey: "menu.newPaneTab", defaultKey: "t", defaultMods: [.command, .option]),
-        Entry(id: "closeTab", titleKey: "menu.closeTab", defaultKey: "w", defaultMods: [.command]),
+        Entry(id: "closeTab", titleKey: "menu.closeWorkspace", defaultKey: "w", defaultMods: [.command]),
+        Entry(id: "nextWorkspace", titleKey: "menu.nextWorkspace", defaultKey: "]", defaultMods: [.command, .shift]),
+        Entry(id: "prevWorkspace", titleKey: "menu.prevWorkspace", defaultKey: "[", defaultMods: [.command, .shift]),
+        // ⌃⇥ / ⌃⇧⇥ 工作区循环（Tab 无法作菜单 keyEquivalent，由事件监视器读本注册表的修饰键，
+        // 而非硬编码——满足 §0「快捷键一律走 KeyBindings 注册表」）
+        Entry(id: "cycleWorkspace", titleKey: "menu.nextWorkspace", defaultKey: "\t", defaultMods: [.control]),
+        Entry(id: "cycleWorkspaceBack", titleKey: "menu.prevWorkspace", defaultKey: "\t", defaultMods: [.control, .shift]),
         Entry(id: "newFolder", titleKey: "menu.newFolder", defaultKey: "n", defaultMods: [.command, .shift]),
         Entry(id: "quickLook", titleKey: "menu.quickLook", defaultKey: " ", defaultMods: []),
         Entry(id: "getInfo", titleKey: "menu.getInfo", defaultKey: "i", defaultMods: [.command]),
@@ -81,6 +87,7 @@ enum KeyBindings {
     private static func symbolName(for key: String) -> String {
         switch key {
         case " ": "Space"
+        case "\t": "⇥"
         case "\u{8}", "\u{7F}": "⌫"
         case "\u{F700}": "↑"
         case "\u{F701}": "↓"
