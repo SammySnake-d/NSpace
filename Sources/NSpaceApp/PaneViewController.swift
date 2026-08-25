@@ -77,7 +77,8 @@ final class PaneViewController: NSViewController {
             root.addSubview(sub)
         }
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: root.topAnchor),
+            // fullSizeContentView 下内容延伸到标题栏底下：标签栏必须锚 safeArea 顶，否则被工具栏遮住
+            tabBar.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             tabBar.heightAnchor.constraint(equalToConstant: 24),

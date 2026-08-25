@@ -86,6 +86,11 @@ enum MainMenu {
             item.image = NSImage(systemSymbolName: layout.symbolName, accessibilityDescription: nil)
         }
         viewMenu.addItem(.separator())
+        let sidebarItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleSidebar"),
+                                           action: #selector(NSSplitViewController.toggleSidebar(_:)),
+                                           keyEquivalent: "s")
+        sidebarItem.keyEquivalentModifierMask = [.command, .option]
+        viewMenu.addItem(.separator())
         let hiddenItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleHidden"),
                                           action: #selector(FileListViewController.toggleHiddenFiles(_:)),
                                           keyEquivalent: ".")
