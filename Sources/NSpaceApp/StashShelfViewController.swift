@@ -54,7 +54,10 @@ final class StashShelfController {
     func add(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
         Task {
-            do { try await store.add(urls) } catch { onError?(error.localizedDescription) }
+            do {
+                try await store.add(urls)
+                Toast.show(L10n.f("toast.stashed", urls.count), in: grid?.view.window)
+            } catch { onError?(error.localizedDescription) }
             await refresh()
         }
     }

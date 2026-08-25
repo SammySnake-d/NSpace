@@ -164,6 +164,10 @@
 "toolbar.tasks" = "任务状态";
 "toast.copied" = "已拷贝 %d 项";
 "toast.cutN" = "已剪切 %d 项";
+"toast.copiedN" = "已复制 %d 项";
+"toast.movedN" = "已移动 %d 项";
+"toast.stashed" = "已暂存 %d 项";
+"toast.ejected" = "已推出 %@";
 "toast.copiedPath" = "已拷贝路径";
 "toast.copiedPaths" = "已拷贝 %d 条路径";
 "toast.bookmarkAdded" = "已添加 %d 个书签";
@@ -201,8 +205,8 @@
 "menu.extractTo" = "解压到…";
 "menu.extractTo.prompt" = "解压到此处";
 "archive.defaultName" = "归档";
-"toast.compressed" = "已压缩";
-"toast.extracted" = "已解压";
+"toast.compressed" = "已压缩为 %@";
+"toast.extracted" = "已解压 %d 项";
 "settings.tab.archive" = "归档";
 "settings.archiveFormat" = "压缩格式";
 "settings.archiveFormat.zip" = "ZIP（.zip）";

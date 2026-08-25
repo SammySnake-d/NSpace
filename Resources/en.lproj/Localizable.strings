@@ -164,6 +164,10 @@
 "toolbar.tasks" = "Tasks";
 "toast.copied" = "%d items copied";
 "toast.cutN" = "%d items cut";
+"toast.copiedN" = "%d items copied";
+"toast.movedN" = "%d items moved";
+"toast.stashed" = "%d items stashed";
+"toast.ejected" = "%@ ejected";
 "toast.copiedPath" = "Path copied";
 "toast.copiedPaths" = "%d paths copied";
 "toast.bookmarkAdded" = "%d bookmarks added";
@@ -201,8 +205,8 @@
 "menu.extractTo" = "Extract To…";
 "menu.extractTo.prompt" = "Extract Here";
 "archive.defaultName" = "Archive";
-"toast.compressed" = "Compressed";
-"toast.extracted" = "Extracted";
+"toast.compressed" = "Compressed to %@";
+"toast.extracted" = "%d items extracted";
 "settings.tab.archive" = "Archive";
 "settings.archiveFormat" = "Archive Format";
 "settings.archiveFormat.zip" = "ZIP (.zip)";

@@ -99,8 +99,9 @@ final class FileOpsCoordinator {
         // 多源归档基名用本地化"归档"（节点在共同父目录下打包）；单源交由节点省扩展名命名
         let baseName = urls.count > 1 ? L10n.t("archive.defaultName") : nil
         run(OperationSpec(kind: .compress, sources: urls, newName: baseName, archiveOptions: options)) { [weak self] receipt in
-            guard let self, receipt != nil else { return }
-            Toast.show(L10n.t("toast.compressed"), in: self.grid?.view.window)
+            guard let self, let receipt else { return }
+            let name = receipt.createdURLs.first?.lastPathComponent ?? ""
+            Toast.show(L10n.f("toast.compressed", name), in: self.grid?.view.window)
             // 保留原文件=false → 打包成功后把原文件移到废纸篓（复用 trash + 撤销路径）
             if !keepOriginal { self.moveToTrash(urls) }
         }
@@ -114,8 +115,8 @@ final class FileOpsCoordinator {
         let options = ArchiveOptions(password: nil, keepOriginal: true, extractInto: directory,
                                      createWrapper: Preferences.extractCreateWrapper)
         run(OperationSpec(kind: .extract, sources: archives, archiveOptions: options)) { [weak self] receipt in
-            guard let self, receipt != nil else { return }
-            Toast.show(L10n.t("toast.extracted"), in: self.grid?.view.window)
+            guard let self, let receipt else { return }
+            Toast.show(L10n.f("toast.extracted", receipt.createdURLs.count), in: self.grid?.view.window)
             // 保留压缩包=false → 解压成功后把压缩包移到废纸篓
             if !keepArchive { self.moveToTrash(archives) }
         }
@@ -205,7 +206,12 @@ final class FileOpsCoordinator {
             onComplete?(false)
             return
         }
-        run(OperationSpec(kind: move ? .move : .copy, sources: urls, destination: dest)) { receipt in
+        run(OperationSpec(kind: move ? .move : .copy, sources: urls, destination: dest)) { [weak self] receipt in
+            // 成功落地才吐司（取消/失败 receipt==nil，失败另有自己的呈现）
+            if receipt != nil {
+                Toast.show(L10n.f(move ? "toast.movedN" : "toast.copiedN", urls.count),
+                           in: self?.grid?.view.window)
+            }
             onComplete?(receipt != nil)
         }
     }
