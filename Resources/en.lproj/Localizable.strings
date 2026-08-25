@@ -17,3 +17,16 @@
 "menu.window" = "Window";
 "menu.minimize" = "Minimize";
 "menu.zoom" = "Zoom";
+"menu.view" = "View";
+"menu.toggleHidden" = "Show/Hide Hidden Files";
+"menu.refresh" = "Refresh";
+"menu.go" = "Go";
+"menu.goUp" = "Enclosing Folder";
+"menu.goHome" = "Home";
+"column.name" = "Name";
+"column.dateModified" = "Date Modified";
+"column.size" = "Size";
+"column.kind" = "Kind";
+"kind.folder" = "Folder";
+"kind.document" = "Document";
+"empty.folder" = "Folder is empty";

@@ -17,3 +17,16 @@
 "menu.window" = "窗口";
 "menu.minimize" = "最小化";
 "menu.zoom" = "缩放";
+"menu.view" = "显示";
+"menu.toggleHidden" = "显示/隐藏隐藏文件";
+"menu.refresh" = "刷新";
+"menu.go" = "前往";
+"menu.goUp" = "上层文件夹";
+"menu.goHome" = "个人";
+"column.name" = "名称";
+"column.dateModified" = "修改日期";
+"column.size" = "大小";
+"column.kind" = "种类";
+"kind.folder" = "文件夹";
+"kind.document" = "文稿";
+"empty.folder" = "文件夹为空";

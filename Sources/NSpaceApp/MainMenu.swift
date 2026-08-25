@@ -38,6 +38,28 @@ enum MainMenu {
         editMenu.addItem(withTitle: L10n.t("menu.paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: L10n.t("menu.selectAll"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
+        // 显示
+        let viewItem = main.addItem(withTitle: L10n.t("menu.view"), action: nil, keyEquivalent: "")
+        let viewMenu = NSMenu(title: L10n.t("menu.view"))
+        viewItem.submenu = viewMenu
+        let hiddenItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleHidden"),
+                                          action: #selector(FileListViewController.toggleHiddenFiles(_:)),
+                                          keyEquivalent: ".")
+        hiddenItem.keyEquivalentModifierMask = [.command, .shift]
+        viewMenu.addItem(withTitle: L10n.t("menu.refresh"),
+                         action: #selector(FileListViewController.refresh(_:)), keyEquivalent: "r")
+
+        // 前往
+        let goItem = main.addItem(withTitle: L10n.t("menu.go"), action: nil, keyEquivalent: "")
+        let goMenu = NSMenu(title: L10n.t("menu.go"))
+        goItem.submenu = goMenu
+        let upItem = goMenu.addItem(withTitle: L10n.t("menu.goUp"),
+                                    action: #selector(MainWindowController.goUpFolder(_:)), keyEquivalent: "\u{F700}")
+        upItem.keyEquivalentModifierMask = [.command]
+        let homeItem = goMenu.addItem(withTitle: L10n.t("menu.goHome"),
+                                      action: #selector(MainWindowController.goHome(_:)), keyEquivalent: "h")
+        homeItem.keyEquivalentModifierMask = [.command, .shift]
+
         // 窗口
         let windowItem = main.addItem(withTitle: L10n.t("menu.window"), action: nil, keyEquivalent: "")
         let windowMenu = NSMenu(title: L10n.t("menu.window"))
