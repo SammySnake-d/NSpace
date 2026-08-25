@@ -124,9 +124,17 @@ final class SettingsWindowController: NSWindowController {
                                     action: #selector(restoreDefaultSeeds))
         restoreSeeds.bezelStyle = .push
 
+        // M22：热更新——自动检查开关 + 手动"检查更新"按钮（有新版走徽章流程）
+        let autoUpdate = checkRow("settings.autoCheckUpdates", checked: Preferences.autoCheckUpdates,
+                                  action: #selector(autoCheckUpdatesChanged(_:)))
+        let checkUpdate = NSButton(title: L10n.t("settings.checkForUpdates"), target: self,
+                                   action: #selector(checkForUpdates))
+        checkUpdate.bezelStyle = .push
+
         let stack = NSStackView(views: [layoutRow, viewRow, termRow,
                                         NSBox.separatorLine(), hidden, folders, paneBar,
                                         NSBox.separatorLine(), restoreSeeds,
+                                        NSBox.separatorLine(), autoUpdate, checkUpdate,
                                         NSBox.separatorLine(), note])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -162,6 +170,14 @@ final class SettingsWindowController: NSWindowController {
         for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
             wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
         }
+    }
+
+    @objc private func autoCheckUpdatesChanged(_ sender: NSButton) {
+        Preferences.autoCheckUpdates = sender.state == .on
+    }
+
+    @objc private func checkForUpdates() {
+        UpdateController.shared.manualCheck(from: window)
     }
 
     @objc private func restoreDefaultSeeds() {

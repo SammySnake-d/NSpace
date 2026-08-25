@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else if ProcessInfo.processInfo.environment["NSPACE_PERF_DIRS"] == nil {
                 // 权限引导：未授权且未勾"不再提示" → 主窗口就绪后弹一次 sheet（自测/性能跑不打扰）
                 promptFullDiskAccessIfNeeded()
+                // 热更新：后台自动检查（autoCheckUpdates 开且距上次 >20 小时；失败静默不打扰）
+                UpdateController.shared.autoCheckIfDue()
             }
         }
     }

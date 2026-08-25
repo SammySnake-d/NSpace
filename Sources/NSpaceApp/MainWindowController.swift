@@ -154,6 +154,9 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         workspaces = WorkspaceManager(initial: grid.sessionWindow())
         updateTitle(for: initialDirectory)
         refreshWorkspaceTabs()
+        // 新窗口同步当前已知的更新态（更新在别窗被发现后再开的窗口也带"↑"）
+        deck.versionBadge.setUpdateAvailable(UpdateController.shared.available != nil,
+                                             latestVersion: UpdateController.shared.available?.version)
         installKeyMonitor()
     }
 
@@ -459,6 +462,10 @@ extension MainWindowController: TopDeckDelegate {
     func deckJumpHistory(forward: Bool, index: Int) {
         if forward { grid.activePane.jumpForwardHistory(to: index) }
         else { grid.activePane.jumpBackHistory(to: index) }
+    }
+
+    func deckVersionBadgeClicked() {
+        UpdateController.shared.startUpdateFlow(from: window)
     }
 }
 

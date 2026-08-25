@@ -144,6 +144,27 @@ enum Preferences {
         set { d.set(newValue, forKey: "fdaPromptDismissed") }
     }
 
+    // MARK: 热更新（M22；UpdateEngine 胶囊经构造/参数注入这些值，胶囊自身不读 Preferences）
+
+    /// 更新 feed 地址（GitHub Releases latest API）；可改（企业/私有分发换源）
+    static var updateFeedURL: String {
+        get { d.string(forKey: "updateFeedURL")
+            ?? "https://api.github.com/repos/snakesammy/NSpace/releases/latest" }
+        set { d.set(newValue, forKey: "updateFeedURL") }
+    }
+
+    /// 启动后台自动检查更新（默认开）
+    static var autoCheckUpdates: Bool {
+        get { d.object(forKey: "autoCheckUpdates") as? Bool ?? true }
+        set { d.set(newValue, forKey: "autoCheckUpdates") }
+    }
+
+    /// 上次检查更新的时间戳（Unix 秒；0=从未）——自动检查据此做 20 小时节流
+    static var lastUpdateCheck: Double {
+        get { d.double(forKey: "lastUpdateCheck") }
+        set { d.set(newValue, forKey: "lastUpdateCheck") }
+    }
+
     // MARK: 外观（QSpace 外观面 v1 子集；全部即时生效、经 Theme 广播刷新）
 
     /// 明暗模式："system"（跟随系统，默认）/ "light"（浅色）/ "dark"（深色）

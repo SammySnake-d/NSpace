@@ -289,3 +289,22 @@
 "settings.restoreSeeds" = "Restore Default Bookmarks";
 "toast.seedsRestored" = "%d default bookmarks restored";
 "settings.behavior.wsTabLimit" = "Workspace tab limit";
+
+/* M22 version badge + hot update */
+"badge.tooltip" = "NSpace v%@ (build %@)";
+"badge.updateAvailable" = "New version v%@ — click to update";
+"badge.updateAvailableGeneric" = "Update available — click to update";
+"settings.autoCheckUpdates" = "Automatically check for updates on launch";
+"settings.checkForUpdates" = "Check for Updates";
+"update.checking" = "Checking for updates…";
+"update.found" = "Found new version v%@";
+"update.upToDate" = "You're up to date";
+"update.checkFailed" = "Update check failed: %@";
+"update.badFeedURL" = "Invalid update feed URL";
+"update.downloading" = "Downloading update…";
+"update.ready" = "Update ready — please restart";
+"update.readyTitle" = "Update ready (v%@)";
+"update.readyBody" = "The new version has been installed. Restart NSpace to finish updating.";
+"update.restartNow" = "Restart Now";
+"update.later" = "Later";
+"update.installFailed" = "Update failed: %@";

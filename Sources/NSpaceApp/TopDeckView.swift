@@ -28,6 +28,8 @@ protocol TopDeckDelegate: AnyObject {
     /// 导航历史（长按后退/前进段弹出；最近的在前）
     func deckHistory(forward: Bool) -> [URL]
     func deckJumpHistory(forward: Bool, index: Int)
+    /// 版本徽章点击（仅有可用更新时触发；转发至 UpdateController 走下载安装流程）
+    func deckVersionBadgeClicked()
 }
 
 /// 自绘顶部甲板（M17 §1/§3/§6.2）：NSVisualEffectView(.titlebar) 内两行——
@@ -45,6 +47,8 @@ final class TopDeckView: NSVisualEffectView {
 
     /// 工作区标签条（复用/泛化现 TabBarView 语法；§2）
     let workspaceTabBar = TabBarView()
+    /// 版本徽章（M22）：标签条最右端"＋"左侧；仅显示与转发点击（BG-1）
+    let versionBadge = VersionBadgeView()
     /// 两行容器（UISelfTest 度量高度 28/36 用；§5）
     let tabRow = NSView()
     let toolbarRow = NSView()
@@ -81,6 +85,9 @@ final class TopDeckView: NSVisualEffectView {
         workspaceTabBar.onSelect = { [weak self] i in self?.deckDelegate?.deckSelectWorkspace(i) }
         workspaceTabBar.onClose = { [weak self] i in self?.deckDelegate?.deckCloseWorkspace(i) }
         workspaceTabBar.onNew = { [weak self] in self?.deckDelegate?.deckNewWorkspace() }
+        // 版本徽章嵌入标签条尾部配件槽（"＋"左侧；M22）
+        versionBadge.onClick = { [weak self] in self?.deckDelegate?.deckVersionBadgeClicked() }
+        workspaceTabBar.setTrailingAccessory(versionBadge)
         tabRow.translatesAutoresizingMaskIntoConstraints = false
         tabRow.addSubview(workspaceTabBar)
 
