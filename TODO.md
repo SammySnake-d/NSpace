@@ -101,6 +101,10 @@
 - 性能评估结论（2026-08-26 讨论）：自绘无实质性能损失，静态控件重绘成本可忽略；风险在交互功能回归（全屏/Space 切换行为、工具栏自定义、跟踪分隔符特性丢失），属工程量问题非性能问题
 - 待用户拍板：走自绘（开 worktree 代理专做）或维持现状（恒高居中版）
 
+### M18 确定性网格收敛 ⬜（2026-08-26 用户点名核查后立项）
+
+- grid-lint 首扫出 34 处 UI 尺寸偏离 4pt 阶梯（frontend-design-methodology.md:84）；M17 范围内文件已强制本轮收敛（pre-commit 增量执法），其余（设置页×4/SettingsWindowController/Toast/FileCellViews）在 scripts/grid-lint-allow.txt 基线中——本里程碑逐文件清零并删除基线文件
+
 ## 横切规范（持续生效）
 
 - 图标一律用 **SF Symbols 图标库 + NSWorkspace 文件图标**，严禁 emoji/文字符号充当图标（用户点名）；隐性语义直达：图标+150ms 微 tooltip
