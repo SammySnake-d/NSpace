@@ -152,3 +152,9 @@
 "search.kind.movie" = "Movies";
 "search.kind.audio" = "Audio";
 "search.kind.archive" = "Archives";
+
+/* M9 View Modes */
+"menu.viewAsIcons" = "as Icons";
+"menu.viewAsList" = "as List";
+"menu.viewAsColumns" = "as Columns";
+"iconGrid.sizeTooltip" = "Icon Size";

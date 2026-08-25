@@ -22,6 +22,7 @@ enum Formatters {
 
     private static var kindCache: [String: String] = [:]
     private static var iconCache: [String: NSImage] = [:]
+    private static var fullIconCache: [String: NSImage] = [:]
 
     static func kind(forTypeID id: String?, isDirectory: Bool) -> String {
         guard let id else { return isDirectory ? L10n.t("kind.folder") : L10n.t("kind.document") }
@@ -49,6 +50,20 @@ enum Formatters {
         let image = NSWorkspace.shared.icon(for: type)
         image.size = NSSize(width: 16, height: 16)
         iconCache[key] = image
+        return image
+    }
+
+    /// 大图标（图标网格/分栏预览列用）：保留系统多分辨率表示、不改 size——
+    /// 与 16pt 列表缓存分开（NSImage.size 是共享可变态，混用会把列表图标撑大）；显示端由 NSImageView 按需缩放
+    static func fullIcon(for item: FileItem) -> NSImage {
+        let key: String = item.isPackage
+            ? "path:" + item.url.path
+            : (item.contentTypeID ?? (item.isDirectory ? "public.folder" : "public.data"))
+        if let cached = fullIconCache[key] { return cached }
+        let image: NSImage = item.isPackage
+            ? NSWorkspace.shared.icon(forFile: item.url.path)
+            : NSWorkspace.shared.icon(for: UTType(key) ?? (item.isDirectory ? .folder : .data))
+        fullIconCache[key] = image
         return image
     }
 }

@@ -10,7 +10,7 @@ import IconThumb
 /// 文件变更意图一律经 FileOpsCoordinator 构造 OperationSpec 交内核执行。
 /// 装饰异步链（FolderSize/IconThumb）只对可见行发请求，滚出即取消——北极星零浪费。
 @MainActor
-final class FileListViewController: NSViewController {
+final class FileListViewController: NSViewController, FileRevealTarget {
     let model: DirectoryViewModel
     /// 文件操作桥（由窗格注入）
     weak var coordinator: FileOpsCoordinator?
@@ -50,8 +50,8 @@ final class FileListViewController: NSViewController {
     init(model: DirectoryViewModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
-        model.onUpdate = { [weak self] in self?.applySnapshot() }
-        model.onError = { [weak self] message in self?.showEmptyState(message) }
+        model.addOnUpdate { [weak self] in self?.applySnapshot() }
+        model.addOnError { [weak self] message in self?.showEmptyState(message) }
     }
 
     @available(*, unavailable)
@@ -256,6 +256,17 @@ final class FileListViewController: NSViewController {
         tableView.selectedRowIndexes.compactMap { model.items.indices.contains($0) ? model.items[$0] : nil }
     }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
+
+    /// 按 URL 集恢复选中（视图模式切换时选中迁移用）
+    func select(urls: [URL]) {
+        let wanted = Set(urls)
+        var indexes = IndexSet()
+        for (i, item) in model.items.enumerated() where wanted.contains(item.url) {
+            indexes.insert(i)
+        }
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        if let first = indexes.first { tableView.scrollRowToVisible(first) }
+    }
 
     // MARK: 显露（新建后选中并进入重命名）
 

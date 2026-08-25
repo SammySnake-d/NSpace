@@ -82,6 +82,18 @@ enum MainMenu {
         let viewMenu = NSMenu(title: L10n.t("menu.view"))
         viewItem.submenu = viewMenu
 
+        // 视图模式（M9：每窗格独立；⌘1/2/3，validateMenuItem 打勾当前模式）
+        let modeSpecs: [(String, Selector, String, String)] = [
+            ("menu.viewAsIcons", #selector(PaneViewController.viewAsIcons(_:)), "1", "square.grid.2x2"),
+            ("menu.viewAsList", #selector(PaneViewController.viewAsList(_:)), "2", "list.bullet"),
+            ("menu.viewAsColumns", #selector(PaneViewController.viewAsColumns(_:)), "3", "rectangle.split.3x1"),
+        ]
+        for (key, sel, equiv, symbol) in modeSpecs {
+            let item = viewMenu.addItem(withTitle: L10n.t(key), action: sel, keyEquivalent: equiv)
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
+        viewMenu.addItem(.separator())
+
         // 布局子菜单（⌃⌘1..5）
         let layoutItem = viewMenu.addItem(withTitle: L10n.t("menu.layout"), action: nil, keyEquivalent: "")
         let layoutMenu = NSMenu(title: L10n.t("menu.layout"))

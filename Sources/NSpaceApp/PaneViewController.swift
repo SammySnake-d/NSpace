@@ -1,15 +1,31 @@
 import AppKit
 import NSpaceContracts
 
+/// 窗格内容视图模式（M9：每窗格每标签独立；⌘1 图标 / ⌘2 列表 / ⌘3 分栏）
+enum PaneViewMode: Int {
+    case icons, list, columns
+}
+
 /// 窗格：标签栏 + 地址栏（面包屑⟷编辑器）+ 内容视图；每标签独立浏览器与历史。
 /// 多实例由 PaneGridController 编排；活动窗格高亮由 setActive 驱动
 @MainActor
 final class PaneViewController: NSViewController {
-    /// 一个标签 = 独立浏览状态 + 独立目录模型 + 独立列表视图（隐藏标签零后台工作）
-    struct Tab {
+    /// 一个标签 = 独立浏览状态 + 独立目录模型 + 独立内容视图（隐藏标签零后台工作）。
+    /// class 语义（M9）：viewMode 可变；图标/分栏视图懒创建——不切换就不付构造成本。
+    /// 三视图共享同一 DirectoryViewModel（onUpdate 多播）；分栏的列加载自管（局部 DirectoryReader）
+    final class Tab {
         let browser: BrowserState
         let model: DirectoryViewModel
         let listVC: FileListViewController
+        var viewMode: PaneViewMode = .list
+        var iconVC: FileIconGridViewController?
+        var columnVC: FileColumnViewController?
+
+        init(browser: BrowserState, model: DirectoryViewModel, listVC: FileListViewController) {
+            self.browser = browser
+            self.model = model
+            self.listVC = listVC
+        }
     }
 
     private(set) var tabs: [Tab] = []
@@ -21,9 +37,15 @@ final class PaneViewController: NSViewController {
     /// 用户在本窗格交互 → 请求成为活动窗格
     var onRequestFocus: (() -> Void)?
 
-    /// 文件操作桥：下传每个标签的列表视图（右键菜单/快捷键经此发 OperationSpec）
+    /// 文件操作桥：下传每个标签的内容视图（右键菜单/快捷键经此发 OperationSpec）
     var coordinator: FileOpsCoordinator? {
-        didSet { tabs.forEach { $0.listVC.coordinator = coordinator } }
+        didSet {
+            for tab in tabs {
+                tab.listVC.coordinator = coordinator
+                tab.iconVC?.coordinator = coordinator
+                tab.columnVC?.coordinator = coordinator
+            }
+        }
     }
 
     private let tabBar = TabBarView()
@@ -144,6 +166,49 @@ final class PaneViewController: NSViewController {
         return tab
     }
 
+    /// 懒创建图标网格视图（共享同一 model；回调语义与列表一致）
+    private func ensureIconVC(for tab: Tab) -> FileIconGridViewController {
+        if let vc = tab.iconVC { return vc }
+        let vc = FileIconGridViewController(model: tab.model)
+        vc.coordinator = coordinator
+        vc.onNavigate = { [weak self] target in self?.navigate(to: target) }
+        vc.onInteract = { [weak self] in self?.onRequestFocus?() }
+        vc.onContentChange = { [weak self, weak tab] in
+            guard let self, let tab, tabs.contains(where: { $0 === tab }), self.activeTab === tab else { return }
+            self.updateStatusCounts()
+        }
+        vc.onSelectionChange = { [weak self, weak tab] in
+            guard let self, let tab, self.tabs.contains(where: { $0 === tab }), self.activeTab === tab else { return }
+            self.updateStatusCounts()
+        }
+        tab.iconVC = vc
+        return vc
+    }
+
+    /// 懒创建分栏视图（列加载自管：局部 DirectoryReader；下钻经 onNavigate 回本窗格同步地址栏）
+    private func ensureColumnVC(for tab: Tab) -> FileColumnViewController {
+        if let vc = tab.columnVC { return vc }
+        let vc = FileColumnViewController(model: tab.model)
+        vc.coordinator = coordinator
+        vc.onNavigate = { [weak self] target in self?.navigate(to: target) }
+        vc.onInteract = { [weak self] in self?.onRequestFocus?() }
+        vc.onSelectionChange = { [weak self, weak tab] in
+            guard let self, let tab, self.tabs.contains(where: { $0 === tab }), self.activeTab === tab else { return }
+            self.updateStatusCounts()
+        }
+        tab.columnVC = vc
+        return vc
+    }
+
+    /// 当前模式对应的内容视图控制器（图标/分栏首用才创建）
+    private func contentVC(for tab: Tab) -> NSViewController {
+        switch tab.viewMode {
+        case .list: return tab.listVC
+        case .icons: return ensureIconVC(for: tab)
+        case .columns: return ensureColumnVC(for: tab)
+        }
+    }
+
     func openNewTab(at url: URL? = nil) {
         appendTab(at: url ?? activeTab.browser.current)
         switchTab(to: tabs.count - 1)
@@ -154,9 +219,12 @@ final class PaneViewController: NSViewController {
         guard tabs.count > 1, tabs.indices.contains(index) else { return }
         let tab = tabs.remove(at: index)
         tab.model.stopWatching()          // 关标签：彻底拆流，不留任何后台监听
-        tab.listVC.cancelDecorationWork()
-        tab.listVC.view.removeFromSuperview()
-        tab.listVC.removeFromParent()
+        quiesceContent(of: tab)           // 三视图在飞任务全取消
+        let vcs: [NSViewController?] = [tab.listVC, tab.iconVC, tab.columnVC]
+        for vc in vcs.compactMap({ $0 }) {
+            vc.view.removeFromSuperview()
+            vc.removeFromParent()
+        }
         if activeTabIndex >= tabs.count { activeTabIndex = tabs.count - 1 }
         else if index <= activeTabIndex, activeTabIndex > 0 { activeTabIndex -= 1 }
         mountActiveTab()
@@ -175,14 +243,16 @@ final class PaneViewController: NSViewController {
 
     private func mountActiveTab() {
         contentContainer.subviews.forEach { $0.removeFromSuperview() }
-        // 北极星：隐藏标签全部挂起（watcher 真停 + 在飞装饰请求取消），只有活动标签活着
+        // 北极星：隐藏标签全部挂起（watcher 真停 + 在飞装饰/列加载取消），只有活动标签活着
         for (i, tab) in tabs.enumerated() where i != activeTabIndex {
             tab.model.suspend()
-            tab.listVC.cancelDecorationWork()
+            quiesceContent(of: tab)
         }
-        let listVC = activeTab.listVC
-        if listVC.parent !== self { addChild(listVC) }
-        let v = listVC.view
+        // 活动标签的非当前模式视图同样静默（切走的视图不留任何在飞任务）
+        quiesceContent(of: activeTab, keep: activeTab.viewMode)
+        let vc = contentVC(for: activeTab)
+        if vc.parent !== self { addChild(vc) }
+        let v = vc.view
         v.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.addSubview(v)
         NSLayoutConstraint.activate([
@@ -194,19 +264,36 @@ final class PaneViewController: NSViewController {
         // 窗格本身被布局切走时不恢复（由 resumePane 统一恢复）
         if !isPaneSuspended {
             activeTab.model.resume()
-            activeTab.listVC.refreshVisibleDecorations()
+            wakeActiveContent()
+        }
+    }
+
+    /// 停一个标签各内容视图的派生工作（装饰请求/列加载）；keep 指定的活动模式视图不停
+    private func quiesceContent(of tab: Tab, keep: PaneViewMode? = nil) {
+        if keep != .list { tab.listVC.cancelDecorationWork() }
+        if keep != .icons { tab.iconVC?.cancelDecorationWork() }
+        if keep != .columns { tab.columnVC?.suspend() }
+    }
+
+    /// 唤醒活动标签当前模式的内容视图（各模式的恢复语义）
+    private func wakeActiveContent() {
+        let tab = activeTab
+        switch tab.viewMode {
+        case .list: tab.listVC.refreshVisibleDecorations()
+        case .icons: tab.iconVC?.refreshVisibleDecorations()
+        case .columns: tab.columnVC?.wake(at: tab.browser.current)
         }
     }
 
     // MARK: 窗格级挂起/恢复（PaneGridController 布局切换时调用——北极星零后台功耗）
 
-    /// 布局切走本窗格：所有标签挂起（活动标签也挂），装饰请求全取消
+    /// 布局切走本窗格：所有标签挂起（活动标签也挂），装饰/列加载请求全取消
     func suspendPane() {
         guard !isPaneSuspended else { return }
         isPaneSuspended = true
         for tab in tabs {
             tab.model.suspend()
-            tab.listVC.cancelDecorationWork()
+            quiesceContent(of: tab)
         }
     }
 
@@ -215,7 +302,7 @@ final class PaneViewController: NSViewController {
         guard isPaneSuspended else { return }
         isPaneSuspended = false
         activeTab.model.resume()
-        activeTab.listVC.refreshVisibleDecorations()
+        wakeActiveContent()
     }
 
     private func refreshChrome() {
@@ -229,8 +316,21 @@ final class PaneViewController: NSViewController {
     }
 
     private func updateStatusCounts() {
-        statusBar.update(itemCount: activeTab.model.items.count,
-                         selectedCount: activeTab.listVC.selectedItems.count)
+        var items = activeTab.model.items.count
+        var selected = 0
+        switch activeTab.viewMode {
+        case .list:
+            selected = activeTab.listVC.selectedItems.count
+        case .icons:
+            selected = activeTab.iconVC?.selectedItems.count ?? 0
+        case .columns:
+            // 分栏语义：计焦点列（列自管加载，与 model 无关）
+            if let counts = activeTab.columnVC?.statusCounts {
+                items = counts.items
+                selected = counts.selected
+            }
+        }
+        statusBar.update(itemCount: items, selectedCount: selected)
     }
 
     private func displayName(_ url: URL) -> String {
@@ -246,6 +346,10 @@ final class PaneViewController: NSViewController {
 
     private func applyLocation() {
         activeTab.model.navigate(to: activeTab.browser.current)
+        // 分栏模式：列链联动（沿当前链下钻原地扩列，跳转则重建列链）
+        if activeTab.viewMode == .columns {
+            activeTab.columnVC?.showDirectory(activeTab.browser.current)
+        }
         refreshChrome()
     }
 
@@ -253,6 +357,35 @@ final class PaneViewController: NSViewController {
     func setTabBarVisible(_ visible: Bool) {
         tabBar.isHidden = !visible
         tabBarHeight?.constant = visible ? 22 : 0
+    }
+
+    // MARK: 视图模式切换（M9：⌘1 图标 / ⌘2 列表 / ⌘3 分栏；选中按 URL 集迁移）
+
+    func setViewMode(_ mode: PaneViewMode) {
+        guard activeTab.viewMode != mode else { return }
+        let carried = currentSelectionURLs()
+        activeTab.viewMode = mode
+        mountActiveTab()
+        restoreSelection(carried)
+        view.window?.makeFirstResponder(focusTarget)
+        updateStatusCounts()
+    }
+
+    private func currentSelectionURLs() -> [URL] {
+        switch activeTab.viewMode {
+        case .list: return activeTab.listVC.selectedURLs
+        case .icons: return activeTab.iconVC?.selectedURLs ?? []
+        case .columns: return activeTab.columnVC?.selectedURLs ?? []
+        }
+    }
+
+    private func restoreSelection(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        switch activeTab.viewMode {
+        case .list: activeTab.listVC.select(urls: urls)
+        case .icons: activeTab.iconVC?.select(urls: urls)
+        case .columns: activeTab.columnVC?.select(urls: urls)
+        }
     }
 
     // MARK: 活动窗格高亮
@@ -269,13 +402,28 @@ final class PaneViewController: NSViewController {
     }
 
     /// 焦点落点（PaneGrid 激活窗格时把键盘焦点交给内容视图）
-    var focusTarget: NSView { activeTab.listVC.focusTarget }
+    var focusTarget: NSView {
+        switch activeTab.viewMode {
+        case .list: return activeTab.listVC.focusTarget
+        case .icons: return ensureIconVC(for: activeTab).focusTarget
+        case .columns: return ensureColumnVC(for: activeTab).focusTarget
+        }
+    }
 
-    /// 操作后重读活动列表（真实 FS 投影刷新）
-    func reloadActiveList() { activeTab.model.reload() }
+    /// 操作后重读活动内容（真实 FS 投影刷新；分栏另刷自管列链）
+    func reloadActiveList() {
+        activeTab.model.reload()
+        if activeTab.viewMode == .columns { activeTab.columnVC?.reloadAllColumns() }
+    }
 
-    /// 仅重绘活动列表（剪切灰显变化，无需重新读盘）
-    func redrawActiveList() { activeTab.listVC.redraw() }
+    /// 仅重绘活动内容（剪切灰显变化，无需重新读盘）
+    func redrawActiveList() {
+        switch activeTab.viewMode {
+        case .list: activeTab.listVC.redraw()
+        case .icons: activeTab.iconVC?.redraw()
+        case .columns: activeTab.columnVC?.redraw()
+        }
+    }
 
     // MARK: 地址栏编辑
 
@@ -325,15 +473,29 @@ final class PaneViewController: NSViewController {
             view.window?.performClose(sender)
         }
     }
+
+    // 视图模式菜单（显示 > 为图标/为列表/为分栏）
+    @objc func viewAsIcons(_ sender: Any?) { setViewMode(.icons) }
+    @objc func viewAsList(_ sender: Any?) { setViewMode(.list) }
+    @objc func viewAsColumns(_ sender: Any?) { setViewMode(.columns) }
 }
 
 extension PaneViewController: @preconcurrency NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(goBack(_:)): activeTab.browser.canGoBack
-        case #selector(goForward(_:)): activeTab.browser.canGoForward
-        case #selector(goUpFolder(_:)): activeTab.browser.canGoUp
-        default: true
+        case #selector(goBack(_:)): return activeTab.browser.canGoBack
+        case #selector(goForward(_:)): return activeTab.browser.canGoForward
+        case #selector(goUpFolder(_:)): return activeTab.browser.canGoUp
+        case #selector(viewAsIcons(_:)):
+            menuItem.state = activeTab.viewMode == .icons ? .on : .off
+            return true
+        case #selector(viewAsList(_:)):
+            menuItem.state = activeTab.viewMode == .list ? .on : .off
+            return true
+        case #selector(viewAsColumns(_:)):
+            menuItem.state = activeTab.viewMode == .columns ? .on : .off
+            return true
+        default: return true
         }
     }
 }

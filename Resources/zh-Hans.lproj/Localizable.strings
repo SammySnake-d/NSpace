@@ -152,3 +152,9 @@
 "search.kind.movie" = "影片";
 "search.kind.audio" = "音频";
 "search.kind.archive" = "压缩包";
+
+/* M9 视图模式 */
+"menu.viewAsIcons" = "为图标";
+"menu.viewAsList" = "为列表";
+"menu.viewAsColumns" = "为分栏";
+"iconGrid.sizeTooltip" = "图标大小";

@@ -2,6 +2,12 @@ import AppKit
 import NSpaceKernel
 import NSpaceContracts
 
+/// 操作后显露落点（新建完成 → 选中并按需进入重命名）；列表/图标视图各自实现（分栏传 nil）
+@MainActor
+protocol FileRevealTarget: AnyObject {
+    func prepareReveal(_ url: URL, rename: Bool)
+}
+
 /// UI → 内核桥（每窗口一个）：把用户意图翻译成 OperationSpec 交给 OperationKernel，
 /// 由胶囊节点执行（BG-1：本层零写型文件 API）。负责剪贴板、撤销注册、操作后刷新窗格。
 @MainActor
@@ -76,14 +82,14 @@ final class FileOpsCoordinator {
         run(OperationSpec(kind: .duplicate, sources: urls))
     }
 
-    func newFolder(in directory: URL, revealIn list: FileListViewController?) {
+    func newFolder(in directory: URL, revealIn list: FileRevealTarget?) {
         run(OperationSpec(kind: .newFolder, sources: [], destination: directory,
                           newName: L10n.t("newItem.folder"))) { receipt in
             if let url = receipt?.createdURLs.first { list?.prepareReveal(url, rename: true) }
         }
     }
 
-    func newFile(in directory: URL, revealIn list: FileListViewController?) {
+    func newFile(in directory: URL, revealIn list: FileRevealTarget?) {
         run(OperationSpec(kind: .newFile, sources: [], destination: directory,
                           newName: L10n.t("newItem.file"))) { receipt in
             if let url = receipt?.createdURLs.first { list?.prepareReveal(url, rename: true) }

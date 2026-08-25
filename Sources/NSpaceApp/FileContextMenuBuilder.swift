@@ -1,13 +1,14 @@
 import AppKit
 import NSpaceContracts
 
-/// 右键菜单构造器：按选中态生成菜单；命令全部路由到 FileListViewController 的响应链动作。
+/// 右键菜单构造器：按选中态生成菜单；命令按 selector 名路由到各内容视图（列表/图标/分栏）的响应链动作。
+/// target 只需实现同名 @objc 动作即可复用（未实现的动作项自动灰显——诚实禁用）。
 /// 空白区右键 → 目录级菜单（新建/粘贴/显示简介当前目录）。
 @MainActor
 enum FileContextMenuBuilder {
 
     static func menu(selection: [FileItem], directory: URL,
-                     target: FileListViewController) -> NSMenu {
+                     target: AnyObject) -> NSMenu {
         selection.isEmpty
             ? directoryMenu(directory: directory, target: target)
             : itemMenu(selection: selection, directory: directory, target: target)
@@ -15,7 +16,7 @@ enum FileContextMenuBuilder {
 
     // MARK: 目录级菜单（空白区）
 
-    private static func directoryMenu(directory: URL, target: FileListViewController) -> NSMenu {
+    private static func directoryMenu(directory: URL, target: AnyObject) -> NSMenu {
         let menu = NSMenu()
         add(menu, "menu.newFolder", #selector(FileListViewController.newFolderHere(_:)), target,
             key: "N", mods: [.command, .shift], symbol: "folder.badge.plus")
@@ -32,7 +33,7 @@ enum FileContextMenuBuilder {
     // MARK: 条目菜单（有选中）
 
     private static func itemMenu(selection: [FileItem], directory: URL,
-                                 target: FileListViewController) -> NSMenu {
+                                 target: AnyObject) -> NSMenu {
         let menu = NSMenu()
         let single = selection.count == 1 ? selection.first : nil
 
@@ -79,7 +80,7 @@ enum FileContextMenuBuilder {
 
     // MARK: 打开方式子菜单（列 App + 图标 + 默认项标注 + 其他…）
 
-    private static func openWithSubmenu(for url: URL, target: FileListViewController) -> NSMenuItem {
+    private static func openWithSubmenu(for url: URL, target: AnyObject) -> NSMenuItem {
         let item = NSMenuItem(title: L10n.t("menu.openWith"), action: nil, keyEquivalent: "")
         item.image = NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil)
         let submenu = NSMenu()
@@ -113,7 +114,7 @@ enum FileContextMenuBuilder {
 
     @discardableResult
     private static func add(_ menu: NSMenu, _ key: String, _ action: Selector,
-                            _ target: FileListViewController,
+                            _ target: AnyObject,
                             key equiv: String = "", mods: NSEvent.ModifierFlags = [],
                             symbol: String? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: L10n.t(key), action: action, keyEquivalent: equiv)
