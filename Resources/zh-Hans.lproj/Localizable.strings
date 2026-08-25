@@ -213,6 +213,7 @@
 "settings.extractWrapperNote" = "当压缩包顶层只有一个条目时忽略此设置。";
 "settings.extractKeepArchive" = "解压后保留压缩包";
 "settings.archiveCryptoNote" = "ZIP 加密采用传统 ZipCrypto，属弱加密，仅作轻度保护。";
+"settings.archiveScopeNote" = "本页仅作用于 NSpace 右键「压缩／解压」命令的产物；双击压缩包仍按系统默认程序打开（如 Bandizip），不受此处影响。";
 /* 使用习惯 + 打开模式 + 权限（QSpace 对齐子集） */
 "settings.tab.behavior" = "使用习惯";
 "settings.behavior.enter" = "Enter 键";

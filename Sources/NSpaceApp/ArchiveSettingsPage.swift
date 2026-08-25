@@ -7,6 +7,11 @@ final class ArchiveSettingsPage: NSObject, SettingsPage {
     var pageTitleKey: String { "settings.tab.archive" }
 
     func makeView() -> NSView {
+        // 作用域说明置顶：本页只管 NSpace 自带压缩/解压命令，双击打开始终走系统默认程序（I-06）
+        let scopeNote = NSTextField(wrappingLabelWithString: L10n.t("settings.archiveScopeNote"))
+        scopeNote.font = .systemFont(ofSize: 11)
+        scopeNote.textColor = .secondaryLabelColor
+
         // 压缩格式 popup
         let formatLabel = NSTextField(labelWithString: L10n.t("settings.archiveFormat"))
         formatLabel.font = .systemFont(ofSize: 12)
@@ -48,7 +53,7 @@ final class ArchiveSettingsPage: NSObject, SettingsPage {
         cryptoNote.font = .systemFont(ofSize: 11)
         cryptoNote.textColor = .tertiaryLabelColor
 
-        let stack = NSStackView(views: [formatRow, keepOriginal,
+        let stack = NSStackView(views: [scopeNote, NSBox.separatorLine(), formatRow, keepOriginal,
                                         NSBox.separatorLine(), wrapper, wrapperNote, keepArchive,
                                         NSBox.separatorLine(), cryptoNote])
         stack.orientation = .vertical

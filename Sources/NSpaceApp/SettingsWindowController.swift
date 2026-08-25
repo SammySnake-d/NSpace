@@ -100,7 +100,7 @@ final class SettingsWindowController: NSWindowController {
             selectedTag: Preferences.defaultLayoutRaw,
             action: #selector(defaultLayoutChanged(_:)))
         let viewRow = popupRow("settings.defaultView",
-            options: [(0, L10n.t("menu.asIcons")), (1, L10n.t("menu.asList")), (2, L10n.t("menu.asColumns"))],
+            options: [(0, L10n.t("menu.viewAsIcons")), (1, L10n.t("menu.viewAsList")), (2, L10n.t("menu.viewAsColumns"))],
             selectedTag: Preferences.defaultViewModeRaw,
             action: #selector(defaultViewChanged(_:)))
         let termRow = popupRow("settings.terminal",
@@ -230,15 +230,8 @@ final class SettingsWindowController: NSWindowController {
         limitation.font = .systemFont(ofSize: 11)
         limitation.textColor = .tertiaryLabelColor
 
-        let fdaButton = NSButton(title: L10n.t("settings.openFDA"), target: self,
-                                 action: #selector(openFDA))
-        fdaButton.bezelStyle = .push
-        let fdaNote = NSTextField(wrappingLabelWithString: L10n.t("settings.fdaNote"))
-        fdaNote.font = .systemFont(ofSize: 11)
-        fdaNote.textColor = .tertiaryLabelColor
-
-        let stack = NSStackView(views: [defaultHandlerButton, statusLabel, limitation,
-                                        NSBox.separatorLine(), fdaButton, fdaNote])
+        // 完全磁盘访问的按钮与说明统一收口在「权限」页（I-09 去重），此页只留替代 Finder 主题内容
+        let stack = NSStackView(views: [defaultHandlerButton, statusLabel, limitation])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -282,10 +275,6 @@ final class SettingsWindowController: NSWindowController {
                 self?.refreshFinderState()
             }
         }
-    }
-
-    @objc private func openFDA() {
-        FinderIntegration.openFullDiskAccessSettings()
     }
 }
 
