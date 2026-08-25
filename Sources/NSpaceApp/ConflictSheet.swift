@@ -51,7 +51,7 @@ final class ConflictSheet: ConflictArbiter, @unchecked Sendable {
     @MainActor
     private static func makeAlert(for conflict: FileConflict) -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = L10n.t("conflict.title", conflict.existing.lastPathComponent)
+        alert.messageText = L10n.f("conflict.title", conflict.existing.lastPathComponent)
         alert.informativeText = L10n.t("conflict.message")
         alert.icon = NSWorkspace.shared.icon(forFile: conflict.source.path)
         alert.accessoryView = accessory(source: conflict.source, existing: conflict.existing)

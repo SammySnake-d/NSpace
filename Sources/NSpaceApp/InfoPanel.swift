@@ -11,7 +11,7 @@ enum InfoPanel {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
                             styleMask: [.titled, .closable, .utilityWindow],
                             backing: .buffered, defer: false)
-        panel.title = L10n.t("info.title", url.lastPathComponent)
+        panel.title = L10n.f("info.title", url.lastPathComponent)
         panel.isReleasedWhenClosed = false
         panel.contentView = buildContent(for: url)
         panel.center()

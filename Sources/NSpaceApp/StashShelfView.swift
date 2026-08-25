@@ -13,6 +13,7 @@ final class StashShelfView: NSView {
     private let stackPile = StashPileView()
     private let countButton = NSButton()
     private let actionsStack = NSStackView()
+    private let dropCatcher = StashDropCatcher()
     private var heightConstraint: NSLayoutConstraint?
 
     /// 空态 88pt，有货 200pt（QSpace 牌堆规格）
@@ -49,7 +50,7 @@ final class StashShelfView: NSView {
 
         // 纯图标操作条（竖排；FG-1：空暂存架时隐藏）
         actionsStack.orientation = .vertical
-        actionsStack.spacing = 12
+        actionsStack.spacing = 10
         actionsStack.alignment = .centerX
         let actions: [(String, String, StashAction?)] = [
             ("doc.on.doc", "stash.copyHere", .copyHere),
@@ -72,14 +73,25 @@ final class StashShelfView: NSView {
                 button.action = #selector(clearAll(_:))
             }
             actionsStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 22).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 32).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         }
 
         for sub in [titleLabel, emptyIcon, emptyLabel, stackPile, countButton, actionsStack] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addSubview(sub)
         }
+        // 顶层透明捕手（最后添加=z序最前）：本系统上未注册子视图会吞拖放冒泡，
+        // 逐个转发不彻底——改为单点全域接管；hitTest=nil 让点击穿透到按钮/牌堆
+        dropCatcher.shelf = self
+        dropCatcher.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dropCatcher)
+        NSLayoutConstraint.activate([
+            dropCatcher.topAnchor.constraint(equalTo: topAnchor),
+            dropCatcher.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dropCatcher.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dropCatcher.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
         let height = heightAnchor.constraint(equalToConstant: Self.emptyHeight)
         heightConstraint = height
         NSLayoutConstraint.activate([
@@ -358,5 +370,45 @@ extension StashPileView: NSDraggingSource {
     nonisolated func draggingSession(_ session: NSDraggingSession,
                                      sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         [.copy, .move, .generic]
+    }
+}
+
+
+/// 暂存架拖放捕手：盖满专区、注册 fileURL；普通鼠标事件穿透（hitTest=nil），
+/// 拖放目标查找按注册视图进行、不受 hitTest 影响——单点接管根治子视图吞冒泡
+@MainActor
+final class StashDropCatcher: NSView {
+    weak var shelf: StashShelfView?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let op = shelf?.dropOperation(sender) ?? []
+        shelf?.dropHighlight(op != [])
+        return op
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        shelf?.dropOperation(sender) ?? []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        shelf?.dropHighlight(false)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        shelf?.dropHighlight(false)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        shelf?.acceptDrop(sender) ?? false
     }
 }
