@@ -3,11 +3,12 @@ import NSpaceContracts
 import VolumeInfo
 import BookmarkStore
 
-/// 侧边栏树模型：暂存架（StashStore）+ 起始位置（静态）+ 书签（BookmarkStore）+ 位置（VolumeInfo）。
-/// NSOutlineView 需要引用身份，故节点为 class。
+/// 侧边栏树模型：书签（BookmarkStore，含起始位置种子）+ iCloud + 位置（VolumeInfo）。
+/// 暂存架（StashStore）在专区呈现不入 outline。NSOutlineView 需要引用身份，故节点为 class。
 @MainActor
 final class SidebarGroupNode {
-    enum Kind { case favorites, bookmarks, volumes }
+    /// 分组种类；rawValue 即分组顺序持久化键（Preferences.sidebarGroupOrder / 拖拽 pasteboard）
+    enum Kind: String { case bookmarks, icloud, volumes }
     let kind: Kind
     let title: String
     var children: [SidebarLeafNode] = []
@@ -65,7 +66,12 @@ final class SidebarModel {
     }
 
     func start() {
-        rebuild()
+        // 起始位置种子：新装/无 bookmarks.json 时把个人域已知目录注入书签（一次性，胶囊幂等）
+        Task { [weak self] in
+            guard let self else { return }
+            await self.bookmarkStore.seedIfEmpty(Self.seedPlaces())
+            self.rebuild()
+        }
         // 卷挂载/卸载自动刷新
         volumeWatchTask = Task { [weak self] in
             guard let self else { return }
@@ -91,16 +97,36 @@ final class SidebarModel {
     }
 
     private func applyRebuild(bookmarks: [BookmarkItem]) {
-        let favorites = SidebarGroupNode(kind: .favorites, title: L10n.t("sidebar.favorites"))
-        favorites.children = Self.standardPlaces()
-
+        // 书签组：起始位置种子与用户书签同栈。home 域已知路径用 SF Symbol+符号蓝，否则真实文件图标。
         let bookmarkGroup = SidebarGroupNode(kind: .bookmarks, title: L10n.t("sidebar.bookmarks"))
         bookmarkGroup.children = bookmarks.map { item in
             let url = bookmarkStore.resolve(item)
-            let icon: NSImage = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+            let icon: NSImage
+            var tint: NSColor? = nil
+            if let url, let (symbol, color) = Self.symbolFor(url: url),
+               let symImage = NSImage(systemSymbolName: symbol, accessibilityDescription: item.name) {
+                icon = symImage
+                tint = color
+            } else {
+                icon = url.map { NSWorkspace.shared.icon(forFile: $0.path) }
+                    ?? NSWorkspace.shared.icon(for: .folder)
+            }
+            icon.size = NSSize(width: 16, height: 16)
+            return SidebarLeafNode(payload: .bookmark(item), title: item.name, icon: icon,
+                                   url: url, tint: tint)
+        }
+
+        // iCloud 独立分组（QSpace 同构）：仅当 iCloud 云盘目录存在才有条目/显示
+        let icloudGroup = SidebarGroupNode(kind: .icloud, title: L10n.t("sidebar.icloud.section"))
+        let icloudURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        if FileManager.default.fileExists(atPath: icloudURL.path) {
+            let icon = NSImage(systemSymbolName: "icloud", accessibilityDescription: L10n.t("sidebar.icloud"))
                 ?? NSWorkspace.shared.icon(for: .folder)
             icon.size = NSSize(width: 16, height: 16)
-            return SidebarLeafNode(payload: .bookmark(item), title: item.name, icon: icon, url: url)
+            icloudGroup.children = [SidebarLeafNode(payload: .place(icloudURL),
+                                                    title: L10n.t("sidebar.icloud"), icon: icon,
+                                                    url: icloudURL, tint: .systemBlue)]
         }
 
         let volumeGroup = SidebarGroupNode(kind: .volumes, title: L10n.t("sidebar.volumes"))
@@ -119,32 +145,62 @@ final class SidebarModel {
                                    subtitle: subtitle)
         }
 
-        groups = [favorites, bookmarkGroup, volumeGroup]
+        // 按 Preferences.sidebarGroupOrder 输出分组顺序（用户点名：书签可拖到最前）。
+        // 空的 iCloud 组不显示；顺序表未覆盖的分组按固定序补尾（向后兼容/新分组）。
+        var available: [String: SidebarGroupNode] = [
+            SidebarGroupNode.Kind.bookmarks.rawValue: bookmarkGroup,
+            SidebarGroupNode.Kind.volumes.rawValue: volumeGroup,
+        ]
+        if !icloudGroup.children.isEmpty {
+            available[SidebarGroupNode.Kind.icloud.rawValue] = icloudGroup
+        }
+        var ordered: [SidebarGroupNode] = []
+        for key in Preferences.sidebarGroupOrder {
+            if let g = available.removeValue(forKey: key) { ordered.append(g) }
+        }
+        for key in [SidebarGroupNode.Kind.bookmarks.rawValue,
+                    SidebarGroupNode.Kind.icloud.rawValue,
+                    SidebarGroupNode.Kind.volumes.rawValue] {
+            if let g = available.removeValue(forKey: key) { ordered.append(g) }
+        }
+        groups = ordered
         onChange?()
     }
 
-    /// 起始位置：存在才显示（FG-1 无真实目标不留死条目）
-    private static func standardPlaces() -> [SidebarLeafNode] {
+    /// 起始位置种子候选（个人域已知位置；不含 iCloud——iCloud 独立成节）。存在才纳入。
+    /// name 由此给定（BookmarkStore 胶囊不含 L10n），与后续 symbolFor 的路径映射对齐。
+    static func seedPlaces() -> [(URL, String)] {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let icloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
-        let candidates: [(String, URL, String)] = [
-            (L10n.t("sidebar.home"), home, "house"),
-            (L10n.t("sidebar.desktop"), home.appendingPathComponent("Desktop"), "desktopcomputer"),
-            (L10n.t("sidebar.documents"), home.appendingPathComponent("Documents"), "doc"),
-            (L10n.t("sidebar.movies"), home.appendingPathComponent("Movies"), "film"),
-            (L10n.t("sidebar.music"), home.appendingPathComponent("Music"), "music.note"),
-            (L10n.t("sidebar.pictures"), home.appendingPathComponent("Pictures"), "photo"),
-            (L10n.t("sidebar.downloads"), home.appendingPathComponent("Downloads"), "arrow.down.circle"),
-            (L10n.t("sidebar.applications"), URL(fileURLWithPath: "/Applications"), "app"),
-            (L10n.t("sidebar.icloud"), icloud, "icloud"),
+        let candidates: [(URL, String)] = [
+            (home, L10n.t("sidebar.home")),
+            (home.appendingPathComponent("Desktop"), L10n.t("sidebar.desktop")),
+            (home.appendingPathComponent("Documents"), L10n.t("sidebar.documents")),
+            (home.appendingPathComponent("Movies"), L10n.t("sidebar.movies")),
+            (home.appendingPathComponent("Music"), L10n.t("sidebar.music")),
+            (home.appendingPathComponent("Pictures"), L10n.t("sidebar.pictures")),
+            (home.appendingPathComponent("Downloads"), L10n.t("sidebar.downloads")),
+            (URL(fileURLWithPath: "/Applications"), L10n.t("sidebar.applications")),
         ]
-        return candidates.compactMap { name, url, symbol in
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
-                ?? NSWorkspace.shared.icon(for: .folder)
-            // Finder 式蓝色收藏图标
-            return SidebarLeafNode(payload: .place(url), title: name, icon: icon, url: url,
-                                   tint: .systemBlue)
+        return candidates.filter { FileManager.default.fileExists(atPath: $0.0.path) }
+    }
+
+    /// home 域已知位置 → (SF Symbol, 符号蓝)。书签行渲染时匹配：命中用符号蓝标，否则真实文件夹图标。
+    static func symbolFor(url: URL) -> (String, NSColor)? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let map: [(URL, String)] = [
+            (home, "house"),
+            (home.appendingPathComponent("Desktop"), "desktopcomputer"),
+            (home.appendingPathComponent("Documents"), "doc"),
+            (home.appendingPathComponent("Movies"), "film"),
+            (home.appendingPathComponent("Music"), "music.note"),
+            (home.appendingPathComponent("Pictures"), "photo"),
+            (home.appendingPathComponent("Downloads"), "arrow.down.circle"),
+            (URL(fileURLWithPath: "/Applications"), "app"),
+        ]
+        let target = url.standardizedFileURL.path
+        for (u, symbol) in map where u.standardizedFileURL.path == target {
+            return (symbol, .systemBlue)
         }
+        return nil
     }
 }

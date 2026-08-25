@@ -42,6 +42,13 @@ enum Preferences {
         set { d.set(newValue, forKey: "visibleColumns") }
     }
 
+    /// 侧栏分组顺序（QSpace 语义——用户点名：书签可拖到最前）。
+    /// outline 分组键：bookmarks/icloud/volumes（暂存架在专区不入 outline）；拖动分组标题行重排落盘于此。
+    static var sidebarGroupOrder: [String] {
+        get { d.stringArray(forKey: "sidebarGroupOrder") ?? ["bookmarks", "icloud", "volumes"] }
+        set { d.set(newValue, forKey: "sidebarGroupOrder") }
+    }
+
     /// 终端候选（bundle id；auto 特殊值）
     static let terminalOptions: [(id: String, nameKey: String)] = [
         ("auto", "settings.terminal.auto"),

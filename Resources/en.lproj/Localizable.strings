@@ -88,8 +88,8 @@
 "conflict.merge" = "Merge";
 "conflict.cancel" = "Cancel";
 "conflict.applyToAll" = "Apply to All";
-"sidebar.favorites" = "Favorites";
 "sidebar.bookmarks" = "Bookmarks";
+"sidebar.icloud.section" = "iCloud";
 "sidebar.volumes" = "Locations";
 "sidebar.home" = "Home";
 "sidebar.desktop" = "Desktop";
