@@ -30,7 +30,7 @@
 - ⬜ 操作进度窗（消费 OperationProjection 流，>0.5s 自动弹出，可取消）
 - ⬜ 冲突面板（替换/跳过/两者保留/合并 + 应用到全部，原位 sheet）
 
-### M7 拖拽 + 暂存架 ⬜
+### M7 拖拽 + 暂存架 🚧（dragdrop 代理进行中）
 - ⬜ **拖动移动/复制文件**（用户点名）：窗格间、与 Finder/其他 App 互拖，⌥=复制、同卷默认移动、跨卷复制
 - ⬜ 拖到面包屑分段投放；spring-loaded 悬停进入文件夹
 - ⬜ 暂存架：侧栏区 + 浮动面板，拖入暂存、批量复制/移动到活动窗格、AirDrop、移除、跨启动持久化（StashStore 胶囊）
@@ -44,14 +44,14 @@
 - ⬜ 图标网格视图 ⌘1（NSCollectionView，图标大小滑块）
 - ⬜ 列表视图 ⌘2（现有）/ 分栏 Miller columns ⌘3
 
-### M10 实时刷新 + 性能收口 ⬜
+### M10 实时刷新 + 性能收口 🚧（wiring 代理进行中）
 - ⬜ FSEvents 自动刷新（DirectoryWatch 胶囊，≤0.5s；后台标签/窗格挂起——北极星）
 - ⬜ 按需文件夹大小计算（FolderSize 胶囊）
 - ⬜ 逐文件精确图标/QuickLook 缩略图升级（IconThumb 胶囊，LRU，滚出取消）
 - ⬜ **底部状态栏**（用户点名）：N 项/已选 M 项/可用空间
 
 ### M11 打磨 + Finder 集成 ⬜
-- ⬜ **设置窗口 + ⌘, 快捷键**（用户点名）
+- ✅ **设置窗口 + ⌘, 快捷键**（用户点名，已完成含"设为默认"按钮）
 - ⬜ 会话恢复：重开恢复窗口/布局/窗格/标签/路径（SessionStore 胶囊）
 - ⬜ 设为默认文件夹打开程序（setDefaultApplication(.folder)，旧 API 兜底）；open-URL 文件→父目录+选中
 - ⬜ 在终端打开（Terminal/iTerm）
