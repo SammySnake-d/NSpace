@@ -169,3 +169,5 @@
 "toast.copiedPaths" = "已拷贝 %d 条路径";
 "toast.bookmarkAdded" = "已添加 %d 个书签";
 "menu.addBookmark" = "添加到书签";
+"stash.manage" = "管理暂存项";
+"stash.dragHint" = "拖动可整摞取出";

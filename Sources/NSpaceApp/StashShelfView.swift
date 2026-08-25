@@ -1,9 +1,8 @@
 import AppKit
 import StashStore
 
-/// 暂存架专区（QSpace 式，M14）：侧栏顶部独立区域——大图标卡片 + 纯图标操作条。
-/// 隐性语义原则：操作零文字，图标 + tooltip（30ms 识别 vs 300ms 阅读）。
-/// 整区为投放目标；卡片可拖出；权威状态经 StashShelfController → StashStore。
+/// 暂存架专区（QSpace 式堆叠牌堆，M14/M16）：多项叠成一摞 + "N ⌄" 下拉管理 + 纯图标操作条。
+/// 拖动牌堆 = 整摞文件一起拖出；隐性语义：操作零文字，图标 + tooltip。
 @MainActor
 final class StashShelfView: NSView {
     private(set) weak var controller: StashShelfController?
@@ -11,14 +10,14 @@ final class StashShelfView: NSView {
     private let titleLabel = NSTextField(labelWithString: L10n.t("sidebar.stash"))
     private let emptyIcon = NSImageView()
     private let emptyLabel = NSTextField(labelWithString: L10n.t("stash.empty"))
-    private let cardsScroll = NSScrollView()
-    private let cardsStack = NSStackView()
+    private let stackPile = StashPileView()
+    private let countButton = NSButton()
     private let actionsStack = NSStackView()
     private var heightConstraint: NSLayoutConstraint?
 
-    /// 空态 88pt，有货 224pt（QSpace 规格：大图标卡片要有真实呼吸空间）
+    /// 空态 88pt，有货 200pt（QSpace 牌堆规格）
     private static let emptyHeight: CGFloat = 88
-    private static let filledHeight: CGFloat = 224
+    private static let filledHeight: CGFloat = 200
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -35,25 +34,18 @@ final class StashShelfView: NSView {
         emptyLabel.font = .systemFont(ofSize: 11)
         emptyLabel.textColor = .tertiaryLabelColor
 
-        cardsStack.orientation = .horizontal
-        cardsStack.spacing = 8
-        cardsStack.alignment = .centerY
-        cardsStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 4)
-        cardsScroll.documentView = cardsStack
-        // documentView 用 AutoLayout 必须钉边到 contentView，否则 frame 恒零（卡片全不可见的元凶）
-        cardsStack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            cardsStack.topAnchor.constraint(equalTo: cardsScroll.contentView.topAnchor),
-            cardsStack.bottomAnchor.constraint(equalTo: cardsScroll.contentView.bottomAnchor),
-            cardsStack.leadingAnchor.constraint(equalTo: cardsScroll.contentView.leadingAnchor),
-            cardsStack.trailingAnchor.constraint(greaterThanOrEqualTo: cardsScroll.contentView.trailingAnchor),
-            cardsStack.heightAnchor.constraint(equalTo: cardsScroll.contentView.heightAnchor),
-        ])
-        cardsScroll.drawsBackground = false
-        cardsScroll.hasHorizontalScroller = true
-        cardsScroll.hasVerticalScroller = false
-        cardsScroll.autohidesScrollers = true
-        cardsScroll.verticalScrollElasticity = .none
+        // "N ⌄" / "名称 ⌄"：点击弹出条目管理菜单（隐性语义：数字即入口）
+        countButton.bezelStyle = .accessoryBarAction
+        countButton.isBordered = false
+        countButton.font = .systemFont(ofSize: 12, weight: .medium)
+        countButton.imagePosition = .imageTrailing
+        countButton.image = NSImage(systemSymbolName: "chevron.down",
+                                    accessibilityDescription: L10n.t("stash.manage"))
+        countButton.symbolConfiguration = .init(pointSize: 8, weight: .semibold)
+        countButton.contentTintColor = .labelColor
+        countButton.toolTip = L10n.t("stash.manage")
+        countButton.target = self
+        countButton.action = #selector(showManageMenu(_:))
 
         // 纯图标操作条（竖排；FG-1：空暂存架时隐藏）
         actionsStack.orientation = .vertical
@@ -84,7 +76,7 @@ final class StashShelfView: NSView {
             button.heightAnchor.constraint(equalToConstant: 22).isActive = true
         }
 
-        for sub in [titleLabel, emptyIcon, emptyLabel, cardsScroll, actionsStack] {
+        for sub in [titleLabel, emptyIcon, emptyLabel, stackPile, countButton, actionsStack] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addSubview(sub)
         }
@@ -100,13 +92,16 @@ final class StashShelfView: NSView {
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.topAnchor.constraint(equalTo: emptyIcon.bottomAnchor, constant: 4),
 
-            cardsScroll.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-            cardsScroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            cardsScroll.trailingAnchor.constraint(equalTo: actionsStack.leadingAnchor, constant: -2),
-            cardsScroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            // 牌堆居中（给右侧操作条留位），计数钮居其下
+            stackPile.centerXAnchor.constraint(equalTo: centerXAnchor, constant: -12),
+            stackPile.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10),
+            stackPile.widthAnchor.constraint(equalToConstant: 112),
+            stackPile.heightAnchor.constraint(equalToConstant: 112),
+            countButton.centerXAnchor.constraint(equalTo: stackPile.centerXAnchor),
+            countButton.topAnchor.constraint(equalTo: stackPile.bottomAnchor, constant: 4),
 
             actionsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            actionsStack.centerYAnchor.constraint(equalTo: cardsScroll.centerYAnchor),
+            actionsStack.centerYAnchor.constraint(equalTo: stackPile.centerYAnchor),
         ])
         refresh()
     }
@@ -127,18 +122,60 @@ final class StashShelfView: NSView {
         let empty = items.isEmpty
         emptyIcon.isHidden = !empty
         emptyLabel.isHidden = !empty
-        cardsScroll.isHidden = empty
+        stackPile.isHidden = empty
+        countButton.isHidden = empty
         actionsStack.isHidden = empty
         heightConstraint?.constant = empty ? Self.emptyHeight : Self.filledHeight
 
-        cardsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        guard let controller else { return }
-        for item in items {
-            let url = controller.store.resolve(item)
-            let card = StashCardView(item: item, url: url)
-            card.onRemove = { [weak controller] id in controller?.remove(ids: [id]) }
-            cardsStack.addArrangedSubview(card)
+        guard let controller, !empty else { return }
+        let resolved: [(item: StashItem, url: URL?)] = items.map { ($0, controller.store.resolve($0)) }
+        stackPile.configure(urls: resolved.map(\.url))
+        stackPile.onDragAll = { [weak self] in self?.allResolvedURLs() ?? [] }
+        // 单项显示名称，多项显示数量（QSpace 惯例）
+        if resolved.count == 1 {
+            countButton.title = resolved[0].url?.lastPathComponent ?? L10n.t("stash.missing")
+        } else {
+            countButton.title = String(resolved.count)
         }
+    }
+
+    private func allResolvedURLs() -> [URL] {
+        guard let controller else { return [] }
+        return controller.items.compactMap { controller.store.resolve($0) }
+    }
+
+    // MARK: "N ⌄" 条目管理菜单
+
+    @objc private func showManageMenu(_ sender: NSButton) {
+        guard let controller else { return }
+        let menu = NSMenu()
+        for item in controller.items {
+            let url = controller.store.resolve(item)
+            let row = NSMenuItem(title: url?.lastPathComponent ?? L10n.t("stash.missing"),
+                                 action: nil, keyEquivalent: "")
+            if let url {
+                let icon = NSWorkspace.shared.icon(forFile: url.path)
+                icon.size = NSSize(width: 16, height: 16)
+                row.image = icon
+            }
+            let sub = NSMenu()
+            let remove = sub.addItem(withTitle: L10n.t("stash.remove"),
+                                     action: #selector(removeOne(_:)), keyEquivalent: "")
+            remove.target = self
+            remove.representedObject = item.id
+            row.submenu = sub
+            menu.addItem(row)
+        }
+        menu.addItem(.separator())
+        let clear = menu.addItem(withTitle: L10n.t("stash.clear"),
+                                 action: #selector(clearAll(_:)), keyEquivalent: "")
+        clear.target = self
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 2), in: sender)
+    }
+
+    @objc private func removeOne(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        controller?.remove(ids: [id])
     }
 
     // MARK: 操作（图标条）
@@ -148,7 +185,7 @@ final class StashShelfView: NSView {
         controller?.perform(action)
     }
 
-    @objc private func clearAll(_ sender: NSButton) {
+    @objc private func clearAll(_ sender: Any?) {
         controller?.clearAll()
     }
 
@@ -196,82 +233,79 @@ extension StashAction {
     }
 }
 
-/// 暂存项卡片：大图标 + 名称（QSpace 式）；可拖出、右键移除
+/// 牌堆视图：最多 3 层图标错位堆叠（最新在顶）；拖动 = 整摞文件一起拖出
 @MainActor
-private final class StashCardView: NSView {
-    let itemID: UUID
-    let url: URL?
-    var onRemove: ((UUID) -> Void)?
+private final class StashPileView: NSView {
+    private var layers: [NSImageView] = []
+    /// 拖拽时取整摞 URL（延迟解析保持最新）
+    var onDragAll: (() -> [URL])?
 
-    init(item: StashItem, url: URL?) {
-        self.itemID = item.id
-        self.url = url
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 6
-
-        let icon = NSImageView()
-        if let url {
-            let image = NSWorkspace.shared.icon(forFile: url.path)
-            image.size = NSSize(width: 72, height: 72)
-            icon.image = image
-        } else {
-            icon.image = NSImage(systemSymbolName: "questionmark.square.dashed",
-                                 accessibilityDescription: L10n.t("stash.missing"))
-            icon.contentTintColor = .tertiaryLabelColor
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        for _ in 0..<3 {
+            let iv = NSImageView()
+            iv.imageScaling = .scaleProportionallyUpOrDown
+            iv.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(iv)
+            layers.append(iv)
         }
-        let name = NSTextField(labelWithString: url?.lastPathComponent ?? L10n.t("stash.missing"))
-        name.font = .systemFont(ofSize: 11)
-        name.textColor = url == nil ? .tertiaryLabelColor : .labelColor
-        name.alignment = .center
-        name.lineBreakMode = .byTruncatingMiddle
-        name.maximumNumberOfLines = 2
-        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        for sub in [icon, name] {
-            sub.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(sub)
-        }
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 104),
-            heightAnchor.constraint(equalToConstant: 128),
-            icon.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 72),
-            icon.heightAnchor.constraint(equalToConstant: 72),
-            name.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 4),
-            name.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            name.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            name.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
-        ])
-        toolTip = url?.path
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
-    // 拖出（投到窗格/Finder/面包屑任何 fileURL 目标）
+    override func layout() {
+        super.layout()
+        // 错位堆叠：底层往左上偏 6pt/层，顶层居中（macOS 拖拽堆惯例）
+        let size: CGFloat = 84
+        let visibleLayers = layers.filter { !$0.isHidden }
+        for (pos, iv) in visibleLayers.enumerated() {
+            let depth = CGFloat(visibleLayers.count - 1 - pos)  // 顶层（最后）depth=0
+            iv.frame = NSRect(x: (bounds.width - size) / 2 - depth * 6,
+                              y: (bounds.height - size) / 2 + depth * 6 - 6,
+                              width: size, height: size)
+        }
+    }
+
+    /// urls 顺序 = 入架顺序；取最后 3 个，最新在顶层
+    func configure(urls: [URL?]) {
+        let tail = urls.suffix(3)
+        for (i, iv) in layers.enumerated() {
+            let idx = tail.count - (layers.count - i)  // 对齐尾部
+            if idx >= 0, let url = Array(tail)[idx] {
+                let img = NSWorkspace.shared.icon(forFile: url.path)
+                img.size = NSSize(width: 84, height: 84)
+                iv.image = img
+                iv.isHidden = false
+            } else if idx >= 0 {
+                iv.image = NSImage(systemSymbolName: "questionmark.square.dashed",
+                                   accessibilityDescription: L10n.t("stash.missing"))
+                iv.isHidden = false
+            } else {
+                iv.isHidden = true
+            }
+        }
+        needsLayout = true
+        toolTip = L10n.t("stash.dragHint")
+    }
+
+    // 拖动牌堆 = 整摞拖出（每项一个 NSDraggingItem，帧错位成堆叠视觉）
     override func mouseDragged(with event: NSEvent) {
-        guard let url else { return }
-        let dragItem = NSDraggingItem(pasteboardWriter: url as NSURL)
-        dragItem.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: url.path))
-        beginDraggingSession(with: [dragItem], event: event, source: self)
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        let menu = NSMenu()
-        let remove = menu.addItem(withTitle: L10n.t("stash.remove"),
-                                  action: #selector(removeClicked), keyEquivalent: "")
-        remove.target = self
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-
-    @objc private func removeClicked() {
-        onRemove?(itemID)
+        let urls = onDragAll?() ?? []
+        guard !urls.isEmpty else { return }
+        let items = urls.enumerated().map { (i, url) -> NSDraggingItem in
+            let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            let offset = CGFloat(min(i, 3)) * 5
+            item.setDraggingFrame(NSRect(x: bounds.midX - 32 + offset, y: bounds.midY - 32 + offset,
+                                         width: 64, height: 64), contents: icon)
+            return item
+        }
+        beginDraggingSession(with: items, event: event, source: self)
     }
 }
 
-extension StashCardView: NSDraggingSource {
+extension StashPileView: NSDraggingSource {
     nonisolated func draggingSession(_ session: NSDraggingSession,
                                      sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         [.copy, .move, .generic]

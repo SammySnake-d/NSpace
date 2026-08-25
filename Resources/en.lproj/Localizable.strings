@@ -169,3 +169,5 @@
 "toast.copiedPaths" = "%d paths copied";
 "toast.bookmarkAdded" = "%d bookmarks added";
 "menu.addBookmark" = "Add to Bookmarks";
+"stash.manage" = "Manage Stash";
+"stash.dragHint" = "Drag to take the whole stack";
