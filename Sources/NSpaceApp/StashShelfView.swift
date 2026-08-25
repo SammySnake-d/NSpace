@@ -189,28 +189,55 @@ final class StashShelfView: NSView {
         controller?.clearAll()
     }
 
-    // MARK: 整区投放目标（文件与目录都收）
+    // MARK: 整区投放目标（文件与目录都收；子视图统一转发到这三个方法）
 
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
-        return .copy
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // 挂进 sidebar 视觉层级后重注册，防外层容器重建吞掉注册
+        registerForDraggedTypes([.fileURL])
     }
 
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        layer?.backgroundColor = NSColor.clear.cgColor
+    func dropHighlight(_ on: Bool) {
+        layer?.backgroundColor = on
+            ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+            : NSColor.clear.cgColor
     }
 
-    override func draggingEnded(_ sender: any NSDraggingInfo) {
-        layer?.backgroundColor = NSColor.clear.cgColor
+    func dropOperation(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let has = sender.draggingPasteboard.canReadObject(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        return has ? .copy : []
     }
 
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        layer?.backgroundColor = NSColor.clear.cgColor
+    func acceptDrop(_ sender: any NSDraggingInfo) -> Bool {
+        dropHighlight(false)
         guard let urls = sender.draggingPasteboard.readObjects(
             forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
             !urls.isEmpty else { return false }
         controller?.add(urls)
         return true
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let op = dropOperation(sender)
+        dropHighlight(op != [])
+        return op
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dropOperation(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropHighlight(false)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dropHighlight(false)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        acceptDrop(sender)
     }
 }
 
@@ -242,13 +269,35 @@ private final class StashPileView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL])  // 牌堆区域的投放转发给专区（防子视图遮蔽父级）
         for _ in 0..<3 {
             let iv = NSImageView()
             iv.imageScaling = .scaleProportionallyUpOrDown
+            iv.unregisterDraggedTypes()      // 图像视图绝不自收拖放
             iv.translatesAutoresizingMaskIntoConstraints = false
             addSubview(iv)
             layers.append(iv)
         }
+    }
+
+    private var shelf: StashShelfView? { superview as? StashShelfView }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let op = shelf?.dropOperation(sender) ?? []
+        shelf?.dropHighlight(op != [])
+        return op
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        shelf?.dropOperation(sender) ?? []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        shelf?.dropHighlight(false)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        shelf?.acceptDrop(sender) ?? false
     }
 
     @available(*, unavailable)
