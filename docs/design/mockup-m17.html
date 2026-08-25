@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>NSpace M17 设计版式稿 — 外科手术刀 · 实体透视工作台</title>
+<style>
+/* ============================================================
+   语义化 Token（第四篇）：严禁硬编码散落，两主题自动映射
+   全部间距收敛 4pt 阶梯；发丝线 1px；视错觉修正 ≤2px
+   ============================================================ */
+:root, [data-theme="dark"] {
+  --surface-base:   #1e2023;   /* 窗口内容基底 */
+  --surface-deck:   #26282c;   /* 顶部甲板（近似 .titlebar 材质） */
+  --surface-side:   #232529;   /* 侧栏（近似 .sidebar 震动材质） */
+  --surface-hover:  rgba(255,255,255,.06);
+  --surface-sel:    rgba(10,132,255,.28);  /* 选中行 = accent 28% */
+  --surface-pill:   rgba(10,132,255,.14);  /* 10% 浅底药丸 */
+  --border-subtle:  rgba(255,255,255,.09);
+  --text-primary:   rgba(255,255,255,.92);
+  --text-secondary: rgba(255,255,255,.62);
+  --text-muted:     rgba(255,255,255,.38);
+  --accent:         #0a84ff;   /* = 现 Theme.accent（系统强调色，用户可改） */
+  --icon-folder:    #4da2ff;
+  --zebra:          rgba(255,255,255,.025);
+  --page:           #141517;
+}
+[data-theme="light"] {
+  --surface-base:   #ffffff;
+  --surface-deck:   #f2f2f4;
+  --surface-side:   #ececed;
+  --surface-hover:  rgba(0,0,0,.05);
+  --surface-sel:    rgba(0,102,204,.22);
+  --surface-pill:   rgba(0,102,204,.10);
+  --border-subtle:  rgba(0,0,0,.10);
+  --text-primary:   rgba(0,0,0,.88);
+  --text-secondary: rgba(0,0,0,.58);
+  --text-muted:     rgba(0,0,0,.34);
+  --accent:         #0066cc;
+  --icon-folder:    #1f8fff;
+  --zebra:          rgba(0,0,0,.02);
+  --page:           #d8d9db;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+  background: var(--page); color: var(--text-primary);
+  padding: 32px; display: flex; flex-direction: column; gap: 32px; align-items: center;
+  -webkit-font-smoothing: antialiased;
+}
+h2 { font-size: 16px; letter-spacing: -0.02em; }   /* 大标题收紧 */
+h3 { font-size: 13px; letter-spacing: -0.01em; margin-bottom: 8px; }
+.note { font-size: 12px; color: var(--text-secondary); max-width: 1280px; line-height: 1.6; }
+.controls { display:flex; gap: 8px; }
+.controls button {
+  font: 12px -apple-system; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border-subtle); background: var(--surface-deck); color: var(--text-primary);
+}
+.controls button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ================= 窗口 ================= */
+.window {
+  width: 1280px; height: 800px; border-radius: 10px; overflow: hidden; position: relative;
+  background: var(--surface-base);
+  box-shadow: 0 24px 64px rgba(0,0,0,.5), 0 0 0 1px var(--border-subtle);
+  display: grid; grid-template-columns: 240px 1px 1fr;   /* 唯一贯通分割线 */
+}
+.divider-v { background: var(--border-subtle); }
+
+/* ---------- 左列（用户钉死：大体不变） ---------- */
+.sidecol { background: var(--surface-side); display: flex; flex-direction: column; }
+.lights { height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; flex: none; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+
+/* 暂存架 148pt：牌堆左 + 动作列右，组整体居中 */
+.stash { height: 148px; flex: none; position: relative; display: flex; align-items: center; justify-content: center; gap: 16px; }
+.stash::after { content:""; position:absolute; left:12px; right:12px; bottom:0; height:1px; background:var(--border-subtle); }
+.pilecol { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.pile { position: relative; width: 96px; height: 92px; }
+.pile .card {
+  position:absolute; width: 72px; height: 84px; border-radius: 8px; left: 12px; top: 4px;
+  background: var(--surface-base); border: 1px solid var(--border-subtle);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.pile .card:nth-child(1){ transform: translate(-8px,-4px) rotate(-4deg); }
+.pile .card:nth-child(2){ transform: translate(6px,-2px) rotate(3deg); }
+.pile .card:nth-child(3){ transform: translate(0,2px); }
+.countpill {
+  font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: .03em;
+  color: var(--accent); background: var(--surface-pill);
+  padding: 0 8px; height: 16px; line-height: 16px; border-radius: 8px;
+}
+.stashacts { display:flex; flex-direction:column; gap:4px; }
+.stashacts .ib { width: 24px; height: 20px; }
+
+/* 侧栏分组：以距离代边框——组间 16、组内 4（原研哉留白容器） */
+.groups { padding: 8px 8px 12px; overflow: hidden; display:flex; flex-direction:column; gap:16px; }
+.group .ghead {
+  font-size: 11px; letter-spacing: .04em; color: var(--text-muted);
+  padding: 0 8px; height: 20px; display:flex; align-items:center;
+}
+.row-side {
+  height: 24px; display:flex; align-items:center; gap:8px; padding: 0 8px;
+  border-radius: 6px; font-size: 12px; color: var(--text-primary);
+}
+.row-side:hover { background: var(--surface-hover); }
+.row-side.sel { background: var(--surface-sel); }
+.row-side .sub { margin-left:auto; font-size:11px; color:var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- 右列 ---------- */
+.maincol { display: flex; flex-direction: column; min-width: 0; }
+
+/* 工作区标签条 28pt */
+.wstabs { height: 28px; flex:none; background: var(--surface-deck); display:flex; align-items:flex-end; padding: 0 8px; gap: 2px; position:relative; }
+.wstabs::after { content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--border-subtle); }
+.wtab {
+  height: 24px; padding: 0 12px; display:flex; align-items:center; gap: 8px;
+  border-radius: 6px 6px 0 0; font-size: 11px; color: var(--text-secondary); position:relative;
+}
+.wtab.act { background: var(--surface-base); color: var(--text-primary); box-shadow: 0 0 0 1px var(--border-subtle); }
+.wtab .x { opacity: 0; font-size: 9px; color: var(--text-muted); }
+.wtab:hover .x { opacity: 1; }           /* hover-reveal：常态零杂质 */
+.wtab-add { width: 24px; height: 24px; display:flex; align-items:center; justify-content:center; color: var(--text-muted); }
+
+/* 图标工具条 36pt：簇间 16 + 发丝竖线；钮 24×24 间距 4 */
+.toolbar { height: 36px; flex:none; background: var(--surface-deck); display:flex; align-items:center; padding: 0 8px; position:relative; }
+.toolbar::after { content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--border-subtle); }
+.cluster { display:flex; align-items:center; gap:4px; }
+.csep { width:1px; height:16px; background:var(--border-subtle); margin: 0 8px; }
+.spacer { flex: 1; }
+.ib {
+  width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+  color: var(--text-secondary); cursor: default;
+}
+.ib:hover { background: var(--surface-hover); color: var(--text-primary); }
+.ib.on { background: var(--surface-pill); color: var(--accent); }
+.seg { display:flex; background: var(--surface-hover); border-radius:6px; padding:2px; gap:2px; }
+.seg .ib { width:24px; height:20px; border-radius:4px; }
+.seg .ib.on { background: var(--accent); color:#fff; }
+svg.ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+svg.ic.f { fill: currentColor; stroke: none; }
+
+/* 窗格矩阵 */
+.panes { flex:1; display:grid; grid-template-columns: 1fr 1px 1fr; min-height:0; }
+.pane { display:flex; flex-direction:column; min-width:0; }
+.pane.dim .list { opacity: .92; }
+
+/* 地址栏 24pt：面包屑分段；活动窗格 = accent 2px 底缘光 */
+.addr { height: 24px; flex:none; display:flex; align-items:center; padding: 0 8px; gap: 2px; font-size: 12px; position:relative; color: var(--text-secondary); }
+.addr::after { content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--border-subtle); }
+.pane.act .addr::after { height:2px; background: var(--accent); }
+.crumb { padding: 2px 6px; border-radius: 4px; display:flex; align-items:center; gap:4px; }
+.crumb:hover { background: var(--surface-hover); color: var(--text-primary); }
+.crumb.leaf { color: var(--text-primary); font-weight: 500; }
+.chev { color: var(--text-muted); font-size: 10px; }
+.addr .tools { margin-left:auto; display:flex; gap:4px; }
+.addr .tools .ib { width:20px; height:20px; opacity:0; }
+.pane:hover .addr .tools .ib { opacity:1; }   /* hover-reveal */
+
+/* 列头 20pt + 行 20pt：QSpace 级密度，全部 4pt 阶梯 */
+.cols { height: 20px; flex:none; display:flex; font-size: 11px; color: var(--text-muted); letter-spacing:.03em; border-bottom:1px solid var(--border-subtle); padding: 0 8px; align-items:center; }
+.list { flex:1; overflow:hidden; font-size:12px; }
+.frow { height: 20px; display:flex; align-items:center; padding: 0 8px; }
+.frow:nth-child(even) { background: var(--zebra); }
+.frow:hover { background: var(--surface-hover); }
+.frow.sel { background: var(--surface-sel); }
+.c-name { flex:1; display:flex; align-items:center; gap:6px; min-width:0; }
+.c-name span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.c-date { width: 128px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.c-size { width: 72px; text-align:right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.c-size b { font-weight: 400; color: var(--text-muted); }   /* 单位退后：数据墨水比 */
+.c-kind { width: 64px; padding-left: 16px; color: var(--text-muted); }
+.fold { width:14px; height:11px; flex:none; }
+.fold path { fill: var(--icon-folder); }
+.doc  { width:12px; height:14px; flex:none; }
+.doc path { fill: var(--text-muted); }
+
+/* 状态栏 24pt */
+.status { height: 24px; flex:none; border-top:1px solid var(--border-subtle); display:flex; align-items:center; gap:16px; padding: 0 12px; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.status .pill { color: var(--accent); background: var(--surface-pill); padding: 0 8px; height:16px; line-height:16px; border-radius:8px; }
+.status .free { margin-left:auto; color: var(--text-muted); }
+
+/* ---------- 标注层 ---------- */
+.ann { position:absolute; z-index:9; display:none; pointer-events:none; }
+body.annotate .ann { display:block; }
+.ann .tag {
+  position:absolute; font: 10px ui-monospace, monospace; color:#fff; background:#e0409a;
+  padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+}
+.ann .ln { position:absolute; background:#e0409a; }
+
+/* ---------- 变体条 & 图标表 ---------- */
+.sheet { width: 1280px; background: var(--surface-base); border:1px solid var(--border-subtle); border-radius:10px; padding: 24px; }
+.variants { display:flex; gap: 24px; }
+.variant { flex:1; }
+.variant .demo { border:1px solid var(--border-subtle); border-radius:8px; overflow:hidden; margin-bottom:8px; }
+.variant p { font-size: 11px; color: var(--text-secondary); line-height:1.5; }
+.variant .badge { display:inline-block; font-size:10px; color:var(--accent); background:var(--surface-pill); border-radius:4px; padding:1px 6px; margin-bottom:4px; }
+table.icons { width:100%; border-collapse:collapse; font-size:12px; }
+table.icons th { text-align:left; font-size:11px; color:var(--text-muted); letter-spacing:.03em; font-weight:500; padding: 4px 8px; border-bottom:1px solid var(--border-subtle);}
+table.icons td { padding: 4px 8px; border-bottom:1px solid var(--border-subtle); color: var(--text-secondary); }
+table.icons td:first-child { color: var(--text-primary); }
+table.icons code { font: 11px ui-monospace, monospace; color: var(--accent); }
+</style>
+</head>
+<body data-theme="dark">
+
+<div class="controls">
+  <button class="on" onclick="setTheme('dark',this)">深色</button>
+  <button onclick="setTheme('light',this)">浅色</button>
+  <button onclick="document.body.classList.toggle('annotate');this.classList.toggle('on')">标注层（4pt 尺寸）</button>
+</div>
+
+<!-- ==================== 主版式稿：双栏工作区 ==================== -->
+<div class="window" id="maincomp">
+  <div class="sidecol">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="stash">
+      <div class="pilecol">
+        <div class="pile">
+          <div class="card"><svg class="fold" style="width:28px;height:22px" viewBox="0 0 14 11"><path d="M0 2a1 1 0 0 1 1-1h4l1.2 1.4H13a1 1 0 0 1 1 1V10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1z"/></svg></div>
+          <div class="card"><svg class="doc" style="width:22px;height:26px" viewBox="0 0 12 14"><path d="M1 0h7l3 3v10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z"/></svg></div>
+          <div class="card"><svg class="fold" style="width:28px;height:22px" viewBox="0 0 14 11"><path d="M0 2a1 1 0 0 1 1-1h4l1.2 1.4H13a1 1 0 0 1 1 1V10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1z"/></svg></div>
+        </div>
+        <div class="countpill">3 ⌄</div>
+      </div>
+      <div class="stashacts">
+        <div class="ib" title="拷贝到当前窗格"><svg class="ic" viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg></div>
+        <div class="ib" title="移动到当前窗格"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/></svg></div>
+        <div class="ib" title="AirDrop"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M4.5 11.5a5 5 0 0 1 0-7M11.5 4.5a5 5 0 0 1 0 7M6 14h4"/></svg></div>
+        <div class="ib" title="清空暂存架"><svg class="ic" viewBox="0 0 16 16"><path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.8 9.5h5.4L11.5 4M6.8 7v4M9.2 7v4"/></svg></div>
+        <div class="ib" title="更多操作"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><circle class="f" cx="5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="11" cy="8" r=".9" fill="currentColor" stroke="none"/></svg></div>
+      </div>
+    </div>
+    <div class="groups">
+      <div class="group">
+        <div class="ghead">书签</div>
+        <div class="row-side"><svg class="fold" viewBox="0 0 14 11"><path d="M0 2a1 1 0 0 1 1-1h4l1.2 1.4H13a1 1 0 0 1 1 1V10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1z"/></svg>project</div>
+        <div class="row-side sel"><svg class="fold" viewBox="0 0 14 11"><path d="M0 2a1 1 0 0 1 1-1h4l1.2 1.4H13a1 1 0 0 1 1 1V10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1z"/></svg>Downloads</div>
+        <div class="row-side"><svg class="fold" viewBox="0 0 14 11"><path d="M0 2a1 1 0 0 1 1-1h4l1.2 1.4H13a1 1 0 0 1 1 1V10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1z"/></svg>development</div>
+      </div>
+      <div class="group">
+        <div class="ghead">iCloud</div>
+        <div class="row-side"><svg class="ic" style="width:14px;height:14px;color:var(--icon-folder)" viewBox="0 0 16 16"><path d="M4.5 12.5a3 3 0 0 1-.4-6A4 4 0 0 1 12 7.6a2.5 2.5 0 0 1-.5 4.9z"/></svg>iCloud 云盘</div>
+      </div>
+      <div class="group">
+        <div class="ghead">位置</div>
+        <div class="row-side"><svg class="ic" style="width:14px;height:14px;color:var(--text-muted)" viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="8" rx="1.5"/><circle cx="11.5" cy="8" r="1"/></svg>Macintosh HD<span class="sub">42.21 GB</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider-v"></div>
+
+  <div class="maincol">
+    <div class="wstabs">
+      <div class="wtab act"><span class="x">✕</span>Downloads · development</div>
+      <div class="wtab"><span class="x">✕</span>demo-folder-d</div>
+      <div class="wtab-add"><svg class="ic" style="width:12px;height:12px" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="cluster">
+        <div class="ib" title="侧边栏"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11"/></svg></div>
+      </div>
+      <div class="csep"></div>
+      <div class="cluster">
+        <div class="ib" title="后退"><svg class="ic" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></div>
+        <div class="ib" title="前进" style="opacity:.4"><svg class="ic" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></div>
+        <div class="ib" title="上层文件夹"><svg class="ic" viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></div>
+      </div>
+      <div class="csep"></div>
+      <div class="cluster seg" title="显示类型">
+        <div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></div>
+        <div class="ib on"><svg class="ic" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2.5" cy="4" r=".9" fill="currentColor" stroke="none"/><circle cx="2.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="2.5" cy="12" r=".9" fill="currentColor" stroke="none"/></svg></div>
+        <div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11M10.5 2.5v11"/></svg></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="cluster">
+        <div class="ib" title="AirDrop"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M4.5 11.5a5 5 0 0 1 0-7M11.5 4.5a5 5 0 0 1 0 7M6 14h4"/></svg></div>
+        <div class="ib" title="在终端打开"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6l2 2-2 2M8.5 10.5H12"/></svg></div>
+        <div class="ib" title="文件操作任务"><svg class="ic" viewBox="0 0 16 16"><path d="M5 10V3M2.5 5.5 5 3l2.5 2.5M11 6v7M8.5 10.5 11 13l2.5-2.5"/></svg></div>
+        <div class="ib" title="移到废纸篓"><svg class="ic" viewBox="0 0 16 16"><path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.8 9.5h5.4L11.5 4"/></svg></div>
+      </div>
+      <div class="csep"></div>
+      <div class="cluster seg" title="分屏布局">
+        <div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/></svg></div>
+        <div class="ib on"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10"/></svg></div>
+        <div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 8h12"/></svg></div>
+        <div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10M10.5 3v10"/></svg></div>
+        <div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10M2 8h12"/></svg></div>
+      </div>
+    </div>
+
+    <div class="panes">
+      <!-- 活动窗格 -->
+      <div class="pane act">
+        <div class="addr">
+          <span class="crumb">Users</span><span class="chev">›</span>
+          <span class="crumb">snakesammy</span><span class="chev">›</span>
+          <span class="crumb leaf">Downloads</span>
+          <div class="tools"><div class="ib" title="拷贝路径"><svg class="ic" style="width:12px;height:12px" viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg></div></div>
+        </div>
+        <div class="cols"><div class="c-name" style="padding-left:20px">名称</div><div class="c-date">修改日期</div><div class="c-size">大小</div><div class="c-kind">种类</div></div>
+        <div class="list" id="listA"></div>
+      </div>
+      <div class="divider-v"></div>
+      <!-- 非活动窗格 -->
+      <div class="pane dim">
+        <div class="addr">
+          <span class="crumb">snakesammy</span><span class="chev">›</span>
+          <span class="crumb leaf">development</span>
+        </div>
+        <div class="cols"><div class="c-name" style="padding-left:20px">名称</div><div class="c-date">修改日期</div><div class="c-size">大小</div><div class="c-kind">种类</div></div>
+        <div class="list" id="listB"></div>
+      </div>
+    </div>
+
+    <div class="status">
+      <span>287 项</span><span class="pill">已选 2 项 · 38.6 MB</span>
+      <span class="free">可用 42.21 GB</span>
+    </div>
+  </div>
+
+  <!-- 标注层 -->
+  <div class="ann" style="inset:0">
+    <div class="tag" style="left:248px; top:6px">工作区标签条 28</div>
+    <div class="tag" style="left:248px; top:38px">工具条 36 · 钮 24×24 · 簇距 16</div>
+    <div class="tag" style="left:248px; top:72px">地址栏 24 · 活动窗格 accent 2px 底缘</div>
+    <div class="tag" style="left:560px; top:110px">行高 20 · 字号 12 · tabular-nums</div>
+    <div class="tag" style="left:8px; top:32px">红绿灯行 28</div>
+    <div class="tag" style="left:96px; top:132px">暂存架 148</div>
+    <div class="tag" style="left:8px; top:196px">分组间 16 · 行高 24</div>
+    <div class="tag" style="left:560px; top:772px">状态栏 24</div>
+    <div class="tag" style="left:200px; top:400px">侧栏 240 · 分割线 1px 全高贯通</div>
+  </div>
+</div>
+
+<!-- ==================== 变体条 ==================== -->
+<div class="sheet">
+  <h3>待你拍板的两处变体（其余已按钉死项定稿）</h3>
+  <div class="variants">
+    <div class="variant">
+      <span class="badge">B1 · 推荐</span>
+      <div class="demo" style="height:148px; position:relative; background:var(--surface-side); display:flex; align-items:center; justify-content:center; gap:16px">
+        <div class="pilecol"><div class="pile" style="transform:scale(.9)"><div class="card"></div><div class="card"></div><div class="card"></div></div><div class="countpill">3 ⌄</div></div>
+        <div class="stashacts"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M4.5 11.5a5 5 0 0 1 0-7M11.5 4.5a5 5 0 0 1 0 7M6 14h4"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.8 9.5h5.4L11.5 4"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><circle cx="5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="11" cy="8" r=".9" fill="currentColor" stroke="none"/></svg></div></div>
+      </div>
+      <p><b>暂存架动作常显</b>（QSpace 同款）：5 个 24×24 图标钮竖排常驻。可供性零学习成本，符合 Operate 惯例。</p>
+    </div>
+    <div class="variant">
+      <span class="badge">B2</span>
+      <div class="demo" style="height:148px; position:relative; background:var(--surface-side); display:flex; align-items:center; justify-content:center">
+        <div class="pilecol"><div class="pile" style="transform:scale(.9)"><div class="card"></div><div class="card"></div><div class="card"></div></div><div class="countpill">3 ⌄</div></div>
+        <div style="position:absolute; bottom:8px; display:flex; gap:4px; background:var(--surface-deck); border:1px solid var(--border-subtle); border-radius:8px; padding:2px 4px; box-shadow:0 4px 12px rgba(0,0,0,.3)">
+          <div class="ib" style="width:20px;height:20px"><svg class="ic" style="width:12px;height:12px" viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg></div>
+          <div class="ib" style="width:20px;height:20px"><svg class="ic" style="width:12px;height:12px" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8.5 5.5 11 8l-2.5 2.5"/></svg></div>
+          <div class="ib" style="width:20px;height:20px"><svg class="ic" style="width:12px;height:12px" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M4.5 11.5a5 5 0 0 1 0-7M11.5 4.5a5 5 0 0 1 0 7M6 14h4"/></svg></div>
+          <div class="ib" style="width:20px;height:20px"><svg class="ic" style="width:12px;height:12px" viewBox="0 0 16 16"><path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.8 9.5h5.4L11.5 4"/></svg></div>
+        </div>
+      </div>
+      <p><b>暂存架 hover-reveal 浮条</b>（外科手术刀正统）：常态只有牌堆——信噪比最高；悬停 150ms 底部浮出动作条。牌堆可独占整个 148pt。</p>
+    </div>
+  </div>
+  <div style="height:24px"></div>
+  <div class="variants">
+    <div class="variant">
+      <span class="badge">A1 · 推荐</span>
+      <div class="demo">
+        <div class="toolbar" style="border:none">
+          <div class="cluster"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11"/></svg></div></div><div class="csep"></div>
+          <div class="cluster"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></div><div class="ib" style="opacity:.4"><svg class="ic" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></div></div><div class="csep"></div>
+          <div class="cluster seg"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></div><div class="ib on"><svg class="ic" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h9"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11M10.5 2.5v11"/></svg></div></div>
+          <div class="spacer"></div>
+          <div class="cluster"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M4.5 11.5a5 5 0 0 1 0-7M11.5 4.5a5 5 0 0 1 0 7M6 14h4"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6l2 2-2 2M8.5 10.5H12"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M5 10V3M2.5 5.5 5 3l2.5 2.5M11 6v7M8.5 10.5 11 13l2.5-2.5"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.8 9.5h5.4L11.5 4"/></svg></div></div><div class="csep"></div>
+          <div class="cluster seg"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/></svg></div><div class="ib on"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 8h12"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 3v10M10.5 3v10"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10M2 8h12"/></svg></div></div>
+        </div>
+      </div>
+      <p><b>左右分野</b>：导航/视图靠左（高频、就近内容），动作/布局靠右（全局态）。中间弹性区留白 = 窗口拖动把手。</p>
+    </div>
+    <div class="variant">
+      <span class="badge">A2</span>
+      <div class="demo">
+        <div class="toolbar" style="border:none">
+          <div class="cluster"><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></div><div class="ib" style="opacity:.4"><svg class="ic" viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></div><div class="ib on"><svg class="ic" viewBox="0 0 16 16"><path d="M5 4h9M5 8h9M5 12h9"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M4.5 11.5a5 5 0 0 1 0-7M11.5 4.5a5 5 0 0 1 0 7M6 14h4"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M4.5 6l2 2-2 2M8.5 10.5H12"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M5 10V3M2.5 5.5 5 3l2.5 2.5M11 6v7M8.5 10.5 11 13l2.5-2.5"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><path d="M3 4h10M6.5 4V2.5h3V4M4.5 4l.8 9.5h5.4L11.5 4"/></svg></div><div class="ib"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10M2 8h12"/></svg></div></div>
+        </div>
+      </div>
+      <p><b>单簇密排</b>（QSpace 更接近这种）：全部按钮一列连排，占用最省。代价：无分组语义、误触率略升。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 图标提案表 ==================== -->
+<div class="sheet">
+  <h3>图标提案（SF Symbols 实名 → 实现直接可用；pointSize 13 / .regular）</h3>
+  <table class="icons">
+    <tr><th>位置</th><th>动作</th><th>现用</th><th>提案</th><th>理由</th></tr>
+    <tr><td>工具条</td><td>后退 / 前进 / 上层</td><td>同</td><td><code>chevron.backward / chevron.forward / arrow.up</code></td><td>保持，Finder 共识符号（30ms 直觉识别）</td></tr>
+    <tr><td>工具条</td><td>显示类型</td><td>同</td><td><code>square.grid.2x2 / list.bullet / rectangle.split.3x1</code></td><td>保持</td></tr>
+    <tr><td>工具条</td><td>AirDrop</td><td>dot.radiowaves.left.and.right</td><td><code>airdrop</code>（SF 6 专用符号，回退 dot.radiowaves）</td><td>换：官方 AirDrop 语义直达</td></tr>
+    <tr><td>工具条</td><td>在终端打开</td><td>terminal 泛型</td><td><code>apple.terminal</code></td><td>换：带窗口边框的终端符号更实体</td></tr>
+    <tr><td>工具条</td><td>文件操作任务</td><td>循环箭头 ⟳（歧义：像刷新）</td><td><code>arrow.up.arrow.down</code></td><td><b>换：传输双向箭头</b>，消除"刷新"误读</td></tr>
+    <tr><td>工具条</td><td>分屏布局</td><td>杂项</td><td><code>rectangle / rectangle.split.2x1 / .1x2 / .3x1 / .2x2</code></td><td><b>换：全系列同族矩形</b>，五枚一眼成组</td></tr>
+    <tr><td>暂存架</td><td>拷贝 / 移动 / AirDrop / 清空 / 更多</td><td>杂项</td><td><code>doc.on.doc / arrow.forward.square / airdrop / trash / ellipsis.circle</code></td><td>与工具条同族；清空=trash 统一废纸篓语义</td></tr>
+    <tr><td>侧栏</td><td>文件夹 / iCloud / 卷</td><td>SF+systemBlue</td><td>保持 <code>folder.fill / icloud / internaldrive</code>+accent 着色</td><td>保持（用户已认可 Finder 蓝风格）</td></tr>
+  </table>
+</div>
+
+<div class="note" style="margin-bottom:32px">
+  <b>方法论 → 决策映射</b>：行高 20 / 全部间距 4pt 阶梯（维涅利-艾夫）；大小/日期列 tabular-nums 刷新不抖动、单位灰阶退后（塔夫特数据墨水比）；
+  分组靠 16pt 距离不靠边框、零套娃卡片（前田-原研哉）；关闭钮/路径工具 hover-reveal、图标+tooltip、150ms 原位反馈（诺曼-维克托 + 外科手术刀隐喻）；
+  选中态 = accent 28% 整行、状态药丸 10% 浅底（信噪比分配）；活动窗格 = 地址栏 2px accent 底缘光（状态永远可见）。
+  配色全部来自现主题 Token，无一处新色。
+</div>
+
+<script>
+function setTheme(t, btn){
+  document.body.dataset.theme = t;
+  document.querySelectorAll('.controls button').forEach((b,i)=>{ if(i<2) b.classList.toggle('on', b===btn); });
+}
+const fold = '<svg class="fold" viewBox="0 0 14 11"><path d="M0 2a1 1 0 0 1 1-1h4l1.2 1.4H13a1 1 0 0 1 1 1V10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1z"/></svg>';
+const doc  = '<svg class="doc" viewBox="0 0 12 14"><path d="M1 0h7l3 3v10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z"/></svg>';
+const A = [
+ ["demo-folder-m","2026/6/6 22:14","4.1 MB",1,0],["demo-folder-h","2026/6/9 18:02","160 KB",1,0],
+ ["demo-folder-g","2026/6/12 20:31","139 KB",1,0],["demo-folder-n","2026/6/13 18:44","446 KB",1,0],
+ ["demo-folder-e","2026/6/25 09:12","35 MB",1,1],["demo-folder-a","2026/6/25 09:40","34.9 MB",1,0],
+ ["demo-folder-i","2026/6/25 10:05","6.2 MB",1,0],["demo-folder-b","2026/7/4 08:33","246 KB",1,0],
+ ["ideal-link-extractor-rust","2026/7/11 17:31","381 KB",1,0],["demo-folder-f","2026/7/13 15:20","24.4 MB",1,1],
+ ["demo-folder-c","2026/7/19 11:08","406 KB",1,0],["demo-folder-o","2026/7/24 16:55","184 KB",1,0],
+ ["claude-max20-自动上传扩展","2026/7/26 18:12","2.1 MB",1,0],["openai-pay-pp-fixed (1)","2026/7/28 00:47","2.5 MB",1,0],
+ ["demo-folder-j","2026/7/28 22:19","6.6 MB",1,0],["plus","2026/7/30 15:03","31 MB",1,0],
+ ["pictures","2026/8/10 22:36","3.7 MB",1,0],["protocol-card-payment","2026/8/11 00:29","1.4 MB",1,0],
+ ["setup-wizard.dmg","2026/8/14 19:22","88.2 MB",0,0],["report-2026H1.pdf","2026/8/20 09:15","2.8 MB",0,0],
+];
+const B = [
+ ["NSpace","2026/8/26 14:02","—",1,0],["NSpace-wt-frontend","2026/8/26 13:55","—",1,0],
+ ["composable-meta","2026/8/12 10:20","—",1,0],["scripts","2026/8/05 16:40","—",1,0],
+ ["notes.md","2026/8/24 21:10","12 KB",0,0],["bench-results.json","2026/8/22 11:47","208 KB",0,0],
+];
+function render(id, rows){
+  const el = document.getElementById(id);
+  el.innerHTML = rows.map(r=>{
+    const [name,date,size,isFold,sel] = r;
+    const sz = size==="—" ? '<b>—</b>' : size.replace(/ (KB|MB|GB)/,' <b>$1</b>');
+    return `<div class="frow${sel?" sel":""}">
+      <div class="c-name">${isFold?fold:doc}<span>${name}</span></div>
+      <div class="c-date">${date}</div><div class="c-size">${sz}</div>
+      <div class="c-kind">${isFold?"文件夹":"文稿"}</div></div>`;
+  }).join("");
+}
+render("listA", A); render("listB", B.concat(B).concat(B).slice(0,20));
+</script>
+</body>
+</html>
