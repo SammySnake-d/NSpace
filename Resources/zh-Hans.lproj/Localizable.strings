@@ -1,0 +1,19 @@
+/* NSpace zh-Hans (base) */
+"menu.about" = "关于 NSpace";
+"menu.hide" = "隐藏 NSpace";
+"menu.hideOthers" = "隐藏其他";
+"menu.showAll" = "全部显示";
+"menu.quit" = "退出 NSpace";
+"menu.file" = "文件";
+"menu.newWindow" = "新建窗口";
+"menu.closeWindow" = "关闭窗口";
+"menu.edit" = "编辑";
+"menu.undo" = "撤销";
+"menu.redo" = "重做";
+"menu.cut" = "剪切";
+"menu.copy" = "拷贝";
+"menu.paste" = "粘贴";
+"menu.selectAll" = "全选";
+"menu.window" = "窗口";
+"menu.minimize" = "最小化";
+"menu.zoom" = "缩放";

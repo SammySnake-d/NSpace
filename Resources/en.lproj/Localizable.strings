@@ -1,0 +1,19 @@
+/* NSpace English */
+"menu.about" = "About NSpace";
+"menu.hide" = "Hide NSpace";
+"menu.hideOthers" = "Hide Others";
+"menu.showAll" = "Show All";
+"menu.quit" = "Quit NSpace";
+"menu.file" = "File";
+"menu.newWindow" = "New Window";
+"menu.closeWindow" = "Close Window";
+"menu.edit" = "Edit";
+"menu.undo" = "Undo";
+"menu.redo" = "Redo";
+"menu.cut" = "Cut";
+"menu.copy" = "Copy";
+"menu.paste" = "Paste";
+"menu.selectAll" = "Select All";
+"menu.window" = "Window";
+"menu.minimize" = "Minimize";
+"menu.zoom" = "Zoom";

@@ -1,0 +1,6 @@
+.env
+.build/
+build/
+*.xcodeproj
+.DS_Store
+Support/icon.iconset/

@@ -1,0 +1,51 @@
+{
+  "_comment": "BG-0 强制产物。声明本项目激活的 B 类 profile;A(常驻执行卫生)与 C(横切通用)无条件生效。meta-doctor 只检查 active_profiles 里的 B 模块。",
+  "project": "NSpace",
+  "meta_arch_ref": "~/composable-execution-meta-architecture",
+  "active_profiles": [
+    "spec",
+    "backend",
+    "frontend"
+  ],
+  "_profiles_available": [
+    "concept",
+    "spec",
+    "backend",
+    "frontend",
+    "prompt",
+    "causal-diagnosis",
+    "reverse-engineering"
+  ],
+  "enforcement_map": [
+    {
+      "module": "universal",
+      "mechanism": "本文件存在 + meta-doctor 退出 0(收尾判据,挂 .git/hooks/pre-commit)",
+      "proof": "meta-doctor 退出 0 @ M0 2026-08-25:「激活模块 5 (自动通过 3/失败 0) | 结论: 激活模块全部通过 → 退出 0」"
+    },
+    {
+      "module": "always-on",
+      "mechanism": "pre-commit 跑 meta-doctor(.env.example/.gitignore/明文凭据) + scripts/pod-lint-swift.sh(Swift 栈胶囊四公理执法,替换 META 的 Go 参考件 pod-lint.sh)",
+      "proof": "pod-lint-swift: 全部胶囊与展示层通过 ✓ @ M0 2026-08-25;pre-commit 已挂 meta-doctor+pod-lint+scripts/test.sh"
+    },
+    {
+      "module": "spec",
+      "mechanism": "spec.md 七节结构由 META doc-structure-lint.py 机检(经 meta-doctor 分发)",
+      "proof": "spec.md 七节经 doc-structure-lint 通过(含于 meta-doctor PASS) @ M0"
+    },
+    {
+      "module": "backend",
+      "mechanism": "BG-1..BG-9 架构评审落点:展示层(Sources/NSpaceApp)只发 Command/消费投影,严禁直接 FileManager 写操作(pod-lint-swift.sh 机检 NSpaceApp 内禁用写型 FileManager API);内核(Sources/NSpaceKernel)零业务分支;节点=Sources/Pods/* 胶囊,每胶囊 CLI 探针(nspace-probe)单独驱动;swift test 为 L-plan 门",
+      "proof": "M0: OperationKernel 状态机 2 项单测通过(scripts/test.sh: Test run with 2 tests passed);BG-1 机检已生效(pod-lint-swift 扫 NSpaceApp 写型 API)"
+    },
+    {
+      "module": "frontend",
+      "mechanism": "FG 设计评审清单(无死控件/就地闭环/乐观回滚)在各 UI 里程碑验收时逐条过,记录于 README 交付日志",
+      "proof": "M0: 可走骨架启动截图验证(中文菜单栏/家目录窗口/无死控件)"
+    }
+  ],
+  "_swift_adaptations": [
+    "Pod Axiom 1/4 偏差如实登记:SwiftPM 强制测试放 Tests/<Pod>Tests/ 独立目录,无法与胶囊同目录;pod-lint-swift.sh 以'每胶囊必有同名非空测试目录'等价执法",
+    "Pod Axiom 3 由编译器强制:每胶囊=独立 SwiftPM library target,public 符号即契约面(Contract.swift),其余 internal",
+    "FileManager/NSWorkspace 是被控物理基质(plant)而非全局配置,胶囊内直接使用不算违反 Axiom 2;禁的是 UserDefaults.standard/全局可变单例"
+  ]
+}
