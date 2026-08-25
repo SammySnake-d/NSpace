@@ -35,12 +35,12 @@
     {
       "module": "backend",
       "mechanism": "BG-1..BG-9 架构评审落点:展示层(Sources/NSpaceApp)只发 Command/消费投影,严禁直接 FileManager 写操作(pod-lint-swift.sh 机检 NSpaceApp 内禁用写型 FileManager API);内核(Sources/NSpaceKernel)零业务分支;节点=Sources/Pods/* 胶囊,每胶囊 CLI 探针(nspace-probe)单独驱动;swift test 为 L-plan 门",
-      "proof": "M0: OperationKernel 状态机 2 项单测通过(scripts/test.sh: Test run with 2 tests passed);BG-1 机检已生效(pod-lint-swift 扫 NSpaceApp 写型 API)"
+      "proof": "M0: OperationKernel 状态机 2 项单测通过(scripts/test.sh: Test run with 2 tests passed);BG-1 机检已生效(pod-lint-swift 扫 NSpaceApp 写型 API);北极星实证@v0.6.0: release 四宫格静置 top -l 6 全 0.0% CPU/66MB/6线程,touch→UI ≤1.2s(wiring 代理真机采样)"
     },
     {
       "module": "frontend",
       "mechanism": "FG 设计评审清单(无死控件/就地闭环/乐观回滚)在各 UI 里程碑验收时逐条过,记录于 README 交付日志",
-      "proof": "M0: 可走骨架启动截图验证(中文菜单栏/家目录窗口/无死控件)"
+      "proof": "M0: 可走骨架启动截图验证(中文菜单栏/家目录窗口/无死控件);v0.6.x: 隐性语义整改(暂存架图标条)/密度收紧/选中保持修复均经用户真机反馈闭环"
     }
   ],
   "_swift_adaptations": [
