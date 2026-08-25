@@ -48,6 +48,11 @@ final class PaneGridController: NSViewController {
     private(set) var activePaneIndex = 0
     private let initialDirectory: URL
 
+    /// 文件操作桥（由 MainWindowController 注入后下传各窗格）
+    var coordinator: FileOpsCoordinator? {
+        didSet { pool.forEach { $0.coordinator = coordinator } }
+    }
+
     var onActiveLocationChange: ((URL) -> Void)?
 
     var activePane: PaneViewController { pool[activePaneIndex] }
@@ -83,6 +88,7 @@ final class PaneGridController: NSViewController {
             // 新窗格开在活动窗格的当前位置（QSpace 惯例），首个开初始目录
             let dir = pool.isEmpty ? initialDirectory : activePane.activeTab.browser.current
             let pane = PaneViewController(directory: dir)
+            pane.coordinator = coordinator
             pane.onRequestFocus = { [weak self, weak pane] in
                 guard let self, let pane, let i = self.pool.firstIndex(where: { $0 === pane }) else { return }
                 self.setActivePane(i)

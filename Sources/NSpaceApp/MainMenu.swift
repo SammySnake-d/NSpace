@@ -25,6 +25,29 @@ enum MainMenu {
         fileItem.submenu = fileMenu
         fileMenu.addItem(withTitle: L10n.t("menu.newWindow"), action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: L10n.t("menu.newTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "t")
+        let newFolderItem = fileMenu.addItem(withTitle: L10n.t("menu.newFolder"),
+                                             action: #selector(FileListViewController.newFolderHere(_:)), keyEquivalent: "N")
+        newFolderItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: L10n.t("menu.open"),
+                         action: #selector(FileListViewController.openSelected(_:)), keyEquivalent: "o")
+        fileMenu.addItem(withTitle: L10n.t("menu.getInfo"),
+                         action: #selector(FileListViewController.getInfo(_:)), keyEquivalent: "i")
+        fileMenu.addItem(withTitle: L10n.t("menu.rename"),
+                         action: #selector(FileListViewController.renameSelected(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: L10n.t("menu.duplicate"),
+                         action: #selector(FileListViewController.duplicateItems(_:)), keyEquivalent: "d")
+        let trashItem = fileMenu.addItem(withTitle: L10n.t("menu.moveToTrash"),
+                                         action: #selector(FileListViewController.moveToTrash(_:)), keyEquivalent: "\u{8}")
+        trashItem.keyEquivalentModifierMask = [.command]
+        fileMenu.addItem(.separator())
+        // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆）
+        let f5 = fileMenu.addItem(withTitle: L10n.t("menu.copyToOtherPane"),
+                                  action: #selector(FileListViewController.copyToOtherPane(_:)), keyEquivalent: "\u{F708}")
+        f5.keyEquivalentModifierMask = []
+        let f6 = fileMenu.addItem(withTitle: L10n.t("menu.moveToOtherPane"),
+                                  action: #selector(FileListViewController.moveToOtherPane(_:)), keyEquivalent: "\u{F709}")
+        f6.keyEquivalentModifierMask = []
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: L10n.t("menu.closeTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
         let closeWinItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
@@ -40,6 +63,9 @@ enum MainMenu {
         editMenu.addItem(withTitle: L10n.t("menu.cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: L10n.t("menu.copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: L10n.t("menu.paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let copyPathItem = editMenu.addItem(withTitle: L10n.t("menu.copyPath"),
+                                            action: #selector(FileListViewController.copyPath(_:)), keyEquivalent: "c")
+        copyPathItem.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(withTitle: L10n.t("menu.selectAll"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
         // 显示

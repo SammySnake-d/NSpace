@@ -150,15 +150,30 @@ public enum ConflictDecision: Sendable {
     case replace, skip, keepBoth, mergeFolders
 }
 
+/// 废纸篓一对：原位置 → 回收站落点（供撤销把 trashed 搬回 original）
+public struct TrashedItem: Sendable, Hashable {
+    public let original: URL
+    public let trashed: URL
+    public init(original: URL, trashed: URL) {
+        self.original = original; self.trashed = trashed
+    }
+}
+
 /// 操作真实成败凭证（Proof Owner 产物）
 public struct OperationReceipt: Sendable {
     public let id: UUID
     public let filesDone: Int
     public let bytesDone: Int64
     public let duration: TimeInterval
+    /// newFolder / newFile 等产生新条目的操作回传结果 URL（UI 用于选中+进入重命名）
+    public let createdURLs: [URL]
+    /// trash 操作回传 原URL→回收站URL 对（UI 注册撤销用）
+    public let trashedItems: [TrashedItem]
 
-    public init(id: UUID, filesDone: Int, bytesDone: Int64, duration: TimeInterval) {
+    public init(id: UUID, filesDone: Int, bytesDone: Int64, duration: TimeInterval,
+                createdURLs: [URL] = [], trashedItems: [TrashedItem] = []) {
         self.id = id; self.filesDone = filesDone; self.bytesDone = bytesDone; self.duration = duration
+        self.createdURLs = createdURLs; self.trashedItems = trashedItems
     }
 }
 
