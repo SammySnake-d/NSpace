@@ -315,8 +315,7 @@ extension MainWindowController: @preconcurrency NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // QSpace 式图标组（隐性语义：图标+tooltip，零文字）
-        [Self.sidebarItemID,
-         Self.navItemID, .flexibleSpace,
+        [Self.navItemID, .flexibleSpace,
          Self.viewModeItemID, .space,
          Self.airdropItemID, Self.terminalItemID, Self.tasksItemID, Self.trashItemID, .space,
          Self.layoutItemID]

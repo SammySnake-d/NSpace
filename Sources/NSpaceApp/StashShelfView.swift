@@ -7,7 +7,6 @@ import StashStore
 final class StashShelfView: NSView {
     private(set) weak var controller: StashShelfController?
 
-    private let titleLabel = NSTextField(labelWithString: L10n.t("sidebar.stash"))
     private let emptyIcon = NSImageView()
     private let emptyLabel = NSTextField(labelWithString: L10n.t("stash.empty"))
     private let stackPile = StashPileView()
@@ -16,17 +15,14 @@ final class StashShelfView: NSView {
     private let dropCatcher = StashDropCatcher()
     private var heightConstraint: NSLayoutConstraint?
 
-    /// 空态 56pt（内联提示行），有货 176pt——最大化利用空间（用户点名占空比）
-    private static let emptyHeight: CGFloat = 56
-    private static let filledHeight: CGFloat = 176
+    /// 空态 40pt（单行提示），有货 152pt——QSpace 顶格规格（零标题零冗余留白）
+    private static let emptyHeight: CGFloat = 40
+    private static let filledHeight: CGFloat = 152
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         registerForDraggedTypes([.fileURL])
-
-        titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        titleLabel.textColor = .secondaryLabelColor
 
         emptyIcon.image = NSImage(systemSymbolName: "tray.and.arrow.down",
                                   accessibilityDescription: L10n.t("sidebar.stash"))
@@ -77,7 +73,7 @@ final class StashShelfView: NSView {
             button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         }
 
-        for sub in [titleLabel, emptyIcon, emptyLabel, stackPile, countButton, actionsStack] {
+        for sub in [emptyIcon, emptyLabel, stackPile, countButton, actionsStack] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addSubview(sub)
         }
@@ -96,24 +92,21 @@ final class StashShelfView: NSView {
         heightConstraint = height
         NSLayoutConstraint.activate([
             height,
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-
-            // 空态内联一行：图标+文字（56pt 高占空比最小化）
+            // 空态一行：图标+文字（40pt 高）
             emptyIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            emptyIcon.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
+            emptyIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
             emptyLabel.leadingAnchor.constraint(equalTo: emptyIcon.trailingAnchor, constant: 6),
             emptyLabel.centerYAnchor.constraint(equalTo: emptyIcon.centerYAnchor),
 
-            // 牌堆居中（给右侧操作条留位），计数钮居其下
-            stackPile.centerXAnchor.constraint(equalTo: centerXAnchor, constant: -12),
-            stackPile.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10),
+            // QSpace 式顶格：牌堆左贴边、操作条紧贴牌堆右侧（右侧空间自然留白不撑空隙）
+            stackPile.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            stackPile.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             stackPile.widthAnchor.constraint(equalToConstant: 96),
             stackPile.heightAnchor.constraint(equalToConstant: 92),
             countButton.centerXAnchor.constraint(equalTo: stackPile.centerXAnchor),
-            countButton.topAnchor.constraint(equalTo: stackPile.bottomAnchor, constant: 4),
+            countButton.topAnchor.constraint(equalTo: stackPile.bottomAnchor, constant: 2),
 
-            actionsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            actionsStack.leadingAnchor.constraint(equalTo: stackPile.trailingAnchor, constant: 20),
             actionsStack.centerYAnchor.constraint(equalTo: stackPile.centerYAnchor),
         ])
         refresh()

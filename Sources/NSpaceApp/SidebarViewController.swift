@@ -64,8 +64,8 @@ final class SidebarViewController: NSViewController {
             root.addSubview(sub)
         }
         NSLayoutConstraint.activate([
-            // 暂存架专区（M14）：锚 safeArea 顶（fullSizeContentView 下不被工具栏遮住）
-            stashView.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            // QSpace 式顶格：侧栏直通窗口顶，仅留红绿灯行高度（不锚 safeArea/不被工具栏推下）
+            stashView.topAnchor.constraint(equalTo: root.topAnchor, constant: 34),
             stashView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             stashView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             stashSeparator.topAnchor.constraint(equalTo: stashView.bottomAnchor),

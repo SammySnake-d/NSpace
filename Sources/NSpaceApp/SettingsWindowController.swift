@@ -43,6 +43,13 @@ final class SettingsWindowController: NSWindowController {
         keys.view = buildShortcutsTab()
         tabs.addTabViewItem(keys)
 
+        for (i, page) in SettingsPages.extraPages.enumerated() {
+            let item = NSTabViewItem(identifier: "extra\(i)")
+            item.label = L10n.t(page.pageTitleKey)
+            item.view = page.makeView()
+            tabs.addTabViewItem(item)
+        }
+
         let finder = NSTabViewItem(identifier: "finder")
         finder.label = L10n.t("settings.finderSection")
         finder.view = buildFinderTab()
