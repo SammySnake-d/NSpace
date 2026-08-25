@@ -133,3 +133,4 @@
 "menu.newPaneTab" = "新建窗格标签";
 "menu.closePaneTab" = "关闭窗格标签";
 "menu.togglePaneTabBar" = "显示/隐藏窗格标签栏";
+"menu.quickLook" = "快速查看";

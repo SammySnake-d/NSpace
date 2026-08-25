@@ -9,6 +9,8 @@ final class FocusReportingTableView: NSTableView {
     var menuProvider: ((Int) -> NSMenu?)?
     /// Return 键：触发选中行的行内重命名
     var onReturn: (() -> Void)?
+    /// 空格键：Quick Look 预览开关（Finder 肌肉记忆）
+    var onSpace: (() -> Void)?
     /// 拖拽移出/结束（spring-loaded 计时器取消用）
     var onDragExited: (() -> Void)?
 
@@ -49,9 +51,13 @@ final class FocusReportingTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // Return（36）/ Enter（76）触发重命名；其余交回默认（方向键/空格 QL 等）
+        // Return（36）/ Enter（76）触发重命名；空格（49）Quick Look；其余交回默认（方向键等）
         if event.keyCode == 36 || event.keyCode == 76 {
             onReturn?()
+            return
+        }
+        if event.keyCode == 49, let onSpace {
+            onSpace()
             return
         }
         super.keyDown(with: event)

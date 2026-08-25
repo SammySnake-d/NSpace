@@ -60,6 +60,7 @@ final class FileListViewController: NSViewController {
         tableView.onInteract = { [weak self] in self?.onInteract?() }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         tableView.onReturn = { [weak self] in self?.beginRenameSelected() }
+        tableView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
         tableView.onDragExited = { [weak self] in self?.cancelSpringLoad() }
         tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
@@ -381,6 +382,30 @@ final class FileListViewController: NSViewController {
         ws.open([dir], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
     }
 
+    // MARK: Quick Look（空格开关；方向键经 selectionDidChange 连续预览）
+
+    @objc func toggleQuickLook(_ sender: Any?) {
+        guard let panel = QLPreviewPanel.shared() else { return }
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else if !selectedItems.isEmpty {
+            panel.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = self
+        panel.delegate = self
+        panel.reloadData()
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+        panel.delegate = nil
+    }
+
     @objc func showPackageContents(_ sender: Any?) {
         guard let pkg = selectedItems.first(where: { $0.isPackage }) else { return }
         onNavigate?(pkg.url)
@@ -460,6 +485,10 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         onSelectionChange?()
+        if QLPreviewPanel.sharedPreviewPanelExists(),
+           let panel = QLPreviewPanel.shared(), panel.isVisible {
+            panel.reloadData()
+        }
     }
 
     // MARK: 拖拽源（可拖到 Finder/其他 App/另一窗格/侧边栏书签/暂存架）
@@ -543,5 +572,36 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
     func cancelSpringLoad() {
         springLoad?.timer.invalidate()
         springLoad = nil
+    }
+}
+
+// MARK: - Quick Look 数据源/委托（多选预览；面板内方向键翻页由 QL 自持）
+
+extension FileListViewController: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        selectedItems.count
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+        let urls = selectedURLs
+        guard index >= 0, index < urls.count else { return nil }
+        return urls[index] as NSURL
+    }
+
+    /// 面板收到键盘事件先转回表（空格关面板由面板自己处理；方向键落回列表推进选中）
+    func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        guard event.type == .keyDown, event.keyCode == 125 || event.keyCode == 126 else { return false }
+        focusTarget.keyDown(with: event)
+        return true
+    }
+
+    /// 缩放动画起点=行内图标位置（Finder 手感）
+    func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
+        guard let url = (item as? NSURL) as URL?,
+              let row = model.items.firstIndex(where: { $0.url == url }),
+              let window = view.window else { return .zero }
+        let rect = focusTarget.convert(NSRect(x: 4, y: 0, width: 22, height: 22)
+            .offsetBy(dx: 0, dy: (focusTarget as! NSTableView).rect(ofRow: row).minY), to: nil)
+        return window.convertToScreen(rect)
     }
 }

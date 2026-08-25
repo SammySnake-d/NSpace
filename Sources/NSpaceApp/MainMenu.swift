@@ -35,6 +35,9 @@ enum MainMenu {
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: L10n.t("menu.open"),
                          action: #selector(FileListViewController.openSelected(_:)), keyEquivalent: "o")
+        let qlItem = fileMenu.addItem(withTitle: L10n.t("menu.quickLook"),
+                         action: #selector(FileListViewController.toggleQuickLook(_:)), keyEquivalent: " ")
+        qlItem.keyEquivalentModifierMask = []
         fileMenu.addItem(withTitle: L10n.t("menu.getInfo"),
                          action: #selector(FileListViewController.getInfo(_:)), keyEquivalent: "i")
         fileMenu.addItem(withTitle: L10n.t("menu.rename"),

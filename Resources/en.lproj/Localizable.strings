@@ -133,3 +133,4 @@
 "menu.newPaneTab" = "New Pane Tab";
 "menu.closePaneTab" = "Close Pane Tab";
 "menu.togglePaneTabBar" = "Show/Hide Pane Tab Bar";
+"menu.quickLook" = "Quick Look";
