@@ -136,7 +136,16 @@ final class FileListViewController: NSViewController {
         // 同目录刷新也清缩略图覆盖层：文件可能已改内容（IconThumb 缓存键含 mtime，重取要么命中要么重生成）
         thumbOverlay.removeAll()
         emptyLabel.isHidden = true
+        // FSEvents 自动刷新绝不吞掉用户选中：reloadData 前记 URL、后按 URL 恢复（含多选）
+        let selectedBefore = Set(selectedURLs)
         tableView.reloadData()
+        if !selectedBefore.isEmpty {
+            var rows = IndexSet()
+            for (i, item) in model.items.enumerated() where selectedBefore.contains(item.url) {
+                rows.insert(i)
+            }
+            tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        }
         if model.items.isEmpty, !model.isLoading {
             showEmptyState(L10n.t("empty.folder"))
         }
