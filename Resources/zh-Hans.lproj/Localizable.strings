@@ -295,3 +295,22 @@
 "settings.restoreSeeds" = "恢复默认书签";
 "toast.seedsRestored" = "已恢复 %d 个默认书签";
 "settings.behavior.wsTabLimit" = "工作区标签上限";
+
+/* M22 版本徽章 + 热更新 */
+"badge.tooltip" = "NSpace v%@ (build %@)";
+"badge.updateAvailable" = "有新版 v%@——点击更新";
+"badge.updateAvailableGeneric" = "有可用更新——点击更新";
+"settings.autoCheckUpdates" = "启动时自动检查更新";
+"settings.checkForUpdates" = "检查更新";
+"update.checking" = "正在检查更新…";
+"update.found" = "发现新版本 v%@";
+"update.upToDate" = "已是最新版本";
+"update.checkFailed" = "检查更新失败：%@";
+"update.badFeedURL" = "更新源地址无效";
+"update.downloading" = "正在下载更新…";
+"update.ready" = "更新就绪，请重启";
+"update.readyTitle" = "更新已就绪（v%@）";
+"update.readyBody" = "新版本已安装。重启 NSpace 以完成更新。";
+"update.restartNow" = "立即重启";
+"update.later" = "稍后";
+"update.installFailed" = "更新失败：%@";

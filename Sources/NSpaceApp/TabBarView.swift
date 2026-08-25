@@ -10,6 +10,9 @@ final class TabBarView: NSView {
     private let stack = NSStackView()
     private let scroll = NSScrollView()
     private let addButton = NSButton()
+    /// 尾部配件槽（甲板工作区标签条用：版本徽章嵌于此，位于"＋"按钮左侧）。
+    /// 无配件时宽度收缩为 0（低优先 width==0 兜底），有配件时随内容撑开。
+    private let accessoryHost = NSView()
 
     /// 标签胶囊高度（窗格标签 20；甲板工作区标签 28——行高 40 的 QSpace 密度）
     var itemHeight: CGFloat = 20
@@ -42,14 +45,22 @@ final class TabBarView: NSView {
         addButton.action = #selector(newTab)
         addButton.translatesAutoresizingMaskIntoConstraints = false
 
+        accessoryHost.translatesAutoresizingMaskIntoConstraints = false
+        let emptyWidth = accessoryHost.widthAnchor.constraint(equalToConstant: 0)
+        emptyWidth.priority = .init(1)   // 最低优先：有配件时被内容约束覆盖，无配件时收缩为 0
+        emptyWidth.isActive = true
+
         addSubview(scroll)
+        addSubview(accessoryHost)
         addSubview(addButton)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: topAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -2),
+            scroll.trailingAnchor.constraint(equalTo: accessoryHost.leadingAnchor, constant: -2),
             stack.heightAnchor.constraint(equalTo: scroll.heightAnchor),
+            accessoryHost.centerYAnchor.constraint(equalTo: centerYAnchor),
+            accessoryHost.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -8),
             addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             addButton.widthAnchor.constraint(equalToConstant: 20),
@@ -76,6 +87,19 @@ final class TabBarView: NSView {
     }
 
     @objc private func newTab() { onNew?() }
+
+    /// 设置尾部配件（版本徽章）；传 nil 清空。配件填满 accessoryHost，其宽度随配件内容。
+    func setTrailingAccessory(_ view: NSView?) {
+        accessoryHost.subviews.forEach { $0.removeFromSuperview() }
+        guard let view else { return }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        accessoryHost.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: accessoryHost.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: accessoryHost.trailingAnchor),
+            view.centerYAnchor.constraint(equalTo: accessoryHost.centerYAnchor),
+        ])
+    }
 }
 
 /// 单个标签（胶囊样式；hover 显示关闭钮；中键关闭）

@@ -150,6 +150,16 @@ enum UISelfTest {
             record(hasTabBar, "工作区标签条存在于甲板")
             record(wc.workspaceCount == 1, "初始单工作区（\(wc.workspaceCount)）")
 
+            // M22：版本徽章（无更新态）存在于甲板标签条 + 文字为"v{短版本}"（不带 ↑）
+            let badge = wc.deck.versionBadge
+            let badgeInTree = viewTree(window.contentView).contains { $0 === badge }
+            record(badgeInTree, "版本徽章存在于甲板标签条")
+            let badgeLabel = viewTree(badge).compactMap { ($0 as? NSTextField)?.stringValue }
+                .first { $0.hasPrefix("v") } ?? ""
+            record(badgeLabel == "v\(AppVersion.shortVersion)" && !badgeLabel.contains("↑"),
+                   "版本徽章无更新态文字 v\(AppVersion.shortVersion)（实得「\(badgeLabel)」）")
+            capture(window, "14-version-badge")
+
             // M17-4：⌘T 新增 / ⌘W 关闭 增删正确
             wc.newWorkspaceTab(nil)
             try? await Task.sleep(for: .milliseconds(250))
