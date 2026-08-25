@@ -87,7 +87,7 @@
 - ✅ **外观**（appearance）：跟随系统/浅/深、主题色色板、列表字号、活动窗格高亮开关、非活动窗格暗化
 - ✅ **侧栏重构**（sidebar2）：个人收藏并入书签（默认种子可删可排）、iCloud 独立分组、**分组标题可拖动排序**（书签可拖到最前）
 
-### M16 用户反馈批次（2026-08-26）⬜
+### M16 用户反馈批次（2026-08-26）✅（I-06/07/08/09/10 全修，v0.8.0.x~v0.9.0）
 
 - ⬜ **I-08 修复**：补齐缺失本地化键 menu.asIcons/asList/asColumns（zh+en），消除设置页/工具栏原始键泄漏
 - ⬜ **I-09 修复**：完全磁盘访问按钮去重——保留「权限」页，「替代 Finder」页移除按钮只留文字引导
@@ -95,7 +95,7 @@
 - ⬜ **I-10 调查修复**：侧栏折叠钮 + NSTrackingSeparatorToolbarItem 组合触发右侧内容区布局 bug（复现→修复→ui-smoke 断言）
 - ⬜ **I-07**：暂存架布局继续对齐 QSpace（组居中/间隙收紧）——与 M17 顶栏方案定稿后一并重排，避免二次返工
 
-### M17 顶栏自绘重构（等高贯通，待用户确认方向）⬜
+### M17 顶栏自绘重构（等高贯通）✅（v0.9.0，2026-08-26 用户拍板自绘+B2+A1+官方图标）
 
 - 结构性差异：QSpace 左侧牌堆区与右侧"工具栏+标签栏+地址栏"分割线贯通，因其工具栏**自绘在内容列内部**（总高约 170pt）；NSpace 现用系统原生工具栏（横跨全窗 52pt），右侧地址栏底边 79pt，92pt 牌堆物理放不进——严格等高必须弃系统工具栏、整条顶栏自绘（返回/前进、显示类型、动作图标组、布局器全部入内容区）
 - 性能评估结论（2026-08-26 讨论）：自绘无实质性能损失，静态控件重绘成本可忽略；风险在交互功能回归（全屏/Space 切换行为、工具栏自定义、跟踪分隔符特性丢失），属工程量问题非性能问题
@@ -120,8 +120,8 @@
 
 - ✅（已修 v0.5.0）**.app 图标显示空白**（2026-08-25 用户报告）：列表视图对应用程序显示空白方框。根因：Formatters 用 UTType 通用图标快路径，app bundle 的真实图标必须按文件路径读（NSWorkspace.icon(forFile:)）。修复：isPackage/.app 走 per-file 图标+路径缓存；彻底方案随 M10 IconThumb 胶囊接入。
 - ✅（已修 v0.5.0）只读卷显示"0 KB 可用"（如 DMG）：可用容量为 0 时应隐藏副标题或显示"只读"。
-- ⬜ **I-06 归档设置语义混淆**（2026-08-26 用户报告，截图#47）：设置-归档显示"压缩格式 ZIP"，用户误以为它会覆盖压缩包的默认打开程序（Bandizip）。已核实非功能 bug：双击压缩包走 `NSWorkspace.shared.open(url)`（FileListViewController.swift:358）= 系统默认程序（Bandizip），归档页设置**只**控制 NSpace 右键"压缩/解压"命令的产物格式。属 UX 表达缺陷：页面无一字说明二者边界。修复见 M16。
-- ⬜ **I-07 暂存架布局"还是没变"**（2026-08-26 用户报告，截图#48）：重写后（pile+5 竖排按钮、contentGroup 居中）用户仍判定与 QSpace 不一致——组视觉不居中、pile 与按钮列间隙偏大、计数"N ⌄"位置观感异常。与 M17 顶栏方案联动重排。
-- ⬜ **I-08 设置页显示原始键 menu.asList**（2026-08-26 用户报告，截图#49）：根因已定位——SettingsWindowController.swift:103 与 MainWindowController.swift:377 引用 `menu.asIcons/asList/asColumns`，但 Localizable.strings 里只有 `menu.viewAsIcons/viewAsList/viewAsColumns`，L10n 未命中回退为键名。工具栏分段控件 tooltip 同病。修复：zh+en 补三键。
-- ⬜ **I-09 完全磁盘访问按钮功能重复**（2026-08-26 用户报告）：「权限」页（并发批次新增）与「替代 Finder」页（SettingsWindowController.buildFinderTab:233）各有一个"打开完全磁盘访问设置"按钮。修复：保留权限页，替代 Finder 页删按钮留说明。
-- ⬜ **I-10 点击按钮后右侧内容区布局 bug**（2026-08-26 用户报告，截图#51）：疑似工具栏侧栏折叠钮与 NSTrackingSeparatorToolbarItem 组合——折叠后 dividerIndex 语义失配/工具栏项错位，右侧渲染异常。需先复现（UISelfTest 加折叠-展开场景截图对比），再修。
+- ✅（已修 v0.9.0）**I-06 归档设置语义混淆**（2026-08-26 用户报告，截图#47）：设置-归档显示"压缩格式 ZIP"，用户误以为它会覆盖压缩包的默认打开程序（Bandizip）。已核实非功能 bug：双击压缩包走 `NSWorkspace.shared.open(url)`（FileListViewController.swift:358）= 系统默认程序（Bandizip），归档页设置**只**控制 NSpace 右键"压缩/解压"命令的产物格式。属 UX 表达缺陷：页面无一字说明二者边界。修复见 M16。
+- ✅（已修 v0.9.0）**I-07 暂存架布局"还是没变"**（2026-08-26 用户报告，截图#48）：重写后（pile+5 竖排按钮、contentGroup 居中）用户仍判定与 QSpace 不一致——组视觉不居中、pile 与按钮列间隙偏大、计数"N ⌄"位置观感异常。与 M17 顶栏方案联动重排。
+- ✅（已修 v0.9.0）**I-08 设置页显示原始键 menu.asList**（2026-08-26 用户报告，截图#49）：根因已定位——SettingsWindowController.swift:103 与 MainWindowController.swift:377 引用 `menu.asIcons/asList/asColumns`，但 Localizable.strings 里只有 `menu.viewAsIcons/viewAsList/viewAsColumns`，L10n 未命中回退为键名。工具栏分段控件 tooltip 同病。修复：zh+en 补三键。
+- ✅（已修 v0.9.0）**I-09 完全磁盘访问按钮功能重复**（2026-08-26 用户报告）：「权限」页（并发批次新增）与「替代 Finder」页（SettingsWindowController.buildFinderTab:233）各有一个"打开完全磁盘访问设置"按钮。修复：保留权限页，替代 Finder 页删按钮留说明。
+- ✅（已修 v0.9.0）**I-10 点击按钮后右侧内容区布局 bug**（2026-08-26 用户报告，截图#51）：疑似工具栏侧栏折叠钮与 NSTrackingSeparatorToolbarItem 组合——折叠后 dividerIndex 语义失配/工具栏项错位，右侧渲染异常。需先复现（UISelfTest 加折叠-展开场景截图对比），再修。

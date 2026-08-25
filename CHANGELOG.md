@@ -2,6 +2,26 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.9.0] - 2026-08-26
+
+### 新增
+- **M17 自绘顶部甲板**：弃系统 NSToolbar，右列自绘「工作区标签条 28pt + 图标工具条 36pt」（A1 左右分野：侧栏/导航/视图 —— 弹性拖动区 —— 动作/布局），左列侧栏全高贯通（红绿灯行 28pt + 暂存架 148pt + 分组），一条分割线贯穿窗顶到窗底
+- **自管工作区标签**（替代原生 NSWindow tabbing）：WorkspaceManager 持有整套分屏布局快照，⌘T/⌘W/⌘⇧]、⌘⇧[ 循环全走 KeyBindings 注册表；workspaceTabLimit 外部化（超限覆盖最老）；会话旧格式一次性无损迁移（带回归测试）
+- **暂存架 B2 hover-reveal**：常态只见牌堆+计数药丸（居中），悬停 150ms 底部浮出动作条（overlay 不改布局），拖拽悬停 accent 投放高亮
+- **确定性网格执法**：scripts/grid-lint.sh 入 pre-commit（4pt 阶梯，增量模式），34 处存量入基线待 M18 清零；M17 范围文件全部实收敛
+- 设计资产：PRODUCT.md 产品真源、docs/design/M17-deck-spec.md 方向契约、docs/design/mockup-m17.html 像素级版式稿（深浅双主题+标注层）
+
+### 修复
+- I-06 归档设置语义混淆（页顶作用域说明；双击压缩包始终走系统默认程序）
+- I-07 暂存架居中（偏移 0.2pt）
+- I-08 设置页原始键泄漏 menu.asList
+- I-09 完全磁盘访问按钮重复（收口权限页）
+- I-10 侧栏折叠右列布局 bug（随 NSToolbar 体系移除而消亡；折叠/展开 3 轮回归锁）
+- 图标定稿：任务钮 arrow.up.arrow.down（消除刷新误读）、布局五段 rectangle.split 同族、AirDrop 官方符号
+
+### 验证
+- ui-smoke 25 断言全过（含 7 条 M17 新断言）；北极星四窗格闲置 CPU 0.0%×6；窗口 frame 两阶段 E2E；GRID_LINT_ALL 全量 0；meta-doctor 0
+
 ## [0.8.0] - 2026-08-26
 
 ### 新增（4 worktree 并发批次 + 主线基线）
