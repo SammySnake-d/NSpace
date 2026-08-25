@@ -41,8 +41,9 @@ final class FileListViewController: NSViewController {
         tableView.onInteract = { [weak self] in self?.onInteract?() }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         tableView.onReturn = { [weak self] in self?.beginRenameSelected() }
-        tableView.style = .inset
-        tableView.rowHeight = 24
+        tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
+        tableView.intercellSpacing = NSSize(width: 8, height: 0)
+        tableView.rowHeight = 22
         tableView.usesAutomaticRowHeights = false
         tableView.allowsMultipleSelection = true
         tableView.usesAlternatingRowBackgroundColors = true
@@ -52,10 +53,10 @@ final class FileListViewController: NSViewController {
         tableView.target = self
         tableView.doubleAction = #selector(didDoubleClick(_:))
 
-        addColumn(id: "name", title: L10n.t("column.name"), width: 340, min: 160)
-        addColumn(id: "dateModified", title: L10n.t("column.dateModified"), width: 170, min: 100)
-        addColumn(id: "size", title: L10n.t("column.size"), width: 90, min: 60, rightAlign: true)
-        addColumn(id: "kind", title: L10n.t("column.kind"), width: 160, min: 80)
+        addColumn(id: "name", title: L10n.t("column.name"), width: 280, min: 140)
+        addColumn(id: "dateModified", title: L10n.t("column.dateModified"), width: 140, min: 90)
+        addColumn(id: "size", title: L10n.t("column.size"), width: 76, min: 56, rightAlign: true)
+        addColumn(id: "kind", title: L10n.t("column.kind"), width: 110, min: 70)
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true

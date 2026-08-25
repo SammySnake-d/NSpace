@@ -2,6 +2,11 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.5.1] - 2026-08-25
+
+### 改进
+- 布局密度向 QSpace 看齐（用户反馈）：列表 .plain 样式去除 inset 大留白、行高 24→22、单元格字号 13→12、列宽收紧（名称 280/日期 140/大小 76/种类 110）、标签栏 22px、地址栏 26px
+
 ## [0.5.0] - 2026-08-25
 
 ### 新增（三分支并行开发合并：feat/engine-pods + feat/fileops + feat/sidebar）

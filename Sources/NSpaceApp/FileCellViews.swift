@@ -61,7 +61,7 @@ final class InlineRenameField: NSTextField, NSTextFieldDelegate {
         isBezeled = true
         bezelStyle = .squareBezel
         drawsBackground = true
-        font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+        font = .systemFont(ofSize: 12)
         lineBreakMode = .byTruncatingTail
         focusRingType = .default
         delegate = self
@@ -114,7 +114,7 @@ final class NameCellView: NSTableCellView {
         super.init(frame: .zero)
         self.identifier = identifier
         label.lineBreakMode = .byTruncatingMiddle
-        label.font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+        label.font = .systemFont(ofSize: 12)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
@@ -180,7 +180,7 @@ final class TextCellView: NSTableCellView {
         super.init(frame: .zero)
         self.identifier = identifier
         label.lineBreakMode = .byTruncatingTail
-        label.font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+        label.font = .systemFont(ofSize: 12)
         label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
