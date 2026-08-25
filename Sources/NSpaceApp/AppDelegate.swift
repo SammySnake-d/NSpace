@@ -18,7 +18,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await kernel.register(LocalOpsNode(), for: [.rename, .newFolder, .newFile, .trash])
             await kernel.setArbiter(conflictSheet)
             ProgressWindowController.shared.start(kernel: kernel)
-            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            // 性能自证入口（北极星验收用，非产品路径）：NSPACE_PERF_DIRS=a:b:c:d → 四宫格各导航一目录
+            if let spec = ProcessInfo.processInfo.environment["NSPACE_PERF_DIRS"], !spec.isEmpty {
+                let dirs = spec.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+                let wc = openWindow(at: dirs[0])
+                wc.grid.apply(layout: .quad)
+                for (i, dir) in dirs.dropFirst().enumerated() where i + 1 < wc.grid.visiblePanes.count {
+                    wc.grid.visiblePanes[i + 1].navigate(to: dir)
+                }
+            } else {
+                openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            }
             NSApp.activate()
         }
     }

@@ -78,6 +78,10 @@ final class PaneGridController: NSViewController {
         guard newLayout != layout else { return }
         layout = newLayout
         ensurePanes(count: layout.paneCount)
+        // 北极星：布局切走的窗格整体挂起（watcher 真停），切回的恢复（mtime 变才重载）
+        for (i, pane) in pool.enumerated() {
+            if i < layout.paneCount { pane.resumePane() } else { pane.suspendPane() }
+        }
         if activePaneIndex >= layout.paneCount { setActivePane(0) }
         rebuildGrid()
     }

@@ -31,7 +31,10 @@ final class PaneViewController: NSViewController {
     private let pathEditor = PathEditorField()
     private let addressArea = NSView()
     private let contentContainer = NSView()
+    private let statusBar = StatusBarView()
     private(set) var isActivePane = false
+    /// 窗格级挂起（布局切走时置位）：置位期间标签切换不恢复 watcher——北极星零后台功耗
+    private(set) var isPaneSuspended = false
 
     init(directory: URL) {
         super.init(nibName: nil, bundle: nil)
@@ -76,7 +79,7 @@ final class PaneViewController: NSViewController {
 
         let root = NSView()
         root.wantsLayer = true
-        for sub in [tabBar, addressArea, separator, contentContainer] {
+        for sub in [tabBar, addressArea, separator, contentContainer, statusBar] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(sub)
         }
@@ -96,7 +99,10 @@ final class PaneViewController: NSViewController {
             contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
         view = root
         mountActiveTab()
@@ -113,6 +119,15 @@ final class PaneViewController: NSViewController {
         listVC.coordinator = coordinator
         listVC.onNavigate = { [weak self] target in self?.navigate(to: target) }
         listVC.onInteract = { [weak self] in self?.onRequestFocus?() }
+        // 状态栏数据源：快照应用/选中变化 → 仅当该标签仍是活动标签时刷新计数
+        listVC.onContentChange = { [weak self, weak listVC] in
+            guard let self, self.activeTab.listVC === listVC else { return }
+            self.updateStatusCounts()
+        }
+        listVC.onSelectionChange = { [weak self, weak listVC] in
+            guard let self, self.activeTab.listVC === listVC else { return }
+            self.updateStatusCounts()
+        }
         let tab = Tab(browser: browser, model: model, listVC: listVC)
         tabs.append(tab)
         return tab
@@ -127,6 +142,8 @@ final class PaneViewController: NSViewController {
     func closeTab(at index: Int) {
         guard tabs.count > 1, tabs.indices.contains(index) else { return }
         let tab = tabs.remove(at: index)
+        tab.model.stopWatching()          // 关标签：彻底拆流，不留任何后台监听
+        tab.listVC.cancelDecorationWork()
         tab.listVC.view.removeFromSuperview()
         tab.listVC.removeFromParent()
         if activeTabIndex >= tabs.count { activeTabIndex = tabs.count - 1 }
@@ -147,6 +164,11 @@ final class PaneViewController: NSViewController {
 
     private func mountActiveTab() {
         contentContainer.subviews.forEach { $0.removeFromSuperview() }
+        // 北极星：隐藏标签全部挂起（watcher 真停 + 在飞装饰请求取消），只有活动标签活着
+        for (i, tab) in tabs.enumerated() where i != activeTabIndex {
+            tab.model.suspend()
+            tab.listVC.cancelDecorationWork()
+        }
         let listVC = activeTab.listVC
         if listVC.parent !== self { addChild(listVC) }
         let v = listVC.view
@@ -158,6 +180,31 @@ final class PaneViewController: NSViewController {
             v.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
             v.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
         ])
+        // 窗格本身被布局切走时不恢复（由 resumePane 统一恢复）
+        if !isPaneSuspended {
+            activeTab.model.resume()
+            activeTab.listVC.refreshVisibleDecorations()
+        }
+    }
+
+    // MARK: 窗格级挂起/恢复（PaneGridController 布局切换时调用——北极星零后台功耗）
+
+    /// 布局切走本窗格：所有标签挂起（活动标签也挂），装饰请求全取消
+    func suspendPane() {
+        guard !isPaneSuspended else { return }
+        isPaneSuspended = true
+        for tab in tabs {
+            tab.model.suspend()
+            tab.listVC.cancelDecorationWork()
+        }
+    }
+
+    /// 布局切回本窗格：只恢复活动标签（其余标签保持挂起，等切换时再恢复）
+    func resumePane() {
+        guard isPaneSuspended else { return }
+        isPaneSuspended = false
+        activeTab.model.resume()
+        activeTab.listVC.refreshVisibleDecorations()
     }
 
     private func refreshChrome() {
@@ -165,6 +212,14 @@ final class PaneViewController: NSViewController {
         breadcrumb.setURL(activeTab.browser.current)
         onLocationChange?(activeTab.browser.current)
         applyActiveTint()
+        // 状态栏：计数即时刷；卷容量只在目录变化/标签切换时读一次（statfs 只读，不轮询）
+        updateStatusCounts()
+        statusBar.updateVolume(for: activeTab.browser.current)
+    }
+
+    private func updateStatusCounts() {
+        statusBar.update(itemCount: activeTab.model.items.count,
+                         selectedCount: activeTab.listVC.selectedItems.count)
     }
 
     private func displayName(_ url: URL) -> String {

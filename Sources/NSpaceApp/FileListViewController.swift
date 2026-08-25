@@ -1,9 +1,13 @@
 import AppKit
+import UniformTypeIdentifiers
 import NSpaceContracts
+import FolderSize
+import IconThumb
 
 /// 列表视图（性能核心）：view-based NSTableView、固定行高、行复用、可排序列。
 /// 只读消费 DirectoryViewModel（BG-1：本层无任何写型文件 API）；
 /// 文件变更意图一律经 FileOpsCoordinator 构造 OperationSpec 交内核执行。
+/// 装饰异步链（FolderSize/IconThumb）只对可见行发请求，滚出即取消——北极星零浪费。
 @MainActor
 final class FileListViewController: NSViewController {
     let model: DirectoryViewModel
@@ -13,6 +17,10 @@ final class FileListViewController: NSViewController {
     var onNavigate: ((URL) -> Void)?
     /// 用户交互上抛（窗格焦点协调）
     var onInteract: (() -> Void)?
+    /// 选中变化上抛（状态栏"已选 M 项"）
+    var onSelectionChange: (() -> Void)?
+    /// 快照应用后上抛（状态栏"N 项"）
+    var onContentChange: (() -> Void)?
 
     private let tableView = FocusReportingTableView()
     private let scrollView = NSScrollView()
@@ -23,6 +31,14 @@ final class FileListViewController: NSViewController {
 
     /// spring-loaded 状态：拖拽悬停的文件夹行 + 触发计时器
     private var springLoad: (row: Int, timer: Timer)?
+
+    // 装饰状态（派生显示层，可随时丢弃）：已回填的目录大小 / 已升级的缩略图 / 在飞请求
+    private var sizeOverlay: [URL: Int64] = [:]
+    private var thumbOverlay: [URL: NSImage] = [:]
+    private var sizeTasks: [URL: Task<Void, Never>] = [:]
+    private var thumbTasks: [URL: Task<Void, Never>] = [:]
+    /// 缩略图资格按 UTType 缓存（滚动路径零重复 conforms 计算）
+    private static var thumbEligible: [String: Bool] = [:]
 
     /// 键盘焦点落点（PaneGrid 激活时 makeFirstResponder 此视图）
     var focusTarget: NSView { tableView }
@@ -69,6 +85,11 @@ final class FileListViewController: NSViewController {
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        // 滚动/尺寸变化 → 重算可见行装饰请求（只对可见行发请求，滚出取消）
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(scrollBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
 
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
@@ -102,13 +123,25 @@ final class FileListViewController: NSViewController {
         tableView.addTableColumn(col)
     }
 
+    private var lastSnapshotDirectory: URL?
+
     private func applySnapshot() {
+        // 目录切换：取消所有在飞装饰请求，清空回填结果（跨目录 URL 不复用）
+        if lastSnapshotDirectory != model.directory {
+            lastSnapshotDirectory = model.directory
+            cancelDecorationWork()
+            sizeOverlay.removeAll()
+        }
+        // 同目录刷新也清缩略图覆盖层：文件可能已改内容（IconThumb 缓存键含 mtime，重取要么命中要么重生成）
+        thumbOverlay.removeAll()
         emptyLabel.isHidden = true
         tableView.reloadData()
         if model.items.isEmpty, !model.isLoading {
             showEmptyState(L10n.t("empty.folder"))
         }
         revealPendingIfPossible()
+        refreshVisibleDecorations()
+        onContentChange?()
     }
 
     private func showEmptyState(_ message: String) {
@@ -118,6 +151,93 @@ final class FileListViewController: NSViewController {
 
     /// 仅重绘（剪切灰显变化时由协调器调用）
     func redraw() { tableView.reloadData() }
+
+    // MARK: 按需装饰（FolderSize 目录大小 + IconThumb 缩略图，只对可见行、滚出取消）
+
+    @objc private func scrollBoundsChanged(_ note: Notification) {
+        refreshVisibleDecorations()
+    }
+
+    /// 取消全部在飞装饰请求（标签/窗格挂起、目录切换时调用；已回填结果保留）
+    func cancelDecorationWork() {
+        sizeTasks.values.forEach { $0.cancel() }
+        sizeTasks.removeAll()
+        thumbTasks.values.forEach { $0.cancel() }
+        thumbTasks.removeAll()
+    }
+
+    /// 对当前可见行发起缺失的装饰请求；不再可见的在飞请求全部取消
+    func refreshVisibleDecorations() {
+        guard view.window != nil, !model.items.isEmpty else { return }
+        let range = tableView.rows(in: tableView.visibleRect)
+        var wantedSizes = Set<URL>()
+        var wantedThumbs = Set<URL>()
+        if range.length > 0 {
+            for row in range.location..<(range.location + range.length) {
+                guard model.items.indices.contains(row) else { continue }
+                let item = model.items[row]
+                if item.isDirectory, item.size == nil, sizeOverlay[item.url] == nil {
+                    wantedSizes.insert(item.url)
+                    requestFolderSize(item.url)
+                }
+                if thumbOverlay[item.url] == nil, wantsThumbnail(item) {
+                    wantedThumbs.insert(item.url)
+                    requestThumbnail(item.url)
+                }
+            }
+        }
+        for (url, task) in sizeTasks where !wantedSizes.contains(url) {
+            task.cancel(); sizeTasks[url] = nil
+        }
+        for (url, task) in thumbTasks where !wantedThumbs.contains(url) {
+            task.cancel(); thumbTasks[url] = nil
+        }
+    }
+
+    /// 有内容缩略图价值的类型：图片/影音/PDF；目录与应用包用现有图标（不发 QuickLook 请求）
+    private func wantsThumbnail(_ item: FileItem) -> Bool {
+        guard !item.isDirectory, !item.isPackage, let id = item.contentTypeID else { return false }
+        if let cached = Self.thumbEligible[id] { return cached }
+        let type = UTType(id)
+        let ok = type?.conforms(to: .image) == true
+            || type?.conforms(to: .audiovisualContent) == true
+            || type?.conforms(to: .pdf) == true
+        Self.thumbEligible[id] = ok
+        return ok
+    }
+
+    private func requestFolderSize(_ url: URL) {
+        guard sizeTasks[url] == nil else { return }
+        sizeTasks[url] = Task { [weak self] in
+            let size = try? await Engines.folderSize.size(of: url)
+            guard let self, !Task.isCancelled else { return }
+            self.sizeTasks[url] = nil
+            guard let size else { return }
+            self.sizeOverlay[url] = size
+            // 仅当该行仍代表同一 URL 时刷新该行的大小列
+            guard let row = self.model.items.firstIndex(where: { $0.url == url }) else { return }
+            let col = self.tableView.column(withIdentifier: .init("size"))
+            guard col >= 0 else { return }
+            self.tableView.reloadData(forRowIndexes: [row], columnIndexes: [col])
+        }
+    }
+
+    private func requestThumbnail(_ url: URL) {
+        guard thumbTasks[url] == nil else { return }
+        thumbTasks[url] = Task { [weak self] in
+            let cg = await Engines.iconThumb.thumbnail(for: url, size: 32)
+            guard let self, !Task.isCancelled else { return }
+            self.thumbTasks[url] = nil
+            guard let cg else { return }
+            let image = NSImage(cgImage: cg, size: NSSize(width: 16, height: 16))
+            self.thumbOverlay[url] = image
+            // 直接换图不 reload 行：避免打断可能进行中的行内重命名
+            guard let row = self.model.items.firstIndex(where: { $0.url == url }),
+                  let cell = self.tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+                    as? NameCellView else { return }
+            cell.imageView?.image = image
+        }
+    }
 
     // MARK: 选中态
 
@@ -309,7 +429,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
             let cell = tableView.makeView(withIdentifier: .init("nameCell"), owner: nil) as? NameCellView
                 ?? NameCellView(identifier: .init("nameCell"))
             let cut = coordinator?.isCut(item.url) ?? false
-            cell.configure(icon: Formatters.icon(for: item),
+            // 快路径先出类型图标；已到货的内容缩略图直接用（升级路径见 requestThumbnail）
+            cell.configure(icon: thumbOverlay[item.url] ?? Formatters.icon(for: item),
                            name: item.name, dimmed: item.isHidden || cut)
             return cell
         }
@@ -320,7 +441,9 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         case "dateModified":
             cell.configure(item.modified.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left)
         case "size":
-            cell.configure(item.size.map { Formatters.size.string(fromByteCount: $0) } ?? "—", alignment: .right)
+            // 文件用快照字节数；目录快照为 nil → 已回填的 FolderSize 结果，否则占位"—"
+            let bytes = item.size ?? sizeOverlay[item.url]
+            cell.configure(bytes.map { Formatters.size.string(fromByteCount: $0) } ?? "—", alignment: .right)
         case "kind":
             cell.configure(Formatters.kind(forTypeID: item.contentTypeID, isDirectory: item.isDirectory), alignment: .left)
         default:
@@ -333,6 +456,10 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let d = tableView.sortDescriptors.first, let key = d.key,
               let sortKey = SortSpec.Key(rawValue: key) else { return }
         model.sort = SortSpec(key: sortKey, ascending: d.ascending, foldersFirst: model.sort.foldersFirst)
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        onSelectionChange?()
     }
 
     // MARK: 拖拽源（可拖到 Finder/其他 App/另一窗格/侧边栏书签/暂存架）

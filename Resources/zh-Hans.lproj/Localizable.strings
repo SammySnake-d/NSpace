@@ -125,3 +125,8 @@
 "stash.remove" = "从暂存架移除";
 "stash.clear" = "清空暂存架";
 "stash.airdropFailed" = "AirDrop 不可用，请检查隔空投送设置";
+
+/* 状态栏（M10） */
+"status.items" = "%ld 项";
+"status.itemsSelected" = "%ld 项（已选 %ld 项）";
+"status.available" = "可用 %@";
