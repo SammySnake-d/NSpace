@@ -23,6 +23,16 @@ enum Formatters {
         return f
     }()
 
+    /// 大小串拆成（数值, 单位）——供大小列墨色三级分色（数值 labelColor / 单位 secondaryLabelColor）。
+    /// 以最后一个空格为界；无空格（罕见）则整串作数值、单位空。
+    static func sizeParts(fromByteCount bytes: Int64) -> (value: String, unit: String) {
+        let s = size.string(fromByteCount: bytes)
+        if let r = s.range(of: " ", options: .backwards) {
+            return (String(s[..<r.lowerBound]), String(s[r.upperBound...]))
+        }
+        return (s, "")
+    }
+
     private static var kindCache: [String: String] = [:]
     private static var iconCache: [String: NSImage] = [:]
     private static var fullIconCache: [String: NSImage] = [:]

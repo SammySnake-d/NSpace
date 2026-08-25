@@ -130,6 +130,8 @@
 /* 状态栏（M10） */
 "status.items" = "%ld 项";
 "status.itemsSelected" = "%ld 项（已选 %ld 项）";
+"status.selectedPill" = "已选 %ld 项 · %@";
+"status.selectedCount" = "已选 %ld 项";
 "status.available" = "可用 %@";
 "menu.newPaneTab" = "新建窗格标签";
 "menu.closePaneTab" = "关闭窗格标签";

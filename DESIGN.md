@@ -119,7 +119,7 @@ NSpace 是一台原生 macOS 专业文件工具，视觉标准 = **Finder 的材
 
 **零硬编码色规则（The Zero-Hex Rule）.** 展示层不得出现品牌 hex 字面量。唯一允许的 `NSColor(hex:)` 是渲染 `Theme.accentPalette` 的调色板色点（`AppearanceSettingsPage`）。其余一律语义色或 `Theme.accent`。结构性用色（`.black`/`.white`/`.clear`）只用于暗化覆盖层、浮条阴影、透明底——不承载品牌。
 
-**强调色阶梯规则（The Accent-Alpha Rule）.** 强调色只以固定透明度阶梯出现，从不满铺大面积：**18%** = 活动工作区标签底；**10%** = 计数药丸底、活动窗格地址栏混入；**6%** = 拖拽投放环填充；**100%** = 投放环描边、侧栏条目图标着色。稀少与低饱和是重点——它标记状态，不做装饰。
+**强调色阶梯规则（The Accent-Alpha Rule）.** 强调色只以固定透明度阶梯出现，从不满铺大面积：**18%** = 活动工作区标签底；**10%** = 计数药丸底、状态栏选中药丸底、活动窗格地址栏混入；**6%** = 拖拽投放环填充；**100%** = 投放环描边、侧栏条目图标着色。稀少与低饱和是重点——它标记状态，不做装饰。
 
 ## Typography
 
@@ -132,13 +132,13 @@ NSpace 是一台原生 macOS 专业文件工具，视觉标准 = **Finder 的材
 - **Body**（regular, 12px，可配 11–14）：文件列表/图标/分栏单元格。经 `Preferences.listFontSize`（`Formatters.listFontSize`）外部化；字号 ≥13 时列表行高 24pt，否则 22pt（`FileListViewController.rowHeight(for:)`）。
 - **Label**（regular, 11px）：甲板/状态栏/工作区标签文字、暂存空态文案、侧栏分组标题（此处 `.semibold`）、错误横幅。是界面里出现最多的尺寸。
 - **Caption**（regular, 10px）：侧栏叶子行的容量副标题（`tertiaryLabelColor`）。
-- **Numeric**（medium, 12px, monospaced-digit）：暂存架计数药丸——唯一使用 tabular 数字的地方。
+- **Numeric**（medium/regular, monospaced-digit）：所有高频跳动的数字位——暂存架计数药丸（12px medium）、状态栏计数/选中药丸/可用容量（11px）、列表的大小/日期列（`Formatters.listFontSize`）。统一走 `.monospacedDigitSystemFont`，刷新时数字不横向抖动。
 
 ### Named Rules
 
-**墨色三级规则（The Three-Ink Rule）.** 文本颜色只在三级墨色间选择：`labelColor`（存在/活动）→ `secondaryLabelColor`（次要/静默）→ `tertiaryLabelColor`（占位/丢失/单位）。层级靠墨色与字号，不靠彩色文字。
+**墨色三级规则（The Three-Ink Rule）.** 文本颜色只在三级墨色间选择：`labelColor`（存在/活动）→ `secondaryLabelColor`（次要/静默）→ `tertiaryLabelColor`（占位/丢失/单位）。层级靠墨色与字号，不靠彩色文字。大小列即此规则的一次落地：数值 `labelColor` + 单位 `secondaryLabelColor`（`TextCellView.configureSize`），单位灰阶退后。
 
-**等宽数字克制规则（The Tabular-Where-It-Counts Rule）.** tabular 数字目前只用于暂存计数药丸。⚠️ 代码实测：状态栏"N 项 / 已选 M 项 / 可用 X GB"与列表的大小/日期列**用的是普通 `systemFont`，非 tabular**——与 mockup 版式稿（`font-variant-numeric: tabular-nums`）不一致，此处以代码为准。若后续为高频跳动的计数列引入 tabular，应统一走等宽数字字体。
+**等宽数字克制规则（The Tabular-Where-It-Counts Rule）.** tabular 数字用于会随刷新/选择跳动的数字位：暂存计数药丸、状态栏（计数 / "已选 N 项 · 大小"药丸 / 可用容量）、列表的大小/修改/创建/添加日期列。全部经 `.monospacedDigitSystemFont`（M21 收敛，先前状态栏与大小/日期列误用普通 `systemFont` 已修正，与 mockup 版式稿 `font-variant-numeric: tabular-nums` 对齐）。非数字文本（名称/种类/路径）仍用常规 `systemFont`。
 
 ## Layout
 

@@ -334,19 +334,26 @@ final class PaneViewController: NSViewController {
     private func updateStatusCounts() {
         var items = activeTab.model.items.count
         var selected = 0
+        var bytes: Int64 = 0
         switch activeTab.viewMode {
         case .list:
-            selected = activeTab.listVC.selectedItems.count
+            let sel = activeTab.listVC.selectedItems
+            selected = sel.count
+            bytes = sel.reduce(0) { $0 + ($1.size ?? 0) }
         case .icons:
-            selected = activeTab.iconVC?.selectedItems.count ?? 0
+            let sel = activeTab.iconVC?.selectedItems ?? []
+            selected = sel.count
+            bytes = sel.reduce(0) { $0 + ($1.size ?? 0) }
         case .columns:
             // 分栏语义：计焦点列（列自管加载，与 model 无关）
-            if let counts = activeTab.columnVC?.statusCounts {
+            if let vc = activeTab.columnVC {
+                let counts = vc.statusCounts
                 items = counts.items
                 selected = counts.selected
+                bytes = vc.selectedItems.reduce(0) { $0 + ($1.size ?? 0) }
             }
         }
-        statusBar.update(itemCount: items, selectedCount: selected)
+        statusBar.update(itemCount: items, selectedCount: selected, selectedBytes: bytes)
         onStatusChange?()
     }
 
@@ -357,6 +364,14 @@ final class PaneViewController: NSViewController {
         case .icons: return activeTab.iconVC?.selectedItems.count ?? 0
         case .columns: return activeTab.columnVC.map { $0.statusCounts.selected } ?? 0
         }
+    }
+
+    /// UISelfTest（M21）：list 模式选中前 n 项并刷计数，回状态栏选中药丸是否可见
+    func uiTestSelectFirstItemsAndPillVisible(_ n: Int) -> Bool {
+        let urls = Array(activeTab.model.items.prefix(n)).map(\.url)
+        activeTab.listVC.select(urls: urls)
+        updateStatusCounts()
+        return statusBar.selectionPillVisible
     }
 
     private func displayName(_ url: URL) -> String {
