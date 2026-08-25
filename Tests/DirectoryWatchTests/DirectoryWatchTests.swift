@@ -45,6 +45,29 @@ import DirectoryWatch
         #expect(await waitForIncrease(counter, over: 0, timeoutMS: 1500))
     }
 
+    /// 北极星回归：深层子树变化不得触发信号（FSEvents 递归上报必须被直接子项过滤拦截）
+    @Test func deepSubtreeChangeDoesNotSignal() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let deep = dir.appendingPathComponent("a/b/c")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+
+        let watcher = DirectoryWatch().watch(dir)
+        defer { watcher.stop() }
+        let counter = SignalCounter()
+        let consumer = Task { for await _ in watcher.signals { await counter.bump() } }
+        defer { consumer.cancel() }
+        try await Task.sleep(for: .milliseconds(400))   // 让建流期陈旧事件排空
+        let baseline = await counter.value
+
+        try touch(deep)   // 深层写入：与本目录列表无关
+        let increased = await waitForIncrease(counter, over: baseline, timeoutMS: 1200)
+        #expect(!increased)
+
+        try touch(dir)    // 直接子项写入：必须触发
+        #expect(await waitForIncrease(counter, over: baseline, timeoutMS: 1500))
+    }
+
     @Test func stopSilencesFurtherChanges() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

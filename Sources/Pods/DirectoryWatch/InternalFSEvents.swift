@@ -18,14 +18,31 @@ final class WatchPump: @unchecked Sendable {
     private(set) var startupError: DirectoryWatchError?
 
     init(path: URL, continuation: AsyncStream<Void>.Continuation) {
-        self.path = path.path
+        // FSEvents 回报 realpath 规范路径（/var→/private/var 等）。
+        // 注意 Foundation 的 resolvingSymlinksInPath 会刻意剥掉 /private 前缀，
+        // 与 FSEvents 口径相反——必须用 POSIX realpath 对齐，否则过滤误杀全部真信号
+        if let rp = realpath(path.path, nil) {
+            self.path = String(cString: rp)
+            free(rp)
+        } else {
+            self.path = path.path
+        }
         self.continuation = continuation
     }
 
-    /// 回调线程调用：向信号流投递一次变化（stopped 后丢弃）。
-    func emit() {
-        lock.lock(); let dead = stopped; lock.unlock()
+    /// 回调线程调用：仅当事件命中"目录自身或直接子项"时投递信号。
+    /// FSEvents(FileEvents) 对 watch 路径是递归上报——深层子树的变化与"该目录列表"无关，
+    /// 不过滤会把后台构建等子树噪声放大成 0.3s 一次的整目录重载（空闲 CPU 25%+ 的元凶）。
+    func emit(paths: [String]) {
+        lock.lock(); let dead = stopped; let root = path; lock.unlock()
         guard !dead else { return }
+        let normalizedRoot = root.hasSuffix("/") ? String(root.dropLast()) : root
+        let relevant = paths.contains { p in
+            let np = p.hasSuffix("/") ? String(p.dropLast()) : p
+            return np == normalizedRoot
+                || (np as NSString).deletingLastPathComponent == normalizedRoot
+        }
+        guard relevant else { return }
         continuation.yield(())
     }
 
@@ -92,8 +109,7 @@ final class WatchPump: @unchecked Sendable {
     }
 }
 
-// C 回调 trampoline：经 info 指针取回 WatchPump（unretained），投递一次信号。
-// 单次回调可能聚合多路径事件；对"整目录重载"语义无需逐条解析，一次 emit 即可。
+// C 回调 trampoline：经 info 指针取回 WatchPump（unretained），解析事件路径后过滤投递。
 private func watchCallback(
     _ streamRef: ConstFSEventStreamRef,
     _ info: UnsafeMutableRawPointer?,
@@ -103,5 +119,12 @@ private func watchCallback(
     _ eventIds: UnsafePointer<FSEventStreamEventId>
 ) {
     guard let info else { return }
-    Unmanaged<WatchPump>.fromOpaque(info).takeUnretainedValue().emit()
+    // 未用 UseCFTypes：eventPaths 是 char** 数组
+    let raw = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>?.self)
+    var paths: [String] = []
+    paths.reserveCapacity(numEvents)
+    for i in 0..<numEvents {
+        if let cstr = raw[i] { paths.append(String(cString: cstr)) }
+    }
+    Unmanaged<WatchPump>.fromOpaque(info).takeUnretainedValue().emit(paths: paths)
 }
