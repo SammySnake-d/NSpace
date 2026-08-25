@@ -9,6 +9,10 @@ final class FocusReportingTableView: NSTableView {
     var menuProvider: ((Int) -> NSMenu?)?
     /// Return 键：触发选中行的行内重命名
     var onReturn: (() -> Void)?
+    /// Return 键（enterAction=open 时）：打开选中项
+    var onOpenSelected: (() -> Void)?
+    /// Backspace 键（无 ⌘ 修饰）：按 backspaceAction 分发（忽略/返回/废纸篓/上层）
+    var onBackspaceAction: (() -> Void)?
     /// 空格键：Quick Look 预览开关（Finder 肌肉记忆）
     var onSpace: (() -> Void)?
     /// 拖拽移出/结束（spring-loaded 计时器取消用）
@@ -54,9 +58,18 @@ final class FocusReportingTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // Return（36）/ Enter（76）触发重命名；空格（49）Quick Look；其余交回默认（方向键等）
+        // Return（36）/ Enter（76）：按使用习惯分发（rename→行内重命名 / open→打开选中）
         if event.keyCode == 36 || event.keyCode == 76 {
-            onReturn?()
+            if Preferences.enterAction == "open" { onOpenSelected?() } else { onReturn?() }
+            return
+        }
+        // Backspace（51）：⌘⌫ 保持废纸篓语义交回菜单快捷键；无 ⌘ 时按使用习惯分发
+        if event.keyCode == 51 {
+            if event.modifierFlags.contains(.command) {
+                super.keyDown(with: event)
+            } else {
+                onBackspaceAction?()
+            }
             return
         }
         if event.keyCode == 49, let onSpace {

@@ -26,4 +26,19 @@ enum FinderIntegration {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
         NSWorkspace.shared.open(url)
     }
+
+    /// 完全磁盘访问探测（只读，不违 BG-1）：尝试列出受 TCC 保护目录（Safari/Mail）。
+    /// 能列出（即便空目录）= 已授权；被拒时 contentsOfDirectory 抛错 → 未授权。
+    static func hasFullDiskAccess() -> Bool {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        for probe in ["Library/Safari", "Library/Mail"] {
+            let url = home.appendingPathComponent(probe)
+            var isDir: ObjCBool = false
+            // 目录本身可 stat（TCC 只挡内容读取）；不存在则跳过（未启用 Mail 等）
+            guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            if (try? fm.contentsOfDirectory(atPath: url.path)) != nil { return true }
+        }
+        return false
+    }
 }

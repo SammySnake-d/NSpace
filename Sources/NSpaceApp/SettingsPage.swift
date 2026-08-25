@@ -10,5 +10,8 @@ protocol SettingsPage {
 /// 并发扩展位：各功能面（归档/使用习惯/打开模式/权限/外观）在此追加
 @MainActor
 enum SettingsPages {
-    static var extraPages: [any SettingsPage] = []
+    static var extraPages: [any SettingsPage] = [
+        BehaviorSettingsPage(),      // 使用习惯 + 打开模式
+        PermissionsSettingsPage(),   // 权限（完全磁盘访问）
+    ]
 }
