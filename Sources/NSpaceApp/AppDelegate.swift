@@ -46,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
+        if let wc = windowControllers.first(where: { $0.window === window }) {
+            wc.teardown()
+        }
         windowControllers.removeAll { $0.window === window }
     }
 }

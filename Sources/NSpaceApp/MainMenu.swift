@@ -24,7 +24,11 @@ enum MainMenu {
         let fileMenu = NSMenu(title: L10n.t("menu.file"))
         fileItem.submenu = fileMenu
         fileMenu.addItem(withTitle: L10n.t("menu.newWindow"), action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
-        fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        fileMenu.addItem(withTitle: L10n.t("menu.newTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "t")
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: L10n.t("menu.closeTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
+        let closeWinItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        closeWinItem.keyEquivalentModifierMask = [.command, .shift]
 
         // 编辑（文本编辑标准链，路径编辑框/重命名要用）
         let editItem = main.addItem(withTitle: L10n.t("menu.edit"), action: nil, keyEquivalent: "")
@@ -42,6 +46,20 @@ enum MainMenu {
         let viewItem = main.addItem(withTitle: L10n.t("menu.view"), action: nil, keyEquivalent: "")
         let viewMenu = NSMenu(title: L10n.t("menu.view"))
         viewItem.submenu = viewMenu
+
+        // 布局子菜单（⌃⌘1..5）
+        let layoutItem = viewMenu.addItem(withTitle: L10n.t("menu.layout"), action: nil, keyEquivalent: "")
+        let layoutMenu = NSMenu(title: L10n.t("menu.layout"))
+        layoutItem.submenu = layoutMenu
+        for (i, layout) in PaneLayout.allCases.enumerated() {
+            let item = layoutMenu.addItem(withTitle: layout.localizedName,
+                                          action: #selector(MainWindowController.applyLayout(_:)),
+                                          keyEquivalent: "\(i + 1)")
+            item.keyEquivalentModifierMask = [.control, .command]
+            item.tag = layout.rawValue
+            item.image = NSImage(systemSymbolName: layout.symbolName, accessibilityDescription: nil)
+        }
+        viewMenu.addItem(.separator())
         let hiddenItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleHidden"),
                                           action: #selector(FileListViewController.toggleHiddenFiles(_:)),
                                           keyEquivalent: ".")

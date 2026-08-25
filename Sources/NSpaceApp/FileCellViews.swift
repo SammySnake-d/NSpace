@@ -1,5 +1,26 @@
 import AppKit
 
+/// 上报用户交互的表视图（窗格焦点协调：点击即请求激活所属窗格）
+@MainActor
+final class FocusReportingTableView: NSTableView {
+    var onInteract: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onInteract?()
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onInteract?()
+        super.rightMouseDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        onInteract?()
+        return super.becomeFirstResponder()
+    }
+}
+
 /// 名称单元格：图标 + 文本（行内重命名编辑能力 M6 接入）
 @MainActor
 final class NameCellView: NSTableCellView {

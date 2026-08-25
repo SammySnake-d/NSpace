@@ -17,7 +17,9 @@ cp "$BIN" "$APP/Contents/MacOS/NSpace"
 
 # 探针不进包（生产二进制隔离）
 cp Support/Info.plist "$APP/Contents/Info.plist"
+VERSION="$(cat VERSION | tr -d '[:space:]')"
 BUILD_NUM="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUM" "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
@@ -30,4 +32,4 @@ fi
 cp Support/NSpace.icns "$APP/Contents/Resources/NSpace.icns"
 
 codesign --force --sign "${SIGN_IDENTITY:--}" --identifier com.nspace.NSpace "$APP"
-echo "✓ 已构建并签名 $APP (CFBundleVersion=$BUILD_NUM, sign=${SIGN_IDENTITY:-ad-hoc})"
+echo "✓ 已构建并签名 $APP (v$VERSION build $BUILD_NUM, sign=${SIGN_IDENTITY:-ad-hoc})"

@@ -36,3 +36,14 @@
 "addressbar.placeholder" = "输入路径，回车前往";
 "addressbar.subfolders" = "子文件夹";
 "addressbar.noSubfolders" = "（无子文件夹）";
+"menu.newTab" = "新建标签页";
+"menu.closeTab" = "关闭标签页";
+"menu.layout" = "布局";
+"layout.single" = "单窗格";
+"layout.dualH" = "双列";
+"layout.dualV" = "双行";
+"layout.tripleH" = "三列";
+"layout.quad" = "四宫格";
+"toolbar.layout" = "布局";
+"tab.new" = "新建标签页";
+"tab.close" = "关闭标签页";

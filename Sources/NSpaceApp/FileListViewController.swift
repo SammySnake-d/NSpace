@@ -6,12 +6,17 @@ import NSpaceContracts
 @MainActor
 final class FileListViewController: NSViewController {
     let model: DirectoryViewModel
-    /// 导航意图上抛（M3 起由 Pane/历史协调；M2 由窗口直接接）
+    /// 导航意图上抛（由 Pane 历史协调）
     var onNavigate: ((URL) -> Void)?
+    /// 用户交互上抛（窗格焦点协调）
+    var onInteract: (() -> Void)?
 
-    private let tableView = NSTableView()
+    private let tableView = FocusReportingTableView()
     private let scrollView = NSScrollView()
     private let emptyLabel = NSTextField(labelWithString: "")
+
+    /// 键盘焦点落点（PaneGrid 激活时 makeFirstResponder 此视图）
+    var focusTarget: NSView { tableView }
 
     init(model: DirectoryViewModel) {
         self.model = model
@@ -24,6 +29,7 @@ final class FileListViewController: NSViewController {
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
     override func loadView() {
+        tableView.onInteract = { [weak self] in self?.onInteract?() }
         tableView.style = .inset
         tableView.rowHeight = 24
         tableView.usesAutomaticRowHeights = false

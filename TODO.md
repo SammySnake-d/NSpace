@@ -1,0 +1,69 @@
+# NSpace 待办清单（TODO）
+
+> 状态图例：✅ 完成 · 🚧 进行中 · ⬜ 未开始。用户新增需求一律先落到这里再排队。
+
+## 已完成
+
+- ✅ M0 元架构合规（META_COMPLIANCE/spec.md/pod-lint/pre-commit/meta-doctor 退出 0）+ SwiftPM 无 Xcode 构建管线
+- ✅ M1 引擎切片：OperationKernel 状态机 + DirectoryReader/Transfer 胶囊 + nspace-probe 探针（三级验收）
+- ✅ M2 单窗格列表视图（可排序列/图标/双击默认 App 打开/⌘⇧. 隐藏/空态）
+- ✅ M3 地址栏（面包屑分段+chevron 子目录菜单+⌘L 编辑+PathComplete 补全）+ 前进/后退/上层历史
+- ✅ M4 多窗格布局（单/双列/双行/三列/四宫格 ⌃⌘1..5）+ 每窗格多标签（⌘T/⌘W）+ Tab 焦点循环 + 活动窗格高亮 + 工具栏布局切换器
+- ✅ 修复：面包屑根目录死循环内存爆炸（4.4GB）；四宫格 split 塌陷（NSSplitView 按旧 frame 比例分配）
+- ✅ 窗口尺寸记忆（setFrameAutosaveName；完整会话恢复见 M11）
+
+## 待办（按里程碑排队）
+
+### M5 侧边栏 ⬜
+- ⬜ 左侧边栏（NSOutlineView source list，可折叠分组，⌘⌥S 显示/隐藏）
+- ⬜ 起始位置分组：桌面/文稿/下载/应用程序/个人/iCloud Drive
+- ⬜ 自定义书签：拖入文件夹、排序、重命名、删除、分组（BookmarkStore 胶囊，JSON 持久化）
+- ⬜ 磁盘/设备分组：挂载卷列表、可用空间、推出按钮（VolumeInfo 胶囊）
+
+### M6 文件操作 UI ⬜
+- ⬜ 右键菜单：打开/打开方式/重命名/拷贝/剪切/粘贴/移到废纸篓/新建文件夹/显示简介/快速查看/在终端打开/显示包内容
+- ⬜ **⌘⇧C 拷贝路径**（用户点名）
+- ⬜ 剪贴板复制/剪切/粘贴（⌘C/⌘X/⌘V，剪切态行变暗）
+- ⬜ 行内重命名（Enter 触发，FG-6 失败原子回滚旧名）
+- ⬜ 移到废纸篓 ⌘⌫（TrashOps 胶囊）+ ⌘Z 撤销
+- ⬜ 新建文件夹 ⇧⌘N / 制作副本 ⌘D / F5/F6 复制/移动到另一窗格
+- ⬜ 操作进度窗（消费 OperationProjection 流，>0.5s 自动弹出，可取消）
+- ⬜ 冲突面板（替换/跳过/两者保留/合并 + 应用到全部，原位 sheet）
+
+### M7 拖拽 + 暂存架 ⬜
+- ⬜ **拖动移动/复制文件**（用户点名）：窗格间、与 Finder/其他 App 互拖，⌥=复制、同卷默认移动、跨卷复制
+- ⬜ 拖到面包屑分段投放；spring-loaded 悬停进入文件夹
+- ⬜ 暂存架：侧栏区 + 浮动面板，拖入暂存、批量复制/移动到活动窗格、AirDrop、移除、跨启动持久化（StashStore 胶囊）
+
+### M8 预览与信息 ⬜
+- ⬜ **Space 多格式预览**（用户点名）：QLPreviewPanel，图片/视频/PDF/Office/代码等系统支持的全部格式；方向键跟随选择连续预览；多选预览
+- ⬜ 显示简介窗口（⌘I）
+- ⬜ 打开方式子菜单（列出全部可用 App+默认标注）
+
+### M9 视图模式 ⬜
+- ⬜ 图标网格视图 ⌘1（NSCollectionView，图标大小滑块）
+- ⬜ 列表视图 ⌘2（现有）/ 分栏 Miller columns ⌘3
+
+### M10 实时刷新 + 性能收口 ⬜
+- ⬜ FSEvents 自动刷新（DirectoryWatch 胶囊，≤0.5s；后台标签/窗格挂起——北极星）
+- ⬜ 按需文件夹大小计算（FolderSize 胶囊）
+- ⬜ 逐文件精确图标/QuickLook 缩略图升级（IconThumb 胶囊，LRU，滚出取消）
+- ⬜ **底部状态栏**（用户点名）：N 项/已选 M 项/可用空间
+
+### M11 打磨 + Finder 集成 ⬜
+- ⬜ **设置窗口 + ⌘, 快捷键**（用户点名）
+- ⬜ 会话恢复：重开恢复窗口/布局/窗格/标签/路径（SessionStore 胶囊）
+- ⬜ 设为默认文件夹打开程序（setDefaultApplication(.folder)，旧 API 兜底）；open-URL 文件→父目录+选中
+- ⬜ 在终端打开（Terminal/iTerm）
+- ⬜ README（TCC/完全磁盘访问/Reveal in Finder 限制说明）+ 交付日志
+
+## 横切规范（持续生效）
+
+- 图标一律用 **SF Symbols 图标库 + NSWorkspace 文件图标**，严禁 emoji/文字符号充当图标（用户点名）；隐性语义直达：图标+150ms 微 tooltip
+- 前端方法论：外科手术刀隐喻（全键盘直达/发丝边框/hover-reveal/4pt 网格/就地闭环/无假按钮 FG-1）
+- 版本管理像真产品：VERSION 文件 + CHANGELOG.md + 里程碑 git tag，构建注入版本号（用户点名）
+- 每里程碑：meta-doctor 退出 0 + 测试绿 + 真机验证截图 + 绿灯提交
+
+## v2 蓄水池（架构已预留胶囊位）
+
+批量重命名 / 压缩与压缩包浏览 / 文件哈希 / 文件夹同步 / 着色规则 / 工作区全局快捷键 / FTP/SFTP/S3/WebDAV/网盘 / QSpace 桌面 / 快捷启动

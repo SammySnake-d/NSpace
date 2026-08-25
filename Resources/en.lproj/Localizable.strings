@@ -36,3 +36,14 @@
 "addressbar.placeholder" = "Type a path, press Return";
 "addressbar.subfolders" = "Subfolders";
 "addressbar.noSubfolders" = "(No Subfolders)";
+"menu.newTab" = "New Tab";
+"menu.closeTab" = "Close Tab";
+"menu.layout" = "Layout";
+"layout.single" = "Single Pane";
+"layout.dualH" = "Two Columns";
+"layout.dualV" = "Two Rows";
+"layout.tripleH" = "Three Columns";
+"layout.quad" = "2×2 Grid";
+"toolbar.layout" = "Layout";
+"tab.new" = "New Tab";
+"tab.close" = "Close Tab";
