@@ -217,6 +217,11 @@ final class PaneGridController: NSViewController {
         setActivePane(next)
     }
 
+    /// 全部窗格（含隐藏池）应用标签栏显隐
+    func setPaneTabBarsVisible(_ visible: Bool) {
+        for pane in pool { pane.setTabBarVisible(visible) }
+    }
+
     // MARK: 菜单命令
 
     @objc func applyLayout(_ sender: NSMenuItem) {

@@ -130,3 +130,6 @@
 "status.items" = "%ld 项";
 "status.itemsSelected" = "%ld 项（已选 %ld 项）";
 "status.available" = "可用 %@";
+"menu.newPaneTab" = "新建窗格标签";
+"menu.closePaneTab" = "关闭窗格标签";
+"menu.togglePaneTabBar" = "显示/隐藏窗格标签栏";

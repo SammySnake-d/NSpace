@@ -33,6 +33,9 @@ final class MainWindowController: NSWindowController {
         window.minSize = NSSize(width: 600, height: 400)
         window.center()
         window.setFrameAutosaveName("NSpaceMainWindow")
+        // M13：窗口级工作区标签（QSpace 语义——标签对象=整个分屏布局）
+        window.tabbingMode = .automatic
+        window.tabbingIdentifier = "NSpaceMain"
         super.init(window: window)
 
         grid.coordinator = coordinator
@@ -76,8 +79,39 @@ final class MainWindowController: NSWindowController {
     }
 
     private func updateTitle(for url: URL) {
-        window?.title = url.path == "/" ? "/" : url.lastPathComponent
+        // QSpace 式标签标题：活动目录 | 其他可见窗格目录
+        let name: (URL) -> String = { $0.path == "/" ? "/" : $0.lastPathComponent }
+        var parts = [name(url)]
+        for pane in grid.visiblePanes where pane !== grid.activePane {
+            parts.append(name(pane.activeTab.browser.current))
+        }
+        window?.title = parts.joined(separator: " | ")
         window?.representedURL = url
+    }
+
+    // MARK: 工作区标签（⌘T / 标签栏"+"按钮都走这里）
+
+    @objc func newWorkspaceTab(_ sender: Any?) {
+        guard let delegate = NSApp.delegate as? AppDelegate, let current = window else { return }
+        let dir = grid.activePane.activeTab.browser.current
+        let wc = delegate.openWindow(at: dir, orderFront: false)
+        if let newWindow = wc.window {
+            current.addTabbedWindow(newWindow, ordered: .above)
+            newWindow.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    /// AppKit 约定入口：标签栏 "+" 按钮
+    @objc override func newWindowForTab(_ sender: Any?) {
+        newWorkspaceTab(sender)
+    }
+
+    @objc func togglePaneTabBar(_ sender: Any?) {
+        PaneViewController.paneTabBarVisible.toggle()
+        // 广播到全部窗口（每个工作区标签是独立窗口控制器）
+        for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
+            wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
+        }
     }
 
     // MARK: Tab 键循环窗格焦点（文本编辑中放行）

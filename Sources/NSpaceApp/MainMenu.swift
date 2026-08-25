@@ -26,7 +26,9 @@ enum MainMenu {
         let fileMenu = NSMenu(title: L10n.t("menu.file"))
         fileItem.submenu = fileMenu
         fileMenu.addItem(withTitle: L10n.t("menu.newWindow"), action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
-        fileMenu.addItem(withTitle: L10n.t("menu.newTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "t")
+        fileMenu.addItem(withTitle: L10n.t("menu.newTab"), action: #selector(MainWindowController.newWorkspaceTab(_:)), keyEquivalent: "t")
+        let paneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newPaneTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "t")
+        paneTabItem.keyEquivalentModifierMask = [.command, .option]
         let newFolderItem = fileMenu.addItem(withTitle: L10n.t("menu.newFolder"),
                                              action: #selector(FileListViewController.newFolderHere(_:)), keyEquivalent: "N")
         newFolderItem.keyEquivalentModifierMask = [.command, .shift]
@@ -51,7 +53,9 @@ enum MainMenu {
                                   action: #selector(FileListViewController.moveToOtherPane(_:)), keyEquivalent: "\u{F709}")
         f6.keyEquivalentModifierMask = []
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: L10n.t("menu.closeTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
+        fileMenu.addItem(withTitle: L10n.t("menu.closeTab"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let closePaneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closePaneTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "w")
+        closePaneTabItem.keyEquivalentModifierMask = [.command, .option]
         let closeWinItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         closeWinItem.keyEquivalentModifierMask = [.command, .shift]
 
@@ -92,6 +96,8 @@ enum MainMenu {
                                            action: #selector(NSSplitViewController.toggleSidebar(_:)),
                                            keyEquivalent: "s")
         sidebarItem.keyEquivalentModifierMask = [.command, .option]
+        viewMenu.addItem(withTitle: L10n.t("menu.togglePaneTabBar"),
+                         action: #selector(MainWindowController.togglePaneTabBar(_:)), keyEquivalent: "")
         viewMenu.addItem(.separator())
         let hiddenItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleHidden"),
                                           action: #selector(FileListViewController.toggleHiddenFiles(_:)),

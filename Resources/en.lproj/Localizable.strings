@@ -130,3 +130,6 @@
 "status.items" = "%ld items";
 "status.itemsSelected" = "%ld items (%ld selected)";
 "status.available" = "%@ available";
+"menu.newPaneTab" = "New Pane Tab";
+"menu.closePaneTab" = "Close Pane Tab";
+"menu.togglePaneTabBar" = "Show/Hide Pane Tab Bar";

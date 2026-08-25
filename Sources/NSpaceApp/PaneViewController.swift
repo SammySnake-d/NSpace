@@ -27,6 +27,12 @@ final class PaneViewController: NSViewController {
     }
 
     private let tabBar = TabBarView()
+    private var tabBarHeight: NSLayoutConstraint?
+    /// 窗格标签栏默认隐藏（M13：主标签在窗口级；QSpace 同款可选项）
+    static var paneTabBarVisible: Bool {
+        get { UserDefaults.standard.bool(forKey: "showPaneTabBar") }
+        set { UserDefaults.standard.set(newValue, forKey: "showPaneTabBar") }
+    }
     private let breadcrumb = BreadcrumbBar()
     private let pathEditor = PathEditorField()
     private let addressArea = NSView()
@@ -83,12 +89,17 @@ final class PaneViewController: NSViewController {
             sub.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(sub)
         }
+        let tabHeight = tabBar.heightAnchor.constraint(
+            equalToConstant: Self.paneTabBarVisible ? 22 : 0)
+        tabBarHeight = tabHeight
+        tabBar.isHidden = !Self.paneTabBarVisible
         NSLayoutConstraint.activate([
+            tabHeight,
             // fullSizeContentView 下内容延伸到标题栏底下：标签栏必须锚 safeArea 顶，否则被工具栏遮住
             tabBar.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            tabBar.heightAnchor.constraint(equalToConstant: 22),
+
             addressArea.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
             addressArea.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             addressArea.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -236,6 +247,12 @@ final class PaneViewController: NSViewController {
     private func applyLocation() {
         activeTab.model.navigate(to: activeTab.browser.current)
         refreshChrome()
+    }
+
+    /// 窗格标签栏显隐（菜单"显示窗格标签栏"驱动全部窗格）
+    func setTabBarVisible(_ visible: Bool) {
+        tabBar.isHidden = !visible
+        tabBarHeight?.constant = visible ? 22 : 0
     }
 
     // MARK: 活动窗格高亮

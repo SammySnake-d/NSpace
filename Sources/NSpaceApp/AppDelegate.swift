@@ -51,11 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @discardableResult
-    func openWindow(at directory: URL, selecting: URL? = nil) -> MainWindowController {
+    func openWindow(at directory: URL, selecting: URL? = nil, orderFront: Bool = true) -> MainWindowController {
         let wc = MainWindowController(kernel: kernel, initialDirectory: directory, select: selecting)
         windowControllers.append(wc)
         wc.window?.delegate = self
-        wc.showWindow(nil)
+        if orderFront { wc.showWindow(nil) }
         return wc
     }
 
