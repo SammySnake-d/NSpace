@@ -91,7 +91,7 @@ final class InlineRenameField: NSTextField, NSTextFieldDelegate {
         isBezeled = true
         bezelStyle = .squareBezel
         drawsBackground = true
-        font = .systemFont(ofSize: 12)
+        font = .systemFont(ofSize: Formatters.listFontSize)
         lineBreakMode = .byTruncatingTail
         focusRingType = .default
         delegate = self
@@ -168,6 +168,7 @@ final class NameCellView: NSTableCellView {
     func configure(icon: NSImage, name: String, dimmed: Bool) {
         iconView.image = icon
         label.stringValue = name
+        label.font = .systemFont(ofSize: Formatters.listFontSize)  // 每次配置重取字号（列重建时即时生效）
         label.textColor = dimmed ? .secondaryLabelColor : .labelColor
     }
 
@@ -227,6 +228,7 @@ final class TextCellView: NSTableCellView {
 
     func configure(_ text: String, alignment: NSTextAlignment) {
         label.stringValue = text
+        label.font = .systemFont(ofSize: Formatters.listFontSize)  // 每次配置重取字号（列重建时即时生效）
         label.alignment = alignment
     }
 }

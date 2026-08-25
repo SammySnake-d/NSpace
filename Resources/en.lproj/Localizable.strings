@@ -194,3 +194,23 @@
 "sidebar.movies" = "Movies";
 "sidebar.music" = "Music";
 "sidebar.pictures" = "Pictures";
+
+/* Appearance settings page */
+"settings.tab.appearance" = "Appearance";
+"settings.appearance.mode" = "Appearance";
+"settings.appearance.system" = "Follow System";
+"settings.appearance.light" = "Light";
+"settings.appearance.dark" = "Dark";
+"settings.appearance.accent" = "Accent Color";
+"settings.appearance.fontSize" = "List Font Size";
+"settings.appearance.highlightActive" = "Highlight active pane";
+"settings.appearance.dimInactive" = "Dim inactive panes";
+"accent.system" = "System";
+"accent.red" = "Red";
+"accent.orange" = "Orange";
+"accent.yellow" = "Yellow";
+"accent.green" = "Green";
+"accent.blue" = "Blue";
+"accent.indigo" = "Indigo";
+"accent.purple" = "Purple";
+"accent.pink" = "Pink";
