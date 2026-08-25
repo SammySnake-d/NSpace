@@ -25,6 +25,9 @@ final class BreadcrumbBar: NSView {
         scroll.hasHorizontalScroller = false
         scroll.hasVerticalScroller = false
         scroll.drawsBackground = false
+        // NSClipView 默认画不透明底色——深色外观下会盖成白块、遮住地址栏底衬与面包屑文字。
+        // 显式透明，让 AddressBarBacking 的外观感知底色透出。
+        scroll.contentView.drawsBackground = false
         scroll.verticalScrollElasticity = .none
         scroll.translatesAutoresizingMaskIntoConstraints = false
         stack.translatesAutoresizingMaskIntoConstraints = false

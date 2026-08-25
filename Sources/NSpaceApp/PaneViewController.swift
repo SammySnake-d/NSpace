@@ -37,6 +37,8 @@ final class PaneViewController: NSViewController {
     var onLocationChange: ((URL) -> Void)?
     /// 用户在本窗格交互 → 请求成为活动窗格
     var onRequestFocus: (() -> Void)?
+    /// 计数/选中变化上抛（甲板据此重验动作按钮 enabled；M17）
+    var onStatusChange: (() -> Void)?
 
     /// 文件操作桥：下传每个标签的内容视图（右键菜单/快捷键经此发 OperationSpec）
     var coordinator: FileOpsCoordinator? {
@@ -58,7 +60,7 @@ final class PaneViewController: NSViewController {
     }
     private let breadcrumb = BreadcrumbBar()
     private let pathEditor = PathEditorField()
-    private let addressArea = NSView()
+    private let addressArea = AddressBarBacking()
     private let contentContainer = NSView()
     private let statusBar = StatusBarView()
     private(set) var isActivePane = false
@@ -91,7 +93,6 @@ final class PaneViewController: NSViewController {
         pathEditor.onCancel = { [weak self] in self?.endPathEditing() }
         pathEditor.isHidden = true
 
-        addressArea.wantsLayer = true
         for sub in [breadcrumb, pathEditor] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addressArea.addSubview(sub)
@@ -126,7 +127,7 @@ final class PaneViewController: NSViewController {
             addressArea.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
             addressArea.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             addressArea.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            addressArea.heightAnchor.constraint(equalToConstant: 26),
+            addressArea.heightAnchor.constraint(equalToConstant: 24),
             separator.topAnchor.constraint(equalTo: addressArea.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -346,6 +347,16 @@ final class PaneViewController: NSViewController {
             }
         }
         statusBar.update(itemCount: items, selectedCount: selected)
+        onStatusChange?()
+    }
+
+    /// 当前活动内容视图的选中数（甲板动作按钮校验用）
+    var currentSelectionCount: Int {
+        switch activeTab.viewMode {
+        case .list: return activeTab.listVC.selectedItems.count
+        case .icons: return activeTab.iconVC?.selectedItems.count ?? 0
+        case .columns: return activeTab.columnVC.map { $0.statusCounts.selected } ?? 0
+        }
     }
 
     private func displayName(_ url: URL) -> String {
@@ -479,11 +490,9 @@ final class PaneViewController: NSViewController {
     }
 
     private func applyActiveTint() {
-        // 高亮开关（偏好）关时不描色；强调色走 Theme.accent（可自定义主题色）
-        let highlight = isActivePane && Preferences.activePaneHighlight
-        addressArea.layer?.backgroundColor = highlight
-            ? Theme.accent.withAlphaComponent(0.10).cgColor
-            : NSColor.clear.cgColor
+        // 高亮开关（偏好）关时不描色；强调色走 Theme.accent（可自定义主题色）。
+        // 底色解析交给 AddressBarBacking.updateLayer（外观感知、明暗切换自动重解析）。
+        addressArea.highlighted = isActivePane && Preferences.activePaneHighlight
     }
 
     /// 焦点落点（PaneGrid 激活窗格时把键盘焦点交给内容视图）
@@ -563,6 +572,31 @@ final class PaneViewController: NSViewController {
     @objc func viewAsIcons(_ sender: Any?) { setViewMode(.icons) }
     @objc func viewAsList(_ sender: Any?) { setViewMode(.list) }
     @objc func viewAsColumns(_ sender: Any?) { setViewMode(.columns) }
+}
+
+/// 地址栏底衬（外观感知）：常态不透明 controlBackgroundColor 基色，活动窗格叠 accent 0.10。
+/// 关键：用 updateLayer 而非一次性 cgColor —— 系统明暗切换与 .nspaceThemeChanged 都会自动重解析，
+/// 杜绝深色下非活动窗格地址栏渲染成白块 / 缓存陈旧（原一次性 cgColor 在浅色时取值、深色下不刷新）。
+private final class AddressBarBacking: NSView {
+    var highlighted = false { didSet { needsDisplay = true } }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let base = NSColor.controlBackgroundColor
+            let bg = highlighted ? (base.blended(withFraction: 0.10, of: Theme.accent) ?? base) : base
+            layer?.backgroundColor = bg.cgColor
+        }
+    }
 }
 
 extension PaneViewController: @preconcurrency NSMenuItemValidation {
