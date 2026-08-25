@@ -119,6 +119,34 @@ final class MainWindowController: NSWindowController {
         grid.applyLayout(sender)
         syncLayoutControl()
     }
+
+    // MARK: 聚焦搜索（⌘F 当前文件夹 / ⌥⌘F 全局）
+
+    @objc func showSearchHere(_ sender: Any?) { showSearch(scopeGlobal: false) }
+    @objc func showSearchGlobal(_ sender: Any?) { showSearch(scopeGlobal: true) }
+
+    private func showSearch(scopeGlobal: Bool) {
+        let dir = grid.activePane.activeTab.browser.current
+        SearchPanelController.shared.show(scopeGlobal: scopeGlobal, currentDirectory: dir,
+                                          attachedTo: window) { [weak self] url in
+            self?.revealSearchHit(url)
+        }
+    }
+
+    /// 回车定位：目录（非包）直接进入；文件/包进父目录并选中（复用 prepareReveal 显露链）
+    private func revealSearchHit(_ url: URL) {
+        let pane = grid.activePane
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
+        if exists, isDir.boolValue, !isPackage {
+            pane.navigate(to: url)
+        } else {
+            pane.navigate(to: url.deletingLastPathComponent())
+            pane.activeTab.listVC.prepareReveal(url, rename: false)
+        }
+        window?.makeKeyAndOrderFront(nil)
+    }
 }
 
 extension MainWindowController: @preconcurrency NSToolbarDelegate {

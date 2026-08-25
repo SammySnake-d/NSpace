@@ -125,3 +125,22 @@
 "stash.remove" = "Remove from Stash";
 "stash.clear" = "Clear Stash";
 "stash.airdropFailed" = "AirDrop is unavailable. Check AirDrop settings.";
+
+/* M12 Search */
+"menu.searchHere" = "Search in Current Folder";
+"menu.searchGlobal" = "Search Everywhere";
+"search.placeholder" = "Search";
+"search.scopeGlobal" = "Everywhere";
+"search.scopeCurrent" = "Current Folder";
+"search.names" = "Names";
+"search.contents" = "Contents";
+"search.includeHidden" = "Include Hidden Files";
+"search.hiddenTooltip" = "Find hidden files by name, even ones Spotlight never indexes";
+"search.empty" = "No Results";
+"search.kind.all" = "All";
+"search.kind.folder" = "Folders";
+"search.kind.image" = "Images";
+"search.kind.document" = "Documents";
+"search.kind.movie" = "Movies";
+"search.kind.audio" = "Audio";
+"search.kind.archive" = "Archives";

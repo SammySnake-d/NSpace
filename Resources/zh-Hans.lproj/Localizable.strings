@@ -125,3 +125,22 @@
 "stash.remove" = "从暂存架移除";
 "stash.clear" = "清空暂存架";
 "stash.airdropFailed" = "AirDrop 不可用，请检查隔空投送设置";
+
+/* M12 聚焦搜索 */
+"menu.searchHere" = "在当前文件夹中搜索";
+"menu.searchGlobal" = "聚焦搜索（全局）";
+"search.placeholder" = "聚焦搜索";
+"search.scopeGlobal" = "全局";
+"search.scopeCurrent" = "当前文件夹";
+"search.names" = "名称";
+"search.contents" = "内容";
+"search.includeHidden" = "包含隐藏文件";
+"search.hiddenTooltip" = "连 Spotlight 不索引的隐藏文件也能按名搜到";
+"search.empty" = "未找到";
+"search.kind.all" = "全部";
+"search.kind.folder" = "文件夹";
+"search.kind.image" = "图片";
+"search.kind.document" = "文稿";
+"search.kind.movie" = "影片";
+"search.kind.audio" = "音频";
+"search.kind.archive" = "压缩包";

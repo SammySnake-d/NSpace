@@ -117,6 +117,14 @@ enum MainMenu {
         homeItem.keyEquivalentModifierMask = [.command, .shift]
         goMenu.addItem(withTitle: L10n.t("menu.goToPath"),
                        action: #selector(PaneViewController.editPath(_:)), keyEquivalent: "l")
+        goMenu.addItem(.separator())
+        // 聚焦搜索：⌘F 当前文件夹 / ⌥⌘F 全局
+        goMenu.addItem(withTitle: L10n.t("menu.searchHere"),
+                       action: #selector(MainWindowController.showSearchHere(_:)), keyEquivalent: "f")
+        let globalSearch = goMenu.addItem(withTitle: L10n.t("menu.searchGlobal"),
+                                          action: #selector(MainWindowController.showSearchGlobal(_:)),
+                                          keyEquivalent: "f")
+        globalSearch.keyEquivalentModifierMask = [.command, .option]
 
         // 窗口
         let windowItem = main.addItem(withTitle: L10n.t("menu.window"), action: nil, keyEquivalent: "")
