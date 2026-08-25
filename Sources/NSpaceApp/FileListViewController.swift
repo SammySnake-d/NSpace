@@ -388,6 +388,15 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         NSWorkspace.shared.open(selectedURLs, withApplicationAt: app, configuration: cfg)
     }
 
+    /// AirDrop 选中项（工具栏图标入口；失败 beep 不弹窗）
+    @objc func airdropSelected(_ sender: Any?) {
+        let urls = selectedURLs
+        guard !urls.isEmpty,
+              let service = NSSharingService(named: .sendViaAirDrop),
+              service.canPerform(withItems: urls) else { NSSound.beep(); return }
+        service.perform(withItems: urls)
+    }
+
     @objc func getInfo(_ sender: Any?) {
         let target = selectedURLs.first ?? currentDirectory
         InfoPanel.show(for: target)
@@ -443,7 +452,7 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
         case #selector(copyItems(_:)), #selector(cutItems(_:)), #selector(copyPath(_:)),
              #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
-             #selector(copy(_:)), #selector(cut(_:)):
+             #selector(copy(_:)), #selector(cut(_:)), #selector(airdropSelected(_:)):
             return hasSelection
         case #selector(renameSelected(_:)):
             return single

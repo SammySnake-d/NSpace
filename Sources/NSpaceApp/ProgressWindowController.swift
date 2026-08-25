@@ -44,6 +44,15 @@ final class ProgressWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
+    /// 工具栏"任务状态"图标：手动开关任务窗
+    @objc func toggleVisible(_ sender: Any?) {
+        if window?.isVisible == true {
+            window?.orderOut(nil)
+        } else {
+            window?.makeKeyAndOrderFront(nil)
+        }
+    }
+
     func start(kernel: OperationKernel) {
         guard streamTask == nil else { return }
         self.kernel = kernel

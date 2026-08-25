@@ -158,3 +158,8 @@
 "menu.viewAsList" = "为列表";
 "menu.viewAsColumns" = "为分栏";
 "iconGrid.sizeTooltip" = "图标大小";
+"toolbar.nav" = "返回/前进";
+"toolbar.viewMode" = "显示类型";
+"toolbar.airdrop" = "隔空投送";
+"toolbar.terminal" = "在终端打开";
+"toolbar.tasks" = "任务状态";

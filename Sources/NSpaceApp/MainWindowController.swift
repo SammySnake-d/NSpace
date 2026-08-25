@@ -15,6 +15,7 @@ final class MainWindowController: NSWindowController {
     private let splitVC = NSSplitViewController()
     private var keyMonitor: Any?
     private let layoutControl = NSSegmentedControl()
+    private let viewModeControl = NSSegmentedControl()
 
     init(kernel: OperationKernel, initialDirectory: URL, select: URL? = nil) {
         self.kernel = kernel
@@ -87,6 +88,7 @@ final class MainWindowController: NSWindowController {
         }
         window?.title = parts.joined(separator: " | ")
         window?.representedURL = url
+        syncViewModeControl()
         (NSApp.delegate as? AppDelegate)?.noteStateChanged()
     }
 
@@ -143,6 +145,21 @@ final class MainWindowController: NSWindowController {
         layoutControl.selectedSegment = PaneLayout.allCases.firstIndex(of: grid.layout) ?? 0
     }
 
+    @objc private func navSegmentClicked(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment == 0 { grid.activePane.goBack(nil) }
+        else { grid.activePane.goForward(nil) }
+    }
+
+    @objc private func viewModeSegmentClicked(_ sender: NSSegmentedControl) {
+        guard let mode = PaneViewMode(rawValue: sender.selectedSegment) else { return }
+        grid.activePane.setViewMode(mode)
+    }
+
+    /// 活动窗格/标签变化时同步视图切换器选中态
+    func syncViewModeControl() {
+        viewModeControl.selectedSegment = grid.activePane.activeTab.viewMode.rawValue
+    }
+
     @objc private func layoutSegmentChanged(_ sender: NSSegmentedControl) {
         let layouts = PaneLayout.allCases
         guard sender.selectedSegment >= 0, sender.selectedSegment < layouts.count else { return }
@@ -187,18 +204,105 @@ final class MainWindowController: NSWindowController {
 
 extension MainWindowController: @preconcurrency NSToolbarDelegate {
     private static let layoutItemID = NSToolbarItem.Identifier("layout")
+    private static let navItemID = NSToolbarItem.Identifier("nav")
+    private static let viewModeItemID = NSToolbarItem.Identifier("viewMode")
+    private static let airdropItemID = NSToolbarItem.Identifier("airdrop")
+    private static let terminalItemID = NSToolbarItem.Identifier("terminal")
+    private static let tasksItemID = NSToolbarItem.Identifier("tasks")
+    private static let trashItemID = NSToolbarItem.Identifier("trashSel")
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, Self.layoutItemID]
+        // QSpace 式图标组（隐性语义：图标+tooltip，零文字）
+        [.toggleSidebar, .sidebarTrackingSeparator,
+         Self.navItemID, .flexibleSpace,
+         Self.viewModeItemID, .space,
+         Self.airdropItemID, Self.terminalItemID, Self.tasksItemID, Self.trashItemID, .space,
+         Self.layoutItemID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
     }
 
+    /// 纯图标工具项工厂（隐性语义 + 微 tooltip；action 走响应链到活动窗格）
+    private func iconItem(_ id: NSToolbarItem.Identifier, symbol: String, labelKey: String,
+                          action: Selector, target: AnyObject? = nil) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: L10n.t(labelKey))
+        item.label = L10n.t(labelKey)
+        item.paletteLabel = L10n.t(labelKey)
+        item.toolTip = L10n.t(labelKey)
+        item.isBordered = true
+        item.action = action
+        item.target = target
+        item.autovalidates = true
+        return item
+    }
+
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard itemIdentifier == Self.layoutItemID else { return nil }
+        switch itemIdentifier {
+        case Self.navItemID:
+            // 返回/前进合体分段（Finder 惯例）
+            let control = NSSegmentedControl()
+            control.segmentCount = 2
+            control.trackingMode = .momentary
+            control.segmentStyle = .separated
+            control.setImage(NSImage(systemSymbolName: "chevron.left",
+                                     accessibilityDescription: L10n.t("menu.back")), forSegment: 0)
+            control.setImage(NSImage(systemSymbolName: "chevron.right",
+                                     accessibilityDescription: L10n.t("menu.forward")), forSegment: 1)
+            control.setToolTip(L10n.t("menu.back"), forSegment: 0)
+            control.setToolTip(L10n.t("menu.forward"), forSegment: 1)
+            control.target = self
+            control.action = #selector(navSegmentClicked(_:))
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.view = control
+            item.label = L10n.t("toolbar.nav")
+            item.paletteLabel = L10n.t("toolbar.nav")
+            return item
+        case Self.viewModeItemID:
+            let control = viewModeControl
+            control.segmentCount = 3
+            control.trackingMode = .selectOne
+            let symbols = [("square.grid.2x2", "menu.asIcons"), ("list.bullet", "menu.asList"),
+                           ("rectangle.split.3x1", "menu.asColumns")]
+            for (i, pair) in symbols.enumerated() {
+                control.setImage(NSImage(systemSymbolName: pair.0,
+                                         accessibilityDescription: L10n.t(pair.1)), forSegment: i)
+                control.setToolTip(L10n.t(pair.1), forSegment: i)
+                control.setWidth(28, forSegment: i)
+            }
+            control.target = self
+            control.action = #selector(viewModeSegmentClicked(_:))
+            syncViewModeControl()
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.view = control
+            item.label = L10n.t("toolbar.viewMode")
+            item.paletteLabel = L10n.t("toolbar.viewMode")
+            return item
+        case Self.airdropItemID:
+            return iconItem(itemIdentifier, symbol: "dot.radiowaves.left.and.right",
+                            labelKey: "toolbar.airdrop",
+                            action: #selector(FileListViewController.airdropSelected(_:)))
+        case Self.terminalItemID:
+            return iconItem(itemIdentifier, symbol: "terminal",
+                            labelKey: "toolbar.terminal",
+                            action: #selector(FileListViewController.openInTerminal(_:)))
+        case Self.tasksItemID:
+            return iconItem(itemIdentifier, symbol: "arrow.up.arrow.down.circle",
+                            labelKey: "toolbar.tasks",
+                            action: #selector(ProgressWindowController.toggleVisible(_:)),
+                            target: ProgressWindowController.shared)
+        case Self.trashItemID:
+            return iconItem(itemIdentifier, symbol: "trash",
+                            labelKey: "menu.moveToTrash",
+                            action: #selector(FileListViewController.moveToTrash(_:)))
+        case Self.layoutItemID:
+            break
+        default:
+            return nil
+        }
         let layouts = PaneLayout.allCases
         layoutControl.segmentCount = layouts.count
         layoutControl.trackingMode = .selectOne

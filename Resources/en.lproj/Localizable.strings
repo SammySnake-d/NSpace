@@ -158,3 +158,8 @@
 "menu.viewAsList" = "as List";
 "menu.viewAsColumns" = "as Columns";
 "iconGrid.sizeTooltip" = "Icon Size";
+"toolbar.nav" = "Back/Forward";
+"toolbar.viewMode" = "View";
+"toolbar.airdrop" = "AirDrop";
+"toolbar.terminal" = "Open in Terminal";
+"toolbar.tasks" = "Tasks";
