@@ -21,6 +21,9 @@ final class FileListViewController: NSViewController {
     /// 操作完成后待显露（选中/进入重命名）的目标
     private var pendingReveal: (url: URL, rename: Bool)?
 
+    /// spring-loaded 状态：拖拽悬停的文件夹行 + 触发计时器
+    private var springLoad: (row: Int, timer: Timer)?
+
     /// 键盘焦点落点（PaneGrid 激活时 makeFirstResponder 此视图）
     var focusTarget: NSView { tableView }
 
@@ -41,6 +44,7 @@ final class FileListViewController: NSViewController {
         tableView.onInteract = { [weak self] in self?.onInteract?() }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         tableView.onReturn = { [weak self] in self?.beginRenameSelected() }
+        tableView.onDragExited = { [weak self] in self?.cancelSpringLoad() }
         tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
         tableView.rowHeight = 22
@@ -52,6 +56,10 @@ final class FileListViewController: NSViewController {
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(didDoubleClick(_:))
+        // 拖拽：拖出可达 Finder/其他 App/另一窗格/侧边栏/暂存架；拖入收 fileURL
+        tableView.registerForDraggedTypes([.fileURL])
+        tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
+        tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
 
         addColumn(id: "name", title: L10n.t("column.name"), width: 280, min: 140)
         addColumn(id: "dateModified", title: L10n.t("column.dateModified"), width: 140, min: 90)
@@ -325,5 +333,88 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let d = tableView.sortDescriptors.first, let key = d.key,
               let sortKey = SortSpec.Key(rawValue: key) else { return }
         model.sort = SortSpec(key: sortKey, ascending: d.ascending, foldersFirst: model.sort.foldersFirst)
+    }
+
+    // MARK: 拖拽源（可拖到 Finder/其他 App/另一窗格/侧边栏书签/暂存架）
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        guard row >= 0, row < model.items.count else { return nil }
+        return model.items[row].url as NSURL
+    }
+
+    // MARK: 投放目标（BG-1：落点只发意图，kind 判定与提交在 coordinator）
+
+    func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo,
+                   proposedRow row: Int, proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
+        guard let urls = Self.draggedFileURLs(info), !urls.isEmpty else {
+            cancelSpringLoad(); return []
+        }
+        // 落点归一：目录行=投进该文件夹；文件行/空白=投进当前目录
+        var targetRow = -1
+        if op == .on, row >= 0, row < model.items.count,
+           model.items[row].isDirectory, !model.items[row].isPackage {
+            targetRow = row
+        }
+        let target = targetRow >= 0 ? model.items[targetRow].url : currentDirectory
+        // 拒绝把目录投进它自己/子孙
+        guard urls.allSatisfy({ !FileOpsCoordinator.isSelfOrDescendant(destination: target, ofSource: $0) }) else {
+            cancelSpringLoad(); return []
+        }
+        // ⌥ 按下时 AppKit 已把源掩码过滤为 .copy → 强制复制
+        let forceCopy = info.draggingSourceOperationMask == .copy
+        // 全部来源已在目标目录：移动是无操作 → 拒绝（⌥ 复制放行，语义=制作副本）
+        let destPath = target.standardizedFileURL.path
+        if !forceCopy, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == destPath }) {
+            cancelSpringLoad(); return []
+        }
+        if targetRow >= 0 {
+            tableView.setDropRow(targetRow, dropOperation: .on)
+            scheduleSpringLoad(row: targetRow, url: target)
+        } else {
+            tableView.setDropRow(-1, dropOperation: .on)  // 整表高亮 = 投进当前目录
+            cancelSpringLoad()
+        }
+        if forceCopy { return .copy }
+        // Finder 惯例：同卷=移动、跨卷=复制（光标反馈与实际提交一致）
+        return urls.allSatisfy({ FileOpsCoordinator.isSameVolume($0, target) }) ? .move : .copy
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo,
+                   row: Int, dropOperation op: NSTableView.DropOperation) -> Bool {
+        cancelSpringLoad()
+        guard let urls = Self.draggedFileURLs(info), !urls.isEmpty else { return false }
+        var target = currentDirectory
+        if op == .on, row >= 0, row < model.items.count,
+           model.items[row].isDirectory, !model.items[row].isPackage {
+            target = model.items[row].url
+        }
+        coordinator?.dropTransfer(urls: urls, into: target,
+                                  forceCopy: info.draggingSourceOperationMask == .copy)
+        return true
+    }
+
+    private static func draggedFileURLs(_ info: any NSDraggingInfo) -> [URL]? {
+        info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                            options: [.urlReadingFileURLsOnly: true]) as? [URL]
+    }
+
+    // MARK: spring-loaded：拖拽悬停文件夹行 ~0.8s 自动导航进入（计时器实现，简单可靠优先）
+
+    private func scheduleSpringLoad(row: Int, url: URL) {
+        guard springLoad?.row != row else { return }
+        cancelSpringLoad()
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.cancelSpringLoad()
+                self.onNavigate?(url)
+            }
+        }
+        springLoad = (row, timer)
+    }
+
+    func cancelSpringLoad() {
+        springLoad?.timer.invalidate()
+        springLoad = nil
     }
 }

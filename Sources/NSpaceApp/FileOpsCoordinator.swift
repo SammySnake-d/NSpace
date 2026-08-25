@@ -110,7 +110,8 @@ final class FileOpsCoordinator {
     private func transferToOtherPane(_ urls: [URL], move: Bool) {
         guard !urls.isEmpty else { return }
         guard let dir = otherPaneDirectory() else { NSSound.beep(); return }
-        run(OperationSpec(kind: move ? .move : .copy, sources: urls, destination: dir))
+        // 与拖拽/暂存架共用同一提交路径（不重复实现）
+        transfer(urls: urls, into: dir, move: move)
     }
 
     private func otherPaneDirectory() -> URL? {
@@ -119,6 +120,51 @@ final class FileOpsCoordinator {
         guard panes.count > 1 else { return nil }
         let next = panes[(grid.activePaneIndex + 1) % panes.count]
         return next.activeTab.browser.current
+    }
+
+    // MARK: 拖拽投放（列表/面包屑/暂存架共用；Finder 惯例：同卷移动、跨卷复制、⌥ 强制复制）
+
+    /// 拖拽落点提交：内部判卷决定 kind（默认同卷=移动、跨卷=复制；forceCopy=⌥ 强制复制）
+    func dropTransfer(urls: [URL], into destination: URL, forceCopy: Bool,
+                      onComplete: (@MainActor (Bool) -> Void)? = nil) {
+        guard !urls.isEmpty else { onComplete?(false); return }
+        let sameVolume = urls.allSatisfy { Self.isSameVolume($0, destination) }
+        transfer(urls: urls, into: destination, move: !forceCopy && sameVolume, onComplete: onComplete)
+    }
+
+    /// 显式复制/移动到目录（暂存架批量操作用；onComplete(true) 表示操作完成）
+    func transfer(urls: [URL], into destination: URL, move: Bool,
+                  onComplete: (@MainActor (Bool) -> Void)? = nil) {
+        guard !urls.isEmpty else { onComplete?(false); return }
+        let dest = destination.standardizedFileURL
+        // 防御复检：目录严禁投进它自己或子孙（UI 层 validateDrop 已挡，此处兜底）
+        guard urls.allSatisfy({ !Self.isSelfOrDescendant(destination: dest, ofSource: $0) }) else {
+            NSSound.beep(); onComplete?(false); return
+        }
+        // 全部已在目标目录：原地移动无意义；原地复制退化为制作副本（与粘贴语义一致）
+        if urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == dest.path }) {
+            if !move { duplicate(urls) }
+            onComplete?(false)
+            return
+        }
+        run(OperationSpec(kind: move ? .move : .copy, sources: urls, destination: dest)) { receipt in
+            onComplete?(receipt != nil)
+        }
+    }
+
+    /// destination 是否为 source 自身或其子孙（拒绝把目录投进它自己）
+    nonisolated static func isSelfOrDescendant(destination: URL, ofSource source: URL) -> Bool {
+        let src = source.standardizedFileURL.path
+        let dst = destination.standardizedFileURL.path
+        return dst == src || dst.hasPrefix(src.hasSuffix("/") ? src : src + "/")
+    }
+
+    /// 同卷判断（未知按跨卷处理 → 复制，避免误移动）
+    nonisolated static func isSameVolume(_ a: URL, _ b: URL) -> Bool {
+        guard let va = try? a.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier,
+              let vb = try? b.resourceValues(forKeys: [.volumeIdentifierKey]).volumeIdentifier
+        else { return false }
+        return va.isEqual(vb)
     }
 
     // MARK: 撤销废纸篓（把 trashed 搬回 original；复用 move/rename 语义，内核零业务分支）

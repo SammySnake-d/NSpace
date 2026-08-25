@@ -114,3 +114,14 @@
 "settings.limitationNote" = "接管后：终端 open、第三方 App 打开文件夹都会用 NSpace。已知限制：部分 App 的“在 Finder 中显示”由系统直接发给 Finder，无法拦截（QSpace 亦然）。";
 "settings.openFDA" = "打开“完全磁盘访问”设置";
 "settings.fdaNote" = "浏览受保护目录（如“下载”“桌面”）首次会弹系统授权；如需访问全部位置，请在系统设置中为 NSpace 勾选完全磁盘访问。";
+
+/* M7 拖拽 + 暂存架 */
+"sidebar.stash" = "暂存架";
+"stash.empty" = "拖入文件以暂存";
+"stash.missing" = "（目标已丢失）";
+"stash.copyHere" = "复制到当前窗格";
+"stash.moveHere" = "移动到当前窗格";
+"stash.airdrop" = "AirDrop 发送";
+"stash.remove" = "从暂存架移除";
+"stash.clear" = "清空暂存架";
+"stash.airdropFailed" = "AirDrop 不可用，请检查隔空投送设置";

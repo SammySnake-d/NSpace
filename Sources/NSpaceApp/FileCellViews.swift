@@ -9,6 +9,18 @@ final class FocusReportingTableView: NSTableView {
     var menuProvider: ((Int) -> NSMenu?)?
     /// Return 键：触发选中行的行内重命名
     var onReturn: (() -> Void)?
+    /// 拖拽移出/结束（spring-loaded 计时器取消用）
+    var onDragExited: (() -> Void)?
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        onDragExited?()
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        onDragExited?()
+        super.draggingEnded(sender)
+    }
 
     override func mouseDown(with event: NSEvent) {
         onInteract?()

@@ -114,3 +114,14 @@
 "settings.limitationNote" = "After taking over: `open` and third-party folder-open actions use NSpace. Known limit: some apps' “Reveal in Finder” targets Finder directly and cannot be intercepted (same for QSpace).";
 "settings.openFDA" = "Open Full Disk Access Settings";
 "settings.fdaNote" = "Protected folders (Downloads, Desktop) prompt once; grant Full Disk Access in System Settings for everything else.";
+
+/* M7 Drag & Drop + Stash */
+"sidebar.stash" = "Stash";
+"stash.empty" = "Drop files here to stash";
+"stash.missing" = "(target missing)";
+"stash.copyHere" = "Copy to Active Pane";
+"stash.moveHere" = "Move to Active Pane";
+"stash.airdrop" = "Send via AirDrop";
+"stash.remove" = "Remove from Stash";
+"stash.clear" = "Clear Stash";
+"stash.airdropFailed" = "AirDrop is unavailable. Check AirDrop settings.";
