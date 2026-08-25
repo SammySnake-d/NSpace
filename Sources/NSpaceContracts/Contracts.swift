@@ -38,7 +38,7 @@ public struct DirectorySnapshot: Sendable {
     }
 }
 
-public struct SortOrder: Sendable, Hashable, Codable {
+public struct SortSpec: Sendable, Hashable, Codable {
     public enum Key: String, Sendable, Codable { case name, dateModified, size, kind }
     public var key: Key
     public var ascending: Bool
@@ -160,4 +160,39 @@ public struct OperationReceipt: Sendable {
     public init(id: UUID, filesDone: Int, bytesDone: Int64, duration: TimeInterval) {
         self.id = id; self.filesDone = filesDone; self.bytesDone = bytesDone; self.duration = duration
     }
+}
+
+// MARK: - 节点契约（胶囊只依赖本词汇表，不依赖内核实现，BG-4/BG-6）
+
+/// 节点执行中向内核回报的事件（进度切面；遥测失败不伤主链 BG-7）
+public enum NodeEvent: Sendable {
+    case scanTotals(files: Int, bytes: Int64)
+    case progress(filesDone: Int, bytesDone: Int64, currentPath: String?)
+}
+
+/// 内核注入给节点的上下文：回报进度、请求冲突裁决
+public struct NodeContext: Sendable {
+    public let operationID: UUID
+    public let report: @Sendable (NodeEvent) -> Void
+    /// 返回 nil = 用户取消整个操作
+    public let resolveConflicts: @Sendable ([FileConflict]) async -> [URL: ConflictDecision]?
+
+    public init(operationID: UUID,
+                report: @escaping @Sendable (NodeEvent) -> Void,
+                resolveConflicts: @escaping @Sendable ([FileConflict]) async -> [URL: ConflictDecision]?) {
+        self.operationID = operationID
+        self.report = report
+        self.resolveConflicts = resolveConflicts
+    }
+}
+
+/// 语义原子节点统一契约：单一原子状态转换，强类型出入（P6）
+public protocol OperationNode: Sendable {
+    func execute(_ spec: OperationSpec, context: NodeContext) async throws -> OperationReceipt
+}
+
+/// 冲突裁决委托（由展示层实现为冲突面板；内核不知道 UI 存在）
+public protocol ConflictArbiter: Sendable {
+    /// 返回 nil = 用户在面板上取消了操作
+    func arbitrate(operation id: UUID, conflicts: [FileConflict]) async -> [URL: ConflictDecision]?
 }

@@ -1,37 +1,8 @@
 import Foundation
 import NSpaceContracts
 
-// MARK: - 节点契约（内核只认协议，零业务分支 BG-3）
-
-/// 节点执行中向内核回报的事件（进度切面；遥测失败不伤主链 BG-7）
-public enum NodeEvent: Sendable {
-    case scanTotals(files: Int, bytes: Int64)
-    case progress(filesDone: Int, bytesDone: Int64, currentPath: String?)
-}
-
-/// 内核注入给节点的上下文：回报进度、请求冲突裁决、查取消
-public struct NodeContext: Sendable {
-    public let report: @Sendable (NodeEvent) -> Void
-    /// 返回 nil = 用户取消整个操作
-    public let resolveConflicts: @Sendable ([FileConflict]) async -> [URL: ConflictDecision]?
-
-    public init(report: @escaping @Sendable (NodeEvent) -> Void,
-                resolveConflicts: @escaping @Sendable ([FileConflict]) async -> [URL: ConflictDecision]?) {
-        self.report = report
-        self.resolveConflicts = resolveConflicts
-    }
-}
-
-/// 语义原子节点统一契约：单一原子状态转换，强类型出入（P6）
-public protocol OperationNode: Sendable {
-    func execute(_ spec: OperationSpec, context: NodeContext) async throws -> OperationReceipt
-}
-
-/// 冲突裁决委托（由展示层实现为冲突面板；内核不知道 UI 存在）
-public protocol ConflictArbiter: Sendable {
-    /// 返回 nil = 用户在面板上取消了操作
-    func arbitrate(operation id: UUID, conflicts: [FileConflict]) async -> [URL: ConflictDecision]?
-}
+// 节点契约（NodeEvent/NodeContext/OperationNode/ConflictArbiter）在 NSpaceContracts 词汇表；
+// 本内核只做通用机制：排队/调度/取消/进度切面/Run 状态机原子提交（BG-3 零业务分支）。
 
 // MARK: - 内核（唯一 Commit Owner：Run 状态机的原子提交，BG-5）
 
@@ -138,6 +109,7 @@ public actor OperationKernel {
 
     private func drive(id: UUID, node: any OperationNode, spec: OperationSpec) async {
         let context = NodeContext(
+            operationID: id,
             report: { [weak self] event in
                 Task { await self?.apply(event, to: id) }
             },
