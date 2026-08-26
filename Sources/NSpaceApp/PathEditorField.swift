@@ -9,6 +9,12 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
 
     private let completer: any PathCompleting = PathCompleter()
     private var completing = false
+    /// controlTextDidChange 是否正在栈上（用于证明 complete 触发在文本变更事务之外）
+    private var inTextDidChange = false
+    /// I-30 探针：末次补全候选数
+    private(set) var uiTestLastCompletionCount = -1
+    /// I-30 探针：末次补全是否在文本变更事务【之外】触发（true=已延迟；同步 bug 时为 false）
+    private(set) var uiTestCompletionWasDeferred = false
 
     init() {
         super.init(frame: .zero)
@@ -31,18 +37,30 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
     // MARK: 补全（输入即触发 complete:，防重入）
 
     func controlTextDidChange(_ notification: Notification) {
-        guard !completing, let editor = currentEditor() as? NSTextView else { return }
-        completing = true
-        editor.complete(nil)
-        completing = false
+        guard !completing, currentEditor() is NSTextView else { return }
+        // I-30：complete(nil) 必须【延迟到下一 runloop】触发，不可在 controlTextDidChange 内同步调用。
+        // 同步调用时首次输入的补全 popup 被文本变更事务吞掉（首键无补全，需第二键才浮出）；
+        // 异步派发让文本变更先落定，补全 popup 首键即出。
+        inTextDidChange = true
+        defer { inTextDidChange = false }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let editor = self.currentEditor() as? NSTextView else { return }
+            self.completing = true
+            editor.complete(nil)
+            self.completing = false
+        }
     }
 
     func control(_ control: NSControl, textView: NSTextView,
                  completions words: [String], forPartialWordRange charRange: NSRange,
                  indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
         index.pointee = -1
+        // I-30 契约核实：complete 必须在 controlTextDidChange 返回后才触发（否则首键 popup 被吞）
+        uiTestCompletionWasDeferred = !inTextDidChange
         // 对整行内容补全（系统默认按词切分，路径需整行语义）
-        return completer.complete(stringValue)
+        let result = completer.complete(stringValue)
+        uiTestLastCompletionCount = result.count
+        return result
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

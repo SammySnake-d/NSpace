@@ -96,5 +96,10 @@ require_pass "设置页[settings.tab.appearance] makeView 无约束歧义"
 require_pass "快捷键注册表默认绑定读取正确"
 require_pass "侧栏含书签分组且种子书签行"
 
+# I-30 回归：⌘L 路径编辑首键一次生效 + 补全在文本变更事务外触发（首键 popup 不被吞）
+require_pass "I-30 ⌘L 后首键 '/' 字符一次生效"
+require_pass "I-30 首键即触发补全候选"
+require_pass "I-30 补全在文本变更事务之外触发"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

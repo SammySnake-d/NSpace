@@ -374,6 +374,16 @@ final class PaneViewController: NSViewController {
         return statusBar.selectionPillVisible
     }
 
+    /// UISelfTest（I-30）：程序化进入路径编辑，暴露编辑框以驱动首键探针
+    var uiTestPathEditor: PathEditorField { pathEditor }
+    /// I-30 探针：以指定种子进入编辑（走真实 begin 链，仅替换种子文本便于净首键断言）
+    func uiTestBeginPathEditing(seed: String) {
+        onRequestFocus?()
+        pathEditor.isHidden = false
+        breadcrumb.isHidden = true
+        pathEditor.beginEditing(with: seed)
+    }
+
     private func displayName(_ url: URL) -> String {
         url.path == "/" ? "/" : url.lastPathComponent
     }
