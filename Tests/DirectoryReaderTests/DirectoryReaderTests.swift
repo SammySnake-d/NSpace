@@ -80,4 +80,29 @@ import NSpaceContracts
         sortItems(&items, by: SortSpec(key: .created, ascending: true, foldersFirst: false))
         #expect(items.map(\.name) == ["c", "a", "b"])
     }
+
+    /// I-26 全键覆盖：name/dateModified/kind 双向（size/created/added 已有专测）
+    @Test func sortByNameDateKindBothDirections() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        func item(_ n: String, m: TimeInterval, kind: String) -> FileItem {
+            FileItem(url: URL(fileURLWithPath: "/tmp/\(n)"), name: n, isDirectory: false,
+                     isPackage: false, isSymlink: false, isHidden: false, size: 1,
+                     modified: t0.addingTimeInterval(m), created: t0, added: t0, contentTypeID: kind)
+        }
+        var items = [item("b", m: 30, kind: "public.png"),
+                     item("a", m: 10, kind: "public.zip"),
+                     item("c", m: 20, kind: "public.jpeg")]
+        sortItems(&items, by: SortSpec(key: .name, ascending: true, foldersFirst: false))
+        #expect(items.map(\.name) == ["a", "b", "c"])
+        sortItems(&items, by: SortSpec(key: .name, ascending: false, foldersFirst: false))
+        #expect(items.map(\.name) == ["c", "b", "a"])
+        sortItems(&items, by: SortSpec(key: .dateModified, ascending: true, foldersFirst: false))
+        #expect(items.map(\.name) == ["a", "c", "b"])
+        sortItems(&items, by: SortSpec(key: .dateModified, ascending: false, foldersFirst: false))
+        #expect(items.map(\.name) == ["b", "c", "a"])
+        sortItems(&items, by: SortSpec(key: .kind, ascending: true, foldersFirst: false))
+        #expect(items.map(\.name) == ["c", "b", "a"])   // jpeg < png < zip
+        sortItems(&items, by: SortSpec(key: .kind, ascending: false, foldersFirst: false))
+        #expect(items.map(\.name) == ["a", "b", "c"])
+    }
 }

@@ -236,13 +236,17 @@ enum UISelfTest {
             record(collapsedOK && reopenedOK,
                    "侧栏按钮折叠后再点可真展开（宽 \(Int(wc.sidebarWrap.frame.width))，hidden=\(wc.sidebarWrap.isHidden)）")
 
-            // I-26：可选列（添加日期）列头排序真生效——走列头点击同一条 sortDescriptors 链路
+            // I-26：全部六列列头排序真生效——走列头点击同一条 sortDescriptors 链路，双向各验
             let sortListVC = wc.grid.activePane.activeTab.listVC
-            let sortBefore = sortListVC.model.sort.key
-            sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: "added", ascending: false)]
-            try? await Task.sleep(for: .milliseconds(200))
-            record(sortListVC.model.sort.key == .added && sortListVC.model.sort.ascending == false,
-                   "列头排序真生效（added 降序；原 \(sortBefore) → \(sortListVC.model.sort.key)）")
+            for key in SortSpec.Key.allCases {
+                sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: false)]
+                try? await Task.sleep(for: .milliseconds(120))
+                let descOK = sortListVC.model.sort.key == key && sortListVC.model.sort.ascending == false
+                sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: true)]
+                try? await Task.sleep(for: .milliseconds(120))
+                let ascOK = sortListVC.model.sort.key == key && sortListVC.model.sort.ascending == true
+                record(descOK && ascOK, "列头排序真生效[\(key.rawValue)]（降/升双向）")
+            }
             sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
             try? await Task.sleep(for: .milliseconds(150))
 

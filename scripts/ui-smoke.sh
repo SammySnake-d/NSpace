@@ -47,7 +47,12 @@ require_pass "关最后窗口后 Dock 重开有窗"
 require_pass "侧栏按钮折叠后再点可真展开"
 # I-24b 回归（v0.11.0）
 require_pass "分栏首列内容真渲染"
-require_pass "列头排序真生效"
+require_pass "列头排序真生效[name]"
+require_pass "列头排序真生效[dateModified]"
+require_pass "列头排序真生效[size]"
+require_pass "列头排序真生效[kind]"
+require_pass "列头排序真生效[created]"
+require_pass "列头排序真生效[added]"
 
 # M23 全功能自测矩阵（v0.11.0）：全部验「真实效果」而非「没崩溃」
 require_pass "视图模式[list]对应视图真在层级且可见"

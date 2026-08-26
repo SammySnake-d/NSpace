@@ -263,3 +263,13 @@
 
 见 `Sources/NSpaceApp/UISelfTest.swift` 场景 M23（插在场景 5「搜索」之前，保主窗存活），
 及 `scripts/ui-smoke.sh` 追加的 `require_pass` 存在性校验。目标全套 ≥60 条 PASS。
+
+## I-26 追加（2026-08-26）：列头排序全键矩阵
+
+| 功能 | 驱动方式 | 自动化 | 断言 |
+| 列头排序 name 名称（升/降） | sortDescriptors 链路（列头点击同路） | 可 | 新增（UI 双向 + 单测严格弱序） |
+| 列头排序 dateModified 修改日期（升/降） | sortDescriptors 链路（列头点击同路） | 可 | 新增（UI 双向 + 单测严格弱序） |
+| 列头排序 size 大小（升/降） | sortDescriptors 链路（列头点击同路） | 可 | 新增（UI 双向 + 单测严格弱序） |
+| 列头排序 kind 种类（升/降） | sortDescriptors 链路（列头点击同路） | 可 | 新增（UI 双向 + 单测严格弱序） |
+| 列头排序 created 创建日期（升/降） | sortDescriptors 链路（列头点击同路） | 可 | 新增（UI 双向 + 单测严格弱序） |
+| 列头排序 added 添加日期（升/降） | sortDescriptors 链路（列头点击同路） | 可 | 新增（UI 双向 + 单测严格弱序） |
