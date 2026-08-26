@@ -43,6 +43,8 @@ require_pass "⌘W 分层：先关顶层设置窗"
 require_pass "⌘W 分层：主窗工作区未被误关"
 require_pass "⌘W 关闭后 MRU 回退到上一个活跃工作区"
 require_pass "关最后窗口后 Dock 重开有窗"
+# I-22 回归（v0.10.1）
+require_pass "侧栏按钮折叠后再点可真展开"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

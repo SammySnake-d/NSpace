@@ -24,10 +24,13 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     /// 手工 NSSplitView（弃 NSSplitViewController：其恢复/调宽会在 splitView 上留必需
     /// 等式约束，布局扰动时反推窗口坍缩——UI 探针实锤 W==320/W==220/H==52 泄漏）
     private let mainSplit = NSSplitView()
-    private let sidebarWrap = NSVisualEffectView()
+    let sidebarWrap = NSVisualEffectView()   // internal：UISelfTest I-22 断言需度量可见性
     /// 右列容器：甲板压顶 + 窗格矩阵铺底（唯一垂直分割线由此列与左列共界）
     private let contentColumn = NSView()
     private var savedSidebarWidth: CGFloat = 200
+    /// I-22：折叠状态完全自管。绝不走 NSSplitView 的 collapse 机制——它把折叠记在私有状态里，
+    /// isHidden 会被后续布局重新盖回（实测宽度已恢复 202 仍 hidden=true），展开永远失败。
+    private var sidebarCollapsedState = false
     private var keyMonitor: Any?
 
     init(kernel: OperationKernel, initialDirectory: URL, select: URL? = nil) {
@@ -128,10 +131,10 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
             return w > 0 ? min(max(w, 160), 320) : 200
         }()
         let startCollapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed")
+        sidebarCollapsedState = startCollapsed
         deck.setSidebarCollapsed(startCollapsed)
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.mainSplit.setPosition(startCollapsed ? 0 : self.savedSidebarWidth, ofDividerAt: 0)
+            self?.applyColumnFrames()
         }
         NotificationCenter.default.addObserver(
             self, selector: #selector(splitDidResize(_:)),
@@ -210,14 +213,29 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
 
     /// 自实现侧栏折叠（⌘⌥S / 甲板钮）：宽度 0 ⟷ 记忆宽度；折叠时甲板 leading 让位红绿灯
     @objc func toggleSidebar(_ sender: Any?) {
-        setSidebar(collapsed: sidebarWrap.frame.width >= 1)
+        setSidebar(collapsed: !sidebarCollapsedState)
     }
 
-    /// 确定性折叠/展开（甲板钮/菜单经 toggle 走此；UISelfTest 直接指定目标态）
+    /// 确定性折叠/展开（甲板钮/菜单经 toggle 走此；UISelfTest 直接指定目标态）。
+    /// 自管宽度直铺 frame（见 sidebarCollapsedState 注释），子视图永不 isHidden。
     func setSidebar(collapsed: Bool) {
-        mainSplit.setPosition(collapsed ? 0 : savedSidebarWidth, ofDividerAt: 0)
+        sidebarCollapsedState = collapsed
+        sidebarWrap.isHidden = false
+        applyColumnFrames()
         UserDefaults.standard.set(collapsed, forKey: "sidebarCollapsed")
         deck.setSidebarCollapsed(collapsed)
+    }
+
+    /// 两列 frame 直铺（delegate resize 与折叠切换共用；折叠=宽 0，展开=夹紧后的记忆宽）
+    private func applyColumnFrames() {
+        let divider = mainSplit.dividerThickness
+        let w: CGFloat = sidebarCollapsedState ? 0 : min(max(savedSidebarWidth, 160), 320)
+        sidebarWrap.frame = NSRect(x: 0, y: 0, width: w, height: mainSplit.bounds.height)
+        contentColumn.frame = NSRect(x: w + (w > 0 ? divider : 0), y: 0,
+                                     width: mainSplit.bounds.width - w - (w > 0 ? divider : 0),
+                                     height: mainSplit.bounds.height)
+        mainSplit.needsDisplay = true
+        contentColumn.layoutSubtreeIfNeeded()
     }
 
     private func updateTitle(for url: URL) {
@@ -479,16 +497,11 @@ extension MainWindowController: @preconcurrency NSSplitViewDelegate {
                    ofSubviewAt dividerIndex: Int) -> CGFloat { 320 }
 
     func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {
-        subview === sidebarWrap
+        false   // I-22：折叠自管（sidebarCollapsedState 直铺 frame），禁用 AppKit 私有折叠机制
     }
 
     func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
-        // 窗口缩放时侧栏保持宽度、内容区吃增量（Finder 语义）
-        let sidebarW = sidebarWrap.frame.width < 1 ? 0 : min(max(sidebarWrap.frame.width, 160), 320)
-        let divider = splitView.dividerThickness
-        sidebarWrap.frame = NSRect(x: 0, y: 0, width: sidebarW, height: splitView.bounds.height)
-        contentColumn.frame = NSRect(x: sidebarW + (sidebarW > 0 ? divider : 0), y: 0,
-                                     width: splitView.bounds.width - sidebarW - (sidebarW > 0 ? divider : 0),
-                                     height: splitView.bounds.height)
+        // 窗口缩放时侧栏保持宽度、内容区吃增量（Finder 语义）；折叠态由自管状态决定
+        applyColumnFrames()
     }
 }

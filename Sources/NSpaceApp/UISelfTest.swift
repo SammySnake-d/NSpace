@@ -197,6 +197,18 @@ enum UISelfTest {
             }
             record(driftFree, "折叠/展开 3 轮窗口尺寸与右列布局不漂移\(driftDetail)")
 
+            // I-22：按钮路径折叠→再点必须真展开（侧栏可见且宽≥160，不是只移分割线）
+            wc.toggleSidebar(nil)   // 折叠（与甲板侧栏钮同一路径 deckToggleSidebar→toggleSidebar）
+            try? await Task.sleep(for: .milliseconds(220))
+            window.contentView?.layoutSubtreeIfNeeded()
+            let collapsedOK = wc.sidebarWrap.frame.width < 1 || wc.sidebarWrap.isHidden
+            wc.toggleSidebar(nil)   // 再点展开
+            try? await Task.sleep(for: .milliseconds(220))
+            window.contentView?.layoutSubtreeIfNeeded()
+            let reopenedOK = !wc.sidebarWrap.isHidden && wc.sidebarWrap.frame.width >= 160
+            record(collapsedOK && reopenedOK,
+                   "侧栏按钮折叠后再点可真展开（宽 \(Int(wc.sidebarWrap.frame.width))，hidden=\(wc.sidebarWrap.isHidden)）")
+
             // M17-7：暂存架 contentGroup 居中（|中心偏移|≤2pt，I-07 回归）
             let tmp2 = FileManager.default.temporaryDirectory
                 .appendingPathComponent("nspace-uitest-\(UUID().uuidString).txt")
