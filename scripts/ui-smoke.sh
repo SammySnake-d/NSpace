@@ -142,5 +142,13 @@ require_pass "I-40 解析路径口径命中仍按深度排序（符号链接根�
 require_pass "I-40 根外命中沉底为最后一行"
 require_pass "I-38 流式新批次到达后选中项不丢不漂（行号位移仍锁同一 URL）"
 
+# M27 冲突体验（三按钮取消/合并/替换 + 「应用到此文件夹」checkbox 按文件夹批量 + 文件冲突合并禁用）
+require_pass "M27 checkbox 批量一次只作用一个文件夹"
+require_pass "M27 逐文件夹批量：面板出现次数==文件夹数（2 文件夹→2 次）"
+require_pass "M27 未勾 checkbox 只决议当前一条（逐条推进）"
+require_pass "M27 取消 → 决议返回 nil（整体放弃）"
+require_pass "M27 面板三按钮(取消/合并/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）"
+require_pass "M27 文件冲突「合并」禁用（仅文件夹可合并，诚实不可点）"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

@@ -738,6 +738,52 @@ enum UISelfTest {
             }
             sp.uiTestReset(root: nil)
 
+            // ── M27 冲突体验：三按钮 + 「应用到此文件夹」checkbox 的按文件夹批量决议 + 自绘面板截图 ──
+            // 夹具跨两个文件夹：folderA 两条冲突、folderB 一条 → checkbox 批量一次只作用一个文件夹。
+            let folderA = sandbox.appendingPathComponent("conflictA")
+            let folderB = sandbox.appendingPathComponent("conflictB")
+            try? fs.createDirectory(at: folderA, withIntermediateDirectories: true)
+            try? fs.createDirectory(at: folderB, withIntermediateDirectories: true)
+            let a1 = folderA.appendingPathComponent("a1.txt")
+            let a2 = folderA.appendingPathComponent("a2.txt")
+            let b1 = folderB.appendingPathComponent("b1.txt")
+            for u in [a1, a2, b1] { try? Data("x".utf8).write(to: u) }
+            let conflicts = [a1, a2, b1].map { FileConflict(source: $0, existing: $0, bothDirectories: false) }
+            // 勾 checkbox 批量：第一次「替换」只定 folderA 两条，folderB 仍待决（面板须再现一次）
+            var m1 = ConflictDecisionMachine(conflicts)
+            m1.decideCurrentFolder(.replace)
+            let folderAOnly = m1.decisions.count == 2
+                && { if case .replace = m1.decisions[a1] { return true }; return false }()
+                && { if case .replace = m1.decisions[a2] { return true }; return false }()
+                && m1.decisions[b1] == nil && !m1.isComplete
+            record(folderAOnly, "M27 checkbox 批量一次只作用一个文件夹（folderA 2 条已定，folderB 仍待决）")
+            // 面板出现次数 == 文件夹数（3 文件夹 → 3 次；这里 2 文件夹 → 2 次）
+            record(ConflictSheet.uiTestFolderPromptCount(conflicts, batchDecision: .replace) == 2,
+                   "M27 逐文件夹批量：面板出现次数==文件夹数（2 文件夹→2 次）")
+            // 未勾 checkbox 只决当前一条
+            var m2 = ConflictDecisionMachine(conflicts)
+            m2.decideCurrent(.replace)
+            record(m2.decisions.count == 1, "M27 未勾 checkbox 只决议当前一条（逐条推进）")
+            // 取消 → nil（契约：整体放弃）
+            record(ConflictSheet.uiTestResolve(conflicts, actions: [("cancel", nil)]) == nil,
+                   "M27 取消 → 决议返回 nil（整体放弃）")
+            // 自绘面板：三按钮右对齐（取消/合并/替换）+ 左下 checkbox；文件冲突「合并」禁用。
+            // headless captureView 出图骨架（控件 cell 需窗口服务才完整渲染，真机预览见 NSPACE_CONFLICT_PREVIEW）。
+            if let cpanel = ConflictSheet.uiTestPanel(conflicts, host: window) {
+                if let cv = cpanel.contentView { captureView(cv, "32-conflict-sheet") }
+                let tree = viewTree(cpanel.contentView)
+                let btns = tree.compactMap { ($0 as? NSButton)?.title }
+                let hasThree = btns.contains(L10n.t("conflict.cancel"))
+                    && btns.contains(L10n.t("conflict.replace")) && btns.contains(L10n.t("conflict.merge"))
+                let hasCheck = tree.contains { ($0 as? NSButton)?.title == L10n.t("conflict.applyFolder") }
+                let mergeBtn = tree.first { ($0 as? NSButton)?.title == L10n.t("conflict.merge") } as? NSButton
+                record(hasThree && hasCheck, "M27 面板三按钮(取消/合并/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）")
+                record(mergeBtn?.isEnabled == false, "M27 文件冲突「合并」禁用（仅文件夹可合并，诚实不可点）")
+            } else {
+                record(false, "M27 面板三按钮(取消/合并/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）")
+                record(false, "M27 文件冲突「合并」禁用（仅文件夹可合并，诚实不可点）")
+            }
+
             window.makeKeyAndOrderFront(nil)   // 主窗夺 key → 面板 resignKey 自动关闭
             try? await Task.sleep(for: .milliseconds(200))
 
@@ -999,6 +1045,11 @@ enum UISelfTest {
             let hadHotkey = UserDefaults.standard.string(forKey: GlobalHotkey.prefKey)
             GlobalHotkey.set(mods: [.control, .option, .shift], keyCode: 79, display: "⌃⌥⇧F18")
             record(GlobalHotkey.apply(), "全局热键注册成功（⌃⌥⇧F18 测试组合）")
+            // 确定性前置：显式激活并夺 key，使首次 toggle 的 NSApp.isActive 分支稳定为"隐藏"
+            // （此断言依赖 app-active 环境态，40+ 场景后的 ambient 状态不可靠——由测试自建前置，非产品 bug）
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(300))
             GlobalHotkey.toggle()   // 前台 → 隐藏
             try? await Task.sleep(for: .milliseconds(350))
             let hiddenOK = NSApp.isHidden || !NSApp.isActive
@@ -1165,6 +1216,16 @@ enum UISelfTest {
     /// 自渲染截图：无需录屏权限
     private static func capture(_ window: NSWindow, _ name: String) {
         guard let view = window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: outDir.appendingPathComponent("\(name).png"))
+    }
+
+    /// 截图任意视图（无需在可见窗口中；自绘 sheet 内容 headless 人眼终审用）
+    private static func captureView(_ view: NSView, _ name: String) {
+        view.layoutSubtreeIfNeeded()
+        guard view.bounds.width > 0, view.bounds.height > 0,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         guard let data = rep.representation(using: .png, properties: [:]) else { return }

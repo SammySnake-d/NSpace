@@ -70,6 +70,15 @@ extension TransferNode {
         if flag.isSet { throw CancellationError() }
         let fm = FileManager.default
 
+        // replace 裁决：删目标在此刻（微步 3 本条传输前）——而非裁决阶段一次性预删，
+        // 这样批量中途取消/失败时，尚未传输条目的目标仍完好（防"先删全部再拷第一字节"丢数据）。
+        if entry.replaceExisting, fm.fileExists(atPath: entry.destination.path) {
+            do { try fm.removeItem(at: entry.destination) } catch {
+                throw TransferError(.external, "无法替换目标: \(error.localizedDescription)",
+                                    path: entry.destination.path)
+            }
+        }
+
         if mode == .move, sameVolume(entry.source, entry.destination.deletingLastPathComponent()) {
             // 同卷移动 = 原子 rename，瞬时
             do { try fm.moveItem(at: entry.source, to: entry.destination) } catch {
@@ -168,6 +177,8 @@ private final class CopyContext {
 private func copyOneFileSync(from src: URL, to dst: URL,
                              flag: CancelFlag, progress: ProgressAggregator) throws {
     if flag.isSet { throw CancellationError() }
+    // 失败清理只删"本次新建的半成品"：目标若在拷贝前已存在（外部竞态/克隆 EEXIST），绝不误删他人文件
+    let dstPreexisted = FileManager.default.fileExists(atPath: dst.path)
     let state = copyfile_state_alloc()
     defer { copyfile_state_free(state) }
 
@@ -196,10 +207,11 @@ private func copyOneFileSync(from src: URL, to dst: URL,
     let rc = copyfile(src.path, dst.path, state, flags)
 
     if rc < 0 {
-        // 半成品清理：取消或出错都不留残缺目标
-        try? FileManager.default.removeItem(at: dst)
-        if flag.isSet || errno == ECANCELED { throw CancellationError() }
-        let msg = String(cString: strerror(errno))
+        let savedErrno = errno   // 先快照：removeItem 会污染 errno
+        // 半成品清理：只删本次新建的残缺目标；目标拷贝前已存在则不动（防误删他人文件）
+        if !dstPreexisted { try? FileManager.default.removeItem(at: dst) }
+        if flag.isSet || savedErrno == ECANCELED { throw CancellationError() }
+        let msg = String(cString: strerror(savedErrno))
         throw TransferError(.external, "复制失败: \(msg)", path: src.path)
     }
 

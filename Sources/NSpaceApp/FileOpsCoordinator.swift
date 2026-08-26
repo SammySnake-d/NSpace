@@ -53,10 +53,8 @@ final class FileOpsCoordinator {
         guard !urls.isEmpty else { NSSound.beep(); return }
         // 剪切态且粘贴项恰为被剪切集 → 移动；否则复制
         let isMove = !cutURLs.isEmpty && urls.allSatisfy { cutURLs.contains($0) }
-        // 同目录复制无意义（源即目标）——退化为制作副本语义交给 Transfer.duplicate
-        if !isMove, urls.allSatisfy({ $0.deletingLastPathComponent() == directory }) {
-            duplicate(urls); return
-        }
+        // M27-B：同目录复制粘贴不再静默退化为"制作副本"——走正常 copy 触发自源冲突，
+        // 弹面板让用户选替换/跳过/两者保留/重命名/取消（引擎自源安全律护航，绝不删源）。
         let spec = OperationSpec(kind: isMove ? .move : .copy, sources: urls, destination: directory)
         run(spec) { [weak self] _ in
             if isMove { self?.cutURLs = []; self?.redrawLists() }
@@ -200,9 +198,8 @@ final class FileOpsCoordinator {
         guard urls.allSatisfy({ !Self.isSelfOrDescendant(destination: dest, ofSource: $0) }) else {
             NSSound.beep(); onComplete?(false); return
         }
-        // 全部已在目标目录：原地移动无意义；原地复制退化为制作副本（与粘贴语义一致）
-        if urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == dest.path }) {
-            if !move { duplicate(urls) }
+        // 全部已在目标目录：移到原处无操作；复制则走正常 copy 触发自源冲突弹面板（与粘贴语义统一，M27-B）
+        if move, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == dest.path }) {
             onComplete?(false)
             return
         }

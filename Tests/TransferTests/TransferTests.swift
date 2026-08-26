@@ -122,6 +122,135 @@ import NSpaceContracts
         #expect(try Data(contentsOf: dst.appendingPathComponent("d/both.txt")) == Data("same-src".utf8))
     }
 
+    // MARK: 冲突「重命名」与自源安全律（M27-A/B）
+
+    @Test func conflictRenameLandsToChosenName() async throws {
+        let src = try Self.tempDir(), dst = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
+        try Data("new".utf8).write(to: src.appendingPathComponent("f.txt"))
+        try Data("old".utf8).write(to: dst.appendingPathComponent("f.txt"))
+        let ctx = Self.makeContext { c in
+            Dictionary(uniqueKeysWithValues: c.map { ($0.source, ConflictDecision.rename("custom.txt")) })
+        }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy, sources: [src.appendingPathComponent("f.txt")], destination: dst),
+            context: ctx)
+        #expect(try Data(contentsOf: dst.appendingPathComponent("f.txt")) == Data("old".utf8))   // 原目标不动
+        #expect(try Data(contentsOf: dst.appendingPathComponent("custom.txt")) == Data("new".utf8))
+    }
+
+    @Test func conflictRenameCollisionDisambiguatesNeverOverwrites() async throws {
+        let src = try Self.tempDir(), dst = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
+        try Data("new".utf8).write(to: src.appendingPathComponent("f.txt"))
+        try Data("old".utf8).write(to: dst.appendingPathComponent("f.txt"))
+        try Data("taken".utf8).write(to: dst.appendingPathComponent("custom.txt"))   // 用户新名撞既有
+        let ctx = Self.makeContext { c in
+            Dictionary(uniqueKeysWithValues: c.map { ($0.source, ConflictDecision.rename("custom.txt")) })
+        }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy, sources: [src.appendingPathComponent("f.txt")], destination: dst),
+            context: ctx)
+        // 撞名不覆盖：既有 custom.txt 原封不动，新副本落到 "custom 2.txt"
+        #expect(try Data(contentsOf: dst.appendingPathComponent("custom.txt")) == Data("taken".utf8))
+        #expect(try Data(contentsOf: dst.appendingPathComponent("custom 2.txt")) == Data("new".utf8))
+    }
+
+    @Test func selfCopyReplaceNeverDeletesSource() async throws {
+        // M27-B 核心安全律：同目录复制时 destination==source，即便裁决「替换」也绝不删源
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("f.txt")
+        try Data("keepme".utf8).write(to: f)
+        let ctx = Self.makeContext { c in
+            Dictionary(uniqueKeysWithValues: c.map { ($0.source, ConflictDecision.replace) })
+        }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy, sources: [f], destination: dir), context: ctx)
+        // 源仍在且内容完好；替换被安全中和为改名副本
+        #expect(try Data(contentsOf: f) == Data("keepme".utf8))
+        #expect(try Data(contentsOf: dir.appendingPathComponent("f 2.txt")) == Data("keepme".utf8))
+    }
+
+    @Test func selfCopyMergeNeverSelfRecurses() async throws {
+        // 同目录复制目录 + 裁决「合并」：destination==source 的目录不得自我递归，安全收敛为改名副本
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sub = dir.appendingPathComponent("d")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: sub.appendingPathComponent("a.txt"))
+        let ctx = Self.makeContext { c in
+            Dictionary(uniqueKeysWithValues: c.map { ($0.source, ConflictDecision.mergeFolders) })
+        }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy, sources: [sub], destination: dir), context: ctx)
+        #expect(FileManager.default.fileExists(atPath: sub.appendingPathComponent("a.txt").path))
+        #expect(try Data(contentsOf: dir.appendingPathComponent("d 2/a.txt")) == Data("x".utf8))
+    }
+
+    @Test func selfCopyThroughSymlinkAliasNeverDeletesSource() async throws {
+        // 数据安全律加固（评审 HIGH）：源经符号链接别名到达时，词法 path 判等会漏判自源→替换删源。
+        // inode 级判定须识别别名为同一文件，把替换安全收敛为改名，绝不删源。
+        let base = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let real = base.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let f = real.appendingPathComponent("f.txt")
+        try Data("keepme".utf8).write(to: f)
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        // 复制 real/f.txt 到 link 目录（= real 的别名）→ destination=link/f.txt 与源物理同一
+        let ctx = Self.makeContext { c in
+            Dictionary(uniqueKeysWithValues: c.map { ($0.source, ConflictDecision.replace) })
+        }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy, sources: [f], destination: link), context: ctx)
+        #expect(try Data(contentsOf: f) == Data("keepme".utf8))                    // 源经别名未被删
+        #expect(FileManager.default.fileExists(atPath: real.appendingPathComponent("f 2.txt").path))
+    }
+
+    @Test func batchKeepBothDistinctNamesNoCollision() async throws {
+        // 数据安全律加固（评审 MEDIUM）：两条同名源批量 keepBoth 不得算出同一目标名互相覆盖。
+        let dstDir = try Self.tempDir(), srcA = try Self.tempDir(), srcB = try Self.tempDir()
+        defer { for u in [dstDir, srcA, srcB] { try? FileManager.default.removeItem(at: u) } }
+        try Data("A".utf8).write(to: srcA.appendingPathComponent("dup.txt"))
+        try Data("B".utf8).write(to: srcB.appendingPathComponent("dup.txt"))
+        try Data("existing".utf8).write(to: dstDir.appendingPathComponent("dup.txt"))
+        let ctx = Self.makeContext { c in
+            Dictionary(uniqueKeysWithValues: c.map { ($0.source, ConflictDecision.keepBoth) })
+        }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy,
+                          sources: [srcA.appendingPathComponent("dup.txt"), srcB.appendingPathComponent("dup.txt")],
+                          destination: dstDir),
+            context: ctx)
+        let names = try FileManager.default.contentsOfDirectory(atPath: dstDir.path).sorted()
+        #expect(names == ["dup 2.txt", "dup 3.txt", "dup.txt"])   // 各得独立名，未互相覆盖
+        let contents = Set(names.compactMap { try? Data(contentsOf: dstDir.appendingPathComponent($0)) })
+        #expect(contents.contains(Data("A".utf8)) && contents.contains(Data("B".utf8))
+                && contents.contains(Data("existing".utf8)))
+    }
+
+    @Test func batchSameNameIntoEmptyDirAutoDisambiguates() async throws {
+        // 数据安全律加固（复核 MEDIUM）：两个不同目录的同名源拷进【空】目标目录（零磁盘冲突，
+        // 不弹面板），也必须各得独立名，绝不互相覆盖/丢失。
+        let dstDir = try Self.tempDir(), srcA = try Self.tempDir(), srcB = try Self.tempDir()
+        defer { for u in [dstDir, srcA, srcB] { try? FileManager.default.removeItem(at: u) } }
+        try Data("A".utf8).write(to: srcA.appendingPathComponent("dup.txt"))
+        try Data("B".utf8).write(to: srcB.appendingPathComponent("dup.txt"))
+        // 裁决回调不应被触发（空目标目录无磁盘冲突）
+        let ctx = Self.makeContext { _ in Issue.record("空目录不应弹冲突"); return [:] }
+        _ = try await TransferNode().execute(
+            OperationSpec(kind: .copy,
+                          sources: [srcA.appendingPathComponent("dup.txt"), srcB.appendingPathComponent("dup.txt")],
+                          destination: dstDir),
+            context: ctx)
+        let names = try FileManager.default.contentsOfDirectory(atPath: dstDir.path).sorted()
+        #expect(names == ["dup 2.txt", "dup.txt"])   // 第一条原名、第二条自动编号
+        let contents = Set(names.compactMap { try? Data(contentsOf: dstDir.appendingPathComponent($0)) })
+        #expect(contents.contains(Data("A".utf8)) && contents.contains(Data("B".utf8)))
+    }
+
     // MARK: 移动（同卷 rename）与制作副本
 
     @Test func moveSameVolumeRenames() async throws {

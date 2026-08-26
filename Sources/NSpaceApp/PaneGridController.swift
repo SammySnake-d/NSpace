@@ -207,11 +207,15 @@ final class PaneGridController: NSViewController {
 
     func setActivePane(_ index: Int) {
         guard index < layout.paneCount else { return }
+        let sameAsActive = (index == activePaneIndex)
         activePaneIndex = index
-        refreshActiveHighlight()
+        refreshActiveHighlight()                         // 幂等且廉价：多窗格 restore/首布局着色须恒执行
+        view.window?.makeFirstResponder(activePane.focusTarget)
+        // 同窗格点击：不重推位置/状态。窗格内选中变化本就经 pane.onStatusChange 更新甲板，
+        // 此处再推一次是"改选中前的旧值" → 双刷卡顿（I-33）；跨窗格切换才需要这一推。
+        guard !sameAsActive else { return }
         onActiveLocationChange?(activePane.activeTab.browser.current)
         onActiveStatusChange?()
-        view.window?.makeFirstResponder(activePane.focusTarget)
     }
 
     private func refreshActiveHighlight() {

@@ -97,6 +97,7 @@
 "conflict.merge" = "Merge";
 "conflict.cancel" = "Cancel";
 "conflict.applyToAll" = "Apply to All";
+"conflict.applyFolder" = "Apply to all conflicts in this folder";
 "sidebar.bookmarks" = "Bookmarks";
 "sidebar.icloud.section" = "iCloud";
 "sidebar.volumes" = "Locations";

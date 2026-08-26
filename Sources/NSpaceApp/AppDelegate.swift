@@ -1,5 +1,6 @@
 import AppKit
 import NSpaceKernel
+import NSpaceContracts
 import Transfer
 import LocalOps
 import ArchiveEngine
@@ -48,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate()
             if UISelfTest.isEnabled {
                 UISelfTest.run(delegate: self)
+            } else if ProcessInfo.processInfo.environment["NSPACE_CONFLICT_PREVIEW"] != nil {
+                // 冲突面板真机预览（非产品路径，仅供人眼终审截图）：造夹具冲突并弹真 sheet
+                presentConflictPreview()
             } else if ProcessInfo.processInfo.environment["NSPACE_PERF_DIRS"] == nil {
                 // 权限引导：未授权且未勾"不再提示" → 主窗口就绪后弹一次 sheet（自测/性能跑不打扰）
                 promptFullDiskAccessIfNeeded()
@@ -55,6 +59,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 UpdateController.shared.autoCheckIfDue()
             }
         }
+    }
+
+    /// 冲突面板真机预览（NSPACE_CONFLICT_PREVIEW）：在自建夹具里造 3 条冲突弹真 sheet 供截图。
+    /// 沙箱铁律：只动 temporaryDirectory 下的自建夹具，绝不碰用户真实文件。
+    private func presentConflictPreview() {
+        guard let win = NSApp.windows.first(where: { $0.windowController is MainWindowController }) else { return }
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("nspace-conflict-preview")
+        let srcDir = base.appendingPathComponent("src")
+        let dstDir = base.appendingPathComponent("dst")
+        try? fm.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
+        let names = ["报告.pdf", "预算表.xlsx", "封面.png"]
+        var conflicts: [FileConflict] = []
+        for n in names {
+            let s = srcDir.appendingPathComponent(n)
+            let d = dstDir.appendingPathComponent(n)
+            try? Data("src".utf8).write(to: s)
+            try? Data("dst".utf8).write(to: d)
+            conflicts.append(FileConflict(source: s, existing: d, bothDirectories: false))
+        }
+        // 再加一个目录冲突（让「合并」按钮可用，预览三按钮全态）
+        let sSub = srcDir.appendingPathComponent("素材")
+        let dSub = dstDir.appendingPathComponent("素材")
+        try? fm.createDirectory(at: sSub, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: dSub, withIntermediateDirectories: true)
+        conflicts.insert(FileConflict(source: sSub, existing: dSub, bothDirectories: true), at: 0)
+        win.makeKeyAndOrderFront(nil)
+        Task { @MainActor in _ = await conflictSheet.arbitrate(operation: UUID(), conflicts: conflicts) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -182,6 +182,8 @@ public struct FileConflict: Sendable, Hashable {
 
 public enum ConflictDecision: Sendable {
     case replace, skip, keepBoth, mergeFolders
+    /// 重命名后共存：newName 为目标目录内的新文件名（含扩展名）。由 UI 保证非空。
+    case rename(String)
 }
 
 /// 废纸篓一对：原位置 → 回收站落点（供撤销把 trashed 搬回 original）

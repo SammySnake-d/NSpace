@@ -97,6 +97,7 @@
 "conflict.merge" = "合并";
 "conflict.cancel" = "取消";
 "conflict.applyToAll" = "应用到全部";
+"conflict.applyFolder" = "应用到此文件夹的全部冲突";
 "sidebar.bookmarks" = "书签";
 "sidebar.icloud.section" = "iCloud";
 "sidebar.volumes" = "位置";
