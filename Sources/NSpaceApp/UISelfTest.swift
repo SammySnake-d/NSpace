@@ -22,6 +22,12 @@ enum UISelfTest {
     private static var failed = false
 
     static func run(delegate: AppDelegate) {
+        // 看门狗：任何场景 await 悬死（等交互 sheet 之类）→ 180 秒强制收尾报 FAIL，绝不无限挂
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(180))
+            record(false, "看门狗触发：自测超时未收尾（最后到达点见 progress.txt）")
+            finish()
+        }
         Task { @MainActor in
             try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
             lines = []
@@ -842,6 +848,9 @@ enum UISelfTest {
     private static func record(_ ok: Bool, _ message: String) {
         lines.append("\(ok ? "PASS" : "FAIL") \(message)")
         if !ok { failed = true }
+        // 实时进度落盘（挂死可定位最后到达点；finish 前 record 只在内存，挂死即全丢——I-35 后补仪器）
+        try? (lines.joined(separator: "\n") + "\n").data(using: .utf8)?
+            .write(to: outDir.appendingPathComponent("progress.txt"))
     }
 
     /// 自渲染截图：无需录屏权限
