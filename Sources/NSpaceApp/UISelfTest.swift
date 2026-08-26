@@ -277,6 +277,264 @@ enum UISelfTest {
             capture(window, "22-status-pill-dark")
             NSApp.appearance = savedAppr2
 
+            // ── 场景 M23：全功能自测矩阵——每条断言验「真实效果」而非「没崩溃」──────────
+            // （用户 2026-08-26 教训：折叠断言只查尺寸不查真可见性）。
+            // 全插在场景5（搜索）之前：主窗必须存活；关窗/重开在最后的场景6。
+            let fs = FileManager.default
+
+            // M23-1：视图模式切换 → 对应内容视图真在窗口层级里且可见（不是只查窗口尺寸）
+            wc.grid.apply(layout: .single)
+            try? await Task.sleep(for: .milliseconds(300))
+            // 复用场景1 的 pane（pool[0]；布局切换后 activePaneIndex 归 0，仍指同一窗格）
+            for (mode, name) in [(PaneViewMode.list, "list"), (.icons, "icons"), (.columns, "columns")] {
+                pane.setViewMode(mode)
+                try? await Task.sleep(for: .milliseconds(350))
+                window.contentView?.layoutSubtreeIfNeeded()
+                let tab = pane.activeTab
+                let v: NSView?
+                switch mode {
+                case .list: v = tab.listVC.view
+                case .icons: v = tab.iconVC?.view
+                case .columns: v = tab.columnVC?.view
+                }
+                let inTree = v.map { view in viewTree(window.contentView).contains { $0 === view } } ?? false
+                // 真可见：不隐藏、且真实铺满内容区（宽高均 >1）——分栏坍缩 220×1/696×1 曾在此被抓（已修）
+                let visible = (v?.isHiddenOrHasHiddenAncestor == false)
+                    && (v?.frame.width ?? 0) > 1 && (v?.frame.height ?? 0) > 1
+                record(inTree && visible, "视图模式[\(name)]对应视图真在层级且可见（\(Int(v?.frame.width ?? 0))x\(Int(v?.frame.height ?? 0))）")
+            }
+            // 分栏视图坍缩 bug 修复的人查证据（单栏布局，列视图须铺满右列而非塌成 220×1/696×1）
+            try? await Task.sleep(for: .milliseconds(700))   // 待列异步加载出内容再截图
+            window.contentView?.layoutSubtreeIfNeeded()
+            capture(window, "23-columns-single")
+
+            // M23-2：布局切换 → 真实呈现对应窗格数（不是只查窗口尺寸）
+            wc.grid.apply(layout: .quad)
+            try? await Task.sleep(for: .milliseconds(350))
+            window.contentView?.layoutSubtreeIfNeeded()
+            record(wc.grid.visiblePanes.count == 4, "布局 quad 真实呈现 4 窗格（实得 \(wc.grid.visiblePanes.count)）")
+            wc.grid.apply(layout: .single)
+            try? await Task.sleep(for: .milliseconds(350))
+            record(wc.grid.visiblePanes.count == 1, "布局 single 真实呈现 1 窗格（实得 \(wc.grid.visiblePanes.count)）")
+
+            // 沙箱（真实文件系统 fixture；测完清理，绝不污染用户目录）
+            let sandbox = fs.temporaryDirectory
+                .appendingPathComponent("nspace-uitest-m23-\(UUID().uuidString)")
+            let child = sandbox.appendingPathComponent("child")
+            try? fs.createDirectory(at: child, withIntermediateDirectories: true)
+
+            // M23-3：导航后退/前进/上层 → 路径真的变了（不是只看没崩）
+            pane.setViewMode(.list)
+            try? await Task.sleep(for: .milliseconds(200))
+            pane.navigate(to: sandbox)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, sandbox), "导航进入沙箱路径生效")
+            pane.navigate(to: child)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, child), "导航进入子目录路径生效")
+            pane.goBack(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, sandbox), "导航后退路径真变回上级")
+            pane.goForward(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, child), "导航前进路径真恢复")
+            pane.goUpFolder(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, sandbox), "导航上层路径真变父级")
+
+            // M23-4：新建窗格标签 → 标签数+1 且活动路径正确；关闭 → 复原
+            let tabsBefore = pane.tabs.count
+            pane.openNewTab(at: child)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(pane.tabs.count == tabsBefore + 1 && samePath(pane.activeTab.browser.current, child),
+                   "新建窗格标签 → 标签数+1 且活动路径正确（\(pane.tabs.count)）")
+            pane.closeActiveTab(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+            record(pane.tabs.count == tabsBefore, "关闭窗格标签 → 标签数复原（\(pane.tabs.count)）")
+
+            // M23-5：显示隐藏文件开关 → 真实翻转模型状态
+            let h0 = pane.activeTab.model.includeHidden
+            pane.activeTab.listVC.toggleHiddenFiles(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+            let h1 = pane.activeTab.model.includeHidden
+            pane.activeTab.listVC.toggleHiddenFiles(nil)
+            try? await Task.sleep(for: .milliseconds(150))
+            let h2 = pane.activeTab.model.includeHidden
+            record(h1 == !h0 && h2 == h0, "显示隐藏文件开关真实翻转模型状态")
+
+            // M23-6：显示/隐藏窗格标签栏 → 真实翻转控制状态（净零复原）
+            let p0 = PaneViewController.paneTabBarVisible
+            wc.togglePaneTabBar(nil)
+            try? await Task.sleep(for: .milliseconds(150))
+            let p1 = PaneViewController.paneTabBarVisible
+            wc.togglePaneTabBar(nil)
+            try? await Task.sleep(for: .milliseconds(150))
+            let p2 = PaneViewController.paneTabBarVisible
+            record(p1 == !p0 && p2 == p0, "窗格标签栏开关真实翻转控制状态")
+
+            // M23-7：新建文件夹/制作副本/重命名/移到废纸篓 → 真跑 coordinator/kernel + 断言文件系统结果
+            // 铁律（用户 2026-08-26）：每个 mutating 操作前先过沙箱守卫，守卫失败即跳过（绝不误伤真实文件）
+            let folderName = L10n.t("newItem.folder")
+            let newFolderURL = sandbox.appendingPathComponent(folderName)
+            let gNewFolder = assertSandboxed(sandbox)
+            record(gNewFolder, "沙箱守卫: 新建文件夹目标在自建夹具内")
+            if gNewFolder { wc.coordinator.newFolder(in: sandbox, revealIn: nil) }
+            let created = gNewFolder ? (await pollFS { fs.fileExists(atPath: newFolderURL.path) }) : false
+            record(created, "新建文件夹真实落盘（沙箱出现「\(folderName)」）")
+
+            let dupSrc = sandbox.appendingPathComponent("dup-src.txt")
+            let gDup = assertSandboxed(dupSrc)
+            record(gDup, "沙箱守卫: 制作副本源在自建夹具内")
+            if gDup { try? Data("z".utf8).write(to: dupSrc); wc.coordinator.duplicate([dupSrc]) }
+            let duped = gDup ? (await pollFS {
+                let names = (try? fs.contentsOfDirectory(atPath: sandbox.path)) ?? []
+                return names.filter { $0.hasPrefix("dup-src") }.count >= 2
+            }) : false
+            record(duped, "制作副本真实落盘（dup-src 出现 ≥2 份）")
+
+            let renamedName = "nspace-uitest-renamed-\(UUID().uuidString.prefix(8))"
+            let renamedURL = sandbox.appendingPathComponent(renamedName)
+            let gRename = assertSandboxed(newFolderURL) && assertSandboxed(renamedURL)
+            record(gRename, "沙箱守卫: 重命名目标在自建夹具内")
+            if gRename { wc.coordinator.rename(newFolderURL, to: renamedName) { _ in } }
+            let renamed = gRename ? (await pollFS {
+                !fs.fileExists(atPath: newFolderURL.path) && fs.fileExists(atPath: renamedURL.path)
+            }) : false
+            record(renamed, "重命名真实生效（新名存在、旧名消失）")
+
+            let gTrash = assertSandboxed(renamedURL)
+            record(gTrash, "沙箱守卫: 移废纸篓目标在自建夹具内")
+            if gTrash { wc.coordinator.moveToTrash([renamedURL]) }
+            let trashed = gTrash ? (await pollFS { !fs.fileExists(atPath: renamedURL.path) }) : false
+            record(trashed, "移到废纸篓真实生效（源目录中消失）")
+            // 清理落进用户废纸篓的测试项（唯一名，安全）
+            let trashDir = fs.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+            if let entries = try? fs.contentsOfDirectory(atPath: trashDir.path) {
+                for e in entries where e.hasPrefix(renamedName) {
+                    try? fs.removeItem(at: trashDir.appendingPathComponent(e))
+                }
+            }
+
+            // M23-8：拷贝路径 → 断言剪贴板内容（走 listVC.copyPath → coordinator.copyPaths 真实链）
+            pane.activeTab.model.reload()
+            _ = await pollFS { pane.activeTab.model.items.contains { $0.url.lastPathComponent == "dup-src.txt" } }
+            window.contentView?.layoutSubtreeIfNeeded()
+            let srcItem = pane.activeTab.model.items.first { $0.url.lastPathComponent == "dup-src.txt" }
+            if let srcItem {
+                pane.activeTab.listVC.select(urls: [srcItem.url])
+                try? await Task.sleep(for: .milliseconds(150))
+                pane.activeTab.listVC.copyPath(nil)
+                try? await Task.sleep(for: .milliseconds(150))
+                let clip = NSPasteboard.general.string(forType: .string)
+                record(clip == srcItem.url.path, "拷贝路径 → 剪贴板内容正确")
+            } else {
+                record(false, "拷贝路径 → 剪贴板内容正确")
+            }
+
+            // M23-9：右键菜单构建 → items 数 + 关键项存在 + enabled 状态诚实随选中态
+            let selection = pane.activeTab.listVC.selectedItems
+            let listVC = pane.activeTab.listVC
+            let itemMenu = FileContextMenuBuilder.menu(selection: selection, directory: sandbox, target: listVC)
+            let actions = Set(itemMenu.items.compactMap { $0.action })
+            let keyActions: [Selector] = [
+                #selector(FileListViewController.openSelected(_:)),
+                #selector(FileListViewController.copyItems(_:)),
+                #selector(FileListViewController.cutItems(_:)),
+                #selector(FileListViewController.pasteItems(_:)),
+                #selector(FileListViewController.copyPath(_:)),
+                #selector(FileListViewController.renameSelected(_:)),
+                #selector(FileListViewController.duplicateItems(_:)),
+                #selector(FileListViewController.moveToTrash(_:)),
+                #selector(FileListViewController.compressItems(_:)),
+                #selector(FileListViewController.newFolderHere(_:)),
+                #selector(FileListViewController.getInfo(_:)),
+                #selector(FileListViewController.openInTerminal(_:)),
+            ]
+            record(keyActions.allSatisfy { actions.contains($0) },
+                   "条目右键菜单含全部关键项（\(itemMenu.items.count) 项）")
+            // 诚实禁用：纯文本选中 → 无「解压」项
+            record(!actions.contains(#selector(FileListViewController.extractItems(_:))),
+                   "条目右键菜单诚实禁用：非归档选中无「解压」项")
+            // enabled 随选中态：有选中 → 复制项 enabled；清选中 → disabled
+            let copyItem = itemMenu.items.first { $0.action == #selector(FileListViewController.copyItems(_:)) }
+            let enabledWithSel = copyItem.map { listVC.validateMenuItem($0) } ?? false
+            listVC.select(urls: [])
+            try? await Task.sleep(for: .milliseconds(120))
+            let disabledNoSel = copyItem.map { listVC.validateMenuItem($0) == false } ?? false
+            record(enabledWithSel && disabledNoSel, "右键「复制」enabled 随选中态正确切换")
+            // 空白区目录菜单
+            let dirMenu = FileContextMenuBuilder.menu(selection: [], directory: sandbox, target: listVC)
+            let dirActions = Set(dirMenu.items.compactMap { $0.action })
+            let dirKey = dirActions.contains(#selector(FileListViewController.newFolderHere(_:)))
+                && dirActions.contains(#selector(FileListViewController.pasteItems(_:)))
+                && dirActions.contains(#selector(FileListViewController.getInfo(_:)))
+                && dirActions.contains(#selector(FileListViewController.openInTerminal(_:)))
+            record(dirMenu.items.count == 5 && dirKey, "空白区目录菜单项数=5 且含新建/粘贴/简介/终端")
+
+            // M23-10：任务窗手动开关 → 真的可见/隐藏（不是只看没崩）；复用场景3 的 progress
+            progress.toggleVisible(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(progress.window?.isVisible == true, "任务窗手动开→可见")
+            progress.toggleVisible(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(progress.window?.isVisible != true, "任务窗手动关→隐藏")
+
+            // M23-11：⌘I 信息面板 → 窗口出现又能关
+            let infoBase = sandbox.lastPathComponent
+            listVC.getInfo(nil)   // 无选中 → 对当前目录（沙箱）
+            try? await Task.sleep(for: .milliseconds(300))
+            let infoWin = NSApp.windows.first { w in
+                w.isVisible && !(w.windowController is MainWindowController) && w.title.contains(infoBase)
+            }
+            record(infoWin != nil, "显示简介面板出现")
+            if let infoWin {
+                infoWin.performClose(nil)
+                try? await Task.sleep(for: .milliseconds(250))
+                record(infoWin.isVisible == false, "显示简介面板可关闭")
+            } else {
+                record(false, "显示简介面板可关闭")
+            }
+            window.makeKeyAndOrderFront(nil)
+
+            // M23-12：设置各插件页 makeView → 无约束歧义 + 关键控件存在
+            for page in SettingsPages.extraPages {
+                let v = page.makeView()
+                let host = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 460))
+                v.frame = host.bounds
+                v.autoresizingMask = [.width, .height]
+                host.addSubview(v)
+                host.layoutSubtreeIfNeeded()
+                let tree = viewTree(v)
+                let ambiguous = tree.contains { $0.hasAmbiguousLayout }
+                let hasControl = tree.contains { $0 is NSButton || $0 is NSPopUpButton || $0 is NSSlider }
+                record(!ambiguous && hasControl,
+                       "设置页[\(page.pageTitleKey)] makeView 无约束歧义且含关键控件")
+            }
+
+            // M23-13：快捷键注册表默认绑定读取正确（外部化配置真源）
+            let dispGlobal = KeyBindings.display("searchGlobal")
+            let dispInfo = KeyBindings.display("getInfo")
+            record(dispGlobal == "⇧⌘F" && dispInfo == "⌘I",
+                   "快捷键注册表默认绑定读取正确（全局搜索⇧⌘F/简介⌘I）")
+
+            // M23-14：侧栏含书签分组且种子书签行呈现（异步播种，短轮询）
+            var bmCount = 0
+            for _ in 0..<20 {
+                if let g = wc.sidebar.model.groups.first(where: { $0.kind == .bookmarks }),
+                   g.children.count >= 1 { bmCount = g.children.count; break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            record(bmCount >= 1, "侧栏含书签分组且种子书签行 ≥1（\(bmCount)）")
+
+            // M23 收尾：复原确定性初态 + 清沙箱（绝不污染用户目录/暂存/书签）
+            listVC.select(urls: [])
+            pane.navigate(to: fs.homeDirectoryForCurrentUser)
+            pane.setViewMode(.list)
+            wc.grid.apply(layout: .single)
+            try? await Task.sleep(for: .milliseconds(200))
+            try? fs.removeItem(at: sandbox)
+            window.makeKeyAndOrderFront(nil)
+
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
@@ -352,6 +610,28 @@ enum UISelfTest {
     private static func viewTree(_ root: NSView?) -> [NSView] {
         guard let root else { return [] }
         return [root] + root.subviews.flatMap { viewTree($0) }
+    }
+
+    /// 文件系统结果轮询（coordinator/kernel 操作异步落盘）：条件满足即返回，超时返回末次判定
+    private static func pollFS(_ tries: Int = 30, _ cond: @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<tries {
+            if cond() { return true }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return cond()
+    }
+
+    /// 路径等价（消解 /var⟷/private/var 符号链接差异）
+    private static func samePath(_ a: URL, _ b: URL) -> Bool {
+        a.resolvingSymlinksInPath().standardizedFileURL.path
+            == b.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    /// 沙箱守卫（用户铁律 2026-08-26）：任何测试可变文件操作的目标必须在自建临时夹具内
+    /// （temporaryDirectory 下），防误伤用户真实文件。守卫失败即跳过该 mutating 操作。
+    private static func assertSandboxed(_ url: URL) -> Bool {
+        let sandboxRoot = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
+        return url.resolvingSymlinksInPath().path.hasPrefix(sandboxRoot)
     }
 
     static var extraDump: [String] = []
