@@ -26,7 +26,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// 快照应用后上抛（状态栏"N 项"）
     var onContentChange: (() -> Void)?
 
-    private let tableView = FocusReportingTableView()
+    let tableView = FocusReportingTableView()   // internal：UISelfTest I-26 列头排序断言需驱动 sortDescriptors
     private let scrollView = NSScrollView()
     private let emptyLabel = NSTextField(labelWithString: "")
 
@@ -127,11 +127,11 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         model.reload()
     }
 
-    /// 可选列注册表（名称恒在；sortable=false 的列 SortSpec 尚未支持排序，诚实不给排序原型）
+    /// 可选列注册表（名称恒在；I-26：全列可点击列头排序，id 与 SortSpec.Key 原始值一一对应）
     static let optionalColumns: [(id: String, titleKey: String, width: CGFloat, min: CGFloat, right: Bool, sortable: Bool)] = [
         ("dateModified", "column.dateModified", 128, 88, false, true),
-        ("created", "column.created", 128, 88, false, false),
-        ("added", "column.added", 128, 88, false, false),
+        ("created", "column.created", 128, 88, false, true),
+        ("added", "column.added", 128, 88, false, true),
         ("size", "column.size", 68, 52, true, true),
         ("kind", "column.kind", 92, 64, false, true),
     ]

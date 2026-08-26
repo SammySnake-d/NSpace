@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-import DirectoryReader
+@testable import DirectoryReader
 import NSpaceContracts
 
 /// 黑盒验收：只经 Contract 公开面，对真实临时夹具树断言（无 Fake Mock）
@@ -62,5 +62,22 @@ import NSpaceContracts
         } catch {
             Issue.record("错误未分类(违反 P6.4): \(error)")
         }
+    }
+
+    /// I-26：新增排序键 created/added——严格弱序 + nil 值(distantPast)不崩且排前
+    @Test func sortByAddedAndCreated() {
+        let now = Date()
+        func item(_ n: String, created: Date?, added: Date?) -> FileItem {
+            FileItem(url: URL(fileURLWithPath: "/tmp/\(n)"), name: n, isDirectory: false,
+                     isPackage: false, isSymlink: false, isHidden: false, size: 1,
+                     modified: now, created: created, added: added, contentTypeID: "public.data")
+        }
+        var items = [item("b", created: now, added: now.addingTimeInterval(-100)),
+                     item("a", created: now.addingTimeInterval(-50), added: now),
+                     item("c", created: nil, added: nil)]
+        sortItems(&items, by: SortSpec(key: .added, ascending: false, foldersFirst: false))
+        #expect(items.map(\.name) == ["a", "b", "c"])
+        sortItems(&items, by: SortSpec(key: .created, ascending: true, foldersFirst: false))
+        #expect(items.map(\.name) == ["c", "a", "b"])
     }
 }

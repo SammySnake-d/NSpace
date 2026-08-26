@@ -10,7 +10,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
     private let enterValues = ["rename", "open"]
     private let backspaceValues = ["ignore", "back", "delete", "up"]
     private let dragValues = ["auto", "copy", "move"]
-    private let sortKeyValues = ["name", "dateModified", "size", "kind"]
+    private let sortKeyValues = ["name", "dateModified", "size", "kind", "created", "added"]
     private let tabLimitValues = [0, 5, 10, 20]
     private let openTargetValues = ["newTab", "activePane"]
 
@@ -77,7 +77,8 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let label = fieldLabel("settings.behavior.sort")
         let keyPopup = NSPopUpButton()
         for (i, key) in ["settings.behavior.sort.name", "settings.behavior.sort.dateModified",
-                         "settings.behavior.sort.size", "settings.behavior.sort.kind"].enumerated() {
+                         "settings.behavior.sort.size", "settings.behavior.sort.kind",
+                         "column.created", "column.added"].enumerated() {
             keyPopup.addItem(withTitle: L10n.t(key))
             keyPopup.lastItem?.tag = i
         }

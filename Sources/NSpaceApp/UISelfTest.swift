@@ -236,6 +236,16 @@ enum UISelfTest {
             record(collapsedOK && reopenedOK,
                    "侧栏按钮折叠后再点可真展开（宽 \(Int(wc.sidebarWrap.frame.width))，hidden=\(wc.sidebarWrap.isHidden)）")
 
+            // I-26：可选列（添加日期）列头排序真生效——走列头点击同一条 sortDescriptors 链路
+            let sortListVC = wc.grid.activePane.activeTab.listVC
+            let sortBefore = sortListVC.model.sort.key
+            sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: "added", ascending: false)]
+            try? await Task.sleep(for: .milliseconds(200))
+            record(sortListVC.model.sort.key == .added && sortListVC.model.sort.ascending == false,
+                   "列头排序真生效（added 降序；原 \(sortBefore) → \(sortListVC.model.sort.key)）")
+            sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+            try? await Task.sleep(for: .milliseconds(150))
+
             // M17-7：暂存架 contentGroup 居中（|中心偏移|≤2pt，I-07 回归）
             let tmp2 = FileManager.default.temporaryDirectory
                 .appendingPathComponent("nspace-uitest-\(UUID().uuidString).txt")

@@ -17,6 +17,10 @@ func sortItems(_ items: inout [FileItem], by order: SortSpec) {
             cmp = a.name.localizedStandardCompare(b.name)
         case .dateModified:
             cmp = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)
+        case .created:
+            cmp = compare(a.created ?? .distantPast, b.created ?? .distantPast)
+        case .added:
+            cmp = compare(a.added ?? .distantPast, b.added ?? .distantPast)
         case .size:
             cmp = compare(a.size ?? -1, b.size ?? -1)
         case .kind:

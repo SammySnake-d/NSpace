@@ -42,7 +42,7 @@ public struct DirectorySnapshot: Sendable {
 }
 
 public struct SortSpec: Sendable, Hashable, Codable {
-    public enum Key: String, Sendable, Codable { case name, dateModified, size, kind }
+    public enum Key: String, Sendable, Codable { case name, dateModified, size, kind, created, added }
     public var key: Key
     public var ascending: Bool
     public var foldersFirst: Bool
