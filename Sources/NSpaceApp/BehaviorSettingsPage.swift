@@ -35,6 +35,10 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let blank = checkRow("settings.behavior.doubleClickBlank",
             checked: Preferences.doubleClickBlank, action: #selector(doubleClickBlankChanged(_:)))
 
+        // M26：列表视图按「年/月」分组（默认开，日期排序时生效）
+        let grouping = checkRow("settings.behavior.listGrouping",
+            checked: Preferences.listGrouping, action: #selector(listGroupingChanged(_:)))
+
         let sortRow = makeSortRow()
 
         let tabLimitRow = popupRow("settings.behavior.tabLimit",
@@ -60,7 +64,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let openNote = note("settings.behavior.openTarget.note")
 
         let stack = NSStackView(views: [
-            enterRow, backspaceRow, dragRow, blank, sortRow,
+            enterRow, backspaceRow, dragRow, blank, grouping, sortRow,
             NSBox.separatorLine(), tabLimitRow, wsLimitRow, tabLimitNote,
             NSBox.separatorLine(), openHeader, openRow, openNote,
         ])
@@ -200,6 +204,11 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
 
     @objc private func doubleClickBlankChanged(_ sender: NSButton) {
         Preferences.doubleClickBlank = sender.state == .on
+    }
+
+    @objc private func listGroupingChanged(_ sender: NSButton) {
+        Preferences.listGrouping = sender.state == .on
+        NotificationCenter.default.post(name: .nspaceGroupingChanged, object: nil)  // 打开窗格即时重组
     }
 
     @objc private func sortKeyChanged(_ sender: NSPopUpButton) {

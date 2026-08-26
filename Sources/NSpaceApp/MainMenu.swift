@@ -131,6 +131,11 @@ enum MainMenu {
                                           action: #selector(FileListViewController.toggleHiddenFiles(_:)),
                                           keyEquivalent: "")
         KeyBindings.apply("toggleHidden", to: hiddenItem)
+        // 使用分组（M26）：日期排序时列表按「年/月」分组；validateMenuItem 打勾当前态
+        let groupingItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleGrouping"),
+                                            action: #selector(FileListViewController.toggleGrouping(_:)),
+                                            keyEquivalent: "")
+        KeyBindings.apply("toggleGrouping", to: groupingItem)
         let refreshItem = viewMenu.addItem(withTitle: L10n.t("menu.refresh"),
                          action: #selector(FileListViewController.refresh(_:)), keyEquivalent: "")
         KeyBindings.apply("refresh", to: refreshItem)

@@ -42,6 +42,13 @@ enum Preferences {
         set { d.set(newValue, forKey: "visibleColumns") }
     }
 
+    /// 列表视图按「年/月」分组（M26；默认开——用户预期日期排序即见分组）。
+    /// 仅当排序键为日期类（dateModified/created/added）时生效；非日期键或关闭 → 单线长列表。
+    static var listGrouping: Bool {
+        get { d.object(forKey: "listGrouping") as? Bool ?? true }
+        set { d.set(newValue, forKey: "listGrouping") }
+    }
+
     /// 侧栏分组顺序（QSpace 语义——用户点名：书签可拖到最前）。
     /// outline 分组键：bookmarks/icloud/volumes（暂存架在专区不入 outline）；拖动分组标题行重排落盘于此。
     static var sidebarGroupOrder: [String] {

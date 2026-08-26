@@ -33,6 +33,8 @@ enum KeyBindings {
         Entry(id: "moveToTrash", titleKey: "menu.moveToTrash", defaultKey: "\u{8}", defaultMods: [.command]),
         Entry(id: "copyPath", titleKey: "menu.copyPath", defaultKey: "c", defaultMods: [.command, .shift]),
         Entry(id: "toggleHidden", titleKey: "menu.toggleHidden", defaultKey: ".", defaultMods: [.command, .shift]),
+        // 使用分组（M26）：默认无键（用户按需自配），走注册表可配
+        Entry(id: "toggleGrouping", titleKey: "menu.toggleGrouping", defaultKey: "", defaultMods: []),
         Entry(id: "refresh", titleKey: "menu.refresh", defaultKey: "r", defaultMods: [.command]),
         Entry(id: "back", titleKey: "menu.back", defaultKey: "[", defaultMods: [.command]),
         Entry(id: "forward", titleKey: "menu.forward", defaultKey: "]", defaultMods: [.command]),
