@@ -695,6 +695,8 @@ enum UISelfTest {
                        "I-30 首键即触发补全候选（数=\(editor.uiTestLastCompletionCount)）")
                 record(editor.uiTestCompletionWasDeferred,
                        "I-30 补全在文本变更事务之外触发（首键 popup 不被吞）")
+                dpane.uiTestEndPathEditing()   // 编排收尾：退出编辑态，恢复面包屑（截图不被编辑框遮盖）
+                try? await Task.sleep(for: .milliseconds(150))
                 editor.stringValue = ""
                 window.makeFirstResponder(nil)
                 try? await Task.sleep(for: .milliseconds(100))

@@ -386,6 +386,9 @@ final class PaneViewController: NSViewController {
         pathEditor.beginEditing(with: seed)
     }
 
+    /// UISelfTest（I-30 编排收尾）：退出路径编辑恢复面包屑（场景不得把编辑态泄漏给后续截图）
+    func uiTestEndPathEditing() { endPathEditing() }
+
     /// UISelfTest（I-32）：刷新状态栏计数并回选中药丸是否可见（删除后选中清空 → 应无"已选"药丸）
     func uiTestRefreshAndSelectionPillVisible() -> Bool {
         updateStatusCounts()

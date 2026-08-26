@@ -46,7 +46,18 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self, let editor = self.currentEditor() as? NSTextView else { return }
             self.completing = true
-            editor.complete(nil)
+            // UITEST 无头环境：AppKit 补全 popup 会进入嵌套事件循环且无事件可退（主线程栈实锤
+            // NSTextViewCompletionController 挂死、饿死看门狗）。自测只核"事务外触发"契约与候选数
+            //（completions 回调仍走），不弹真 popup；产品路径不变。
+            if UISelfTest.isEnabled {
+                var idx = -1
+                _ = self.control(self, textView: editor,
+                                 completions: [],
+                                 forPartialWordRange: editor.rangeForUserCompletion,
+                                 indexOfSelectedItem: &idx)
+            } else {
+                editor.complete(nil)
+            }
             self.completing = false
         }
     }
