@@ -314,3 +314,12 @@
 "update.restartNow" = "立即重启";
 "update.later" = "稍后";
 "update.installFailed" = "更新失败：%@";
+"settings.reveal.title" = "接管「打开文件位置」";
+"settings.reveal.toggle" = "第三方 App 的“打开文件位置／在 Finder 中显示”改在 NSpace 中定位";
+"settings.reveal.on" = "已接管：定位请求将在 NSpace 中打开并选中 ✓";
+"settings.reveal.off" = "未接管：定位请求由 Finder 处理";
+"settings.reveal.other" = "当前由其他 App 接管：%@（勾选可改为 NSpace）";
+"settings.reveal.stale" = "⚠ 残留失效：指向已不存在的 %@——“打开文件位置”会毫无反应。勾选修复为 NSpace，或去掉勾选还给 Finder。";
+"settings.reveal.note" = "机制：全局 NSFileViewer 键（QSpace 同款，实验实证 2026-08-26）。只影响“定位/显示”类请求；普通“打开文件夹”默认程序仍被 macOS 锁定为 Finder（见下方说明）。随时可关，即时生效。";
+"toast.revealOn" = "已接管「打开文件位置」";
+"toast.revealOff" = "已还给 Finder";

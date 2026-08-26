@@ -314,3 +314,12 @@
 "update.restartNow" = "Restart Now";
 "update.later" = "Later";
 "update.installFailed" = "Update failed: %@";
+"settings.reveal.title" = "Take over “Reveal in Finder”";
+"settings.reveal.toggle" = "Route third-party “Show in Finder / Open File Location” into NSpace";
+"settings.reveal.on" = "Active: reveal requests open in NSpace with the item selected ✓";
+"settings.reveal.off" = "Inactive: reveal requests are handled by Finder";
+"settings.reveal.other" = "Currently taken over by another app: %@ (check to switch to NSpace)";
+"settings.reveal.stale" = "⚠ Stale leftover: points to missing %@ — reveal requests silently do nothing. Check to repair with NSpace, or uncheck to restore Finder.";
+"settings.reveal.note" = "Mechanism: global NSFileViewer key (same as QSpace; proven 2026-08-26). Affects reveal/locate requests only; the folder default handler remains OS-locked to Finder. Reversible anytime, effective immediately.";
+"toast.revealOn" = "Reveal takeover enabled";
+"toast.revealOff" = "Restored to Finder";

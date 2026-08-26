@@ -25,6 +25,7 @@ final class SettingsWindowController: NSWindowController {
 
     override func showWindow(_ sender: Any?) {
         refreshFinderState()
+        refreshRevealState()
         super.showWindow(sender)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -249,7 +250,24 @@ final class SettingsWindowController: NSWindowController {
 
     // MARK: 替代 Finder 页（原有内容）
 
+    private let revealCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let revealStatus = NSTextField(wrappingLabelWithString: "")
+
     private func buildFinderTab() -> NSView {
+        // I-28：Reveal 接管（NSFileViewer 全局键，QSpace 同机制）——「打开文件位置/在 Finder 中显示」
+        // 族调用改落 NSpace 并选中目标；可随时关闭还给 Finder
+        let revealHeader = NSTextField(labelWithString: L10n.t("settings.reveal.title"))
+        revealHeader.font = .systemFont(ofSize: 13, weight: .semibold)
+        revealCheck.title = L10n.t("settings.reveal.toggle")
+        revealCheck.font = .systemFont(ofSize: 12)
+        revealCheck.target = self
+        revealCheck.action = #selector(revealToggled(_:))
+        revealStatus.font = .systemFont(ofSize: 11)
+        refreshRevealState()
+        let revealNote = NSTextField(wrappingLabelWithString: L10n.t("settings.reveal.note"))
+        revealNote.font = .systemFont(ofSize: 11)
+        revealNote.textColor = .tertiaryLabelColor
+
         defaultHandlerButton.title = L10n.t("settings.setDefault")
         defaultHandlerButton.bezelStyle = .push
         defaultHandlerButton.target = self
@@ -263,7 +281,9 @@ final class SettingsWindowController: NSWindowController {
         limitation.textColor = .tertiaryLabelColor
 
         // 完全磁盘访问的按钮与说明统一收口在「权限」页（I-09 去重），此页只留替代 Finder 主题内容
-        let stack = NSStackView(views: [defaultHandlerButton, statusLabel, limitation])
+        let stack = NSStackView(views: [revealHeader, revealCheck, revealStatus, revealNote,
+                                        NSBox.separatorLine(),
+                                        defaultHandlerButton, statusLabel, limitation])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -293,6 +313,31 @@ final class SettingsWindowController: NSWindowController {
             statusLabel.textColor = .secondaryLabelColor
             defaultHandlerButton.isEnabled = true
         }
+    }
+
+    /// Reveal 接管状态刷新（三态：NSpace/Finder/其他——失效残留给红字警示+勾选即修复）
+    private func refreshRevealState() {
+        switch FinderIntegration.revealHandler {
+        case .nspace:
+            revealCheck.state = .on
+            revealStatus.stringValue = L10n.t("settings.reveal.on")
+            revealStatus.textColor = .systemGreen
+        case .finder:
+            revealCheck.state = .off
+            revealStatus.stringValue = L10n.t("settings.reveal.off")
+            revealStatus.textColor = .secondaryLabelColor
+        case .other(let id, let resolvable):
+            revealCheck.state = .off
+            revealStatus.stringValue = String(format: L10n.t(resolvable ? "settings.reveal.other"
+                                                                        : "settings.reveal.stale"), id)
+            revealStatus.textColor = resolvable ? .secondaryLabelColor : .systemRed
+        }
+    }
+
+    @objc private func revealToggled(_ sender: NSButton) {
+        FinderIntegration.setRevealTakeover(sender.state == .on)
+        refreshRevealState()
+        Toast.show(L10n.t(sender.state == .on ? "toast.revealOn" : "toast.revealOff"), in: window)
     }
 
     @objc private func setAsDefault() {

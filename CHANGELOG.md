@@ -2,6 +2,16 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.12.0] - 2026-08-26
+
+### 新增（I-28：Reveal 接管——用户 Typora 报障牵出的真机制）
+- 「接管打开文件位置」开关（设置-替代 Finder）：第三方 App 的"打开文件位置/在 Finder 中显示"改落 NSpace 并选中目标——全局 NSFileViewer 键（QSpace 同机制），即时生效可逆
+- 三态检测：残留失效（如已卸载的 QSpace 指针，导致定位请求毫无反应）红字警示，勾选即修复
+- 外部打开审计面包屑（debug.lastExternalOpen）
+
+### 修复
+- Typora 等 App"打开文件位置"无反应：QSpace 卸载残留的全局 NSFileViewer 指向不存在的 bundle——已清并接管到 NSpace
+
 ## [0.11.4] - 2026-08-26
 
 ### 核实与加锁（I-27）

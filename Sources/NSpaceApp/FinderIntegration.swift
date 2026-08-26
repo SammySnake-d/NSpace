@@ -47,4 +47,37 @@ enum FinderIntegration {
         }
         return false
     }
+
+    // MARK: Reveal 接管（I-28：NSFileViewer 全局键——QSpace 同机制，实验实证 2026-08-26）
+    // `open -R`/第三方"打开文件位置"走此键路由；普通"打开文件夹"默认程序仍被 OS 锁定 Finder。
+
+    /// Reveal 处理者三态
+    enum RevealHandler: Equatable {
+        case nspace
+        case finder
+        /// 指向其他 bundle id；resolvable=false 即残留失效（如已删的 QSpace）——点"打开位置"会没反应
+        case other(id: String, resolvable: Bool)
+    }
+
+    static var revealHandler: RevealHandler {
+        guard let id = CFPreferencesCopyValue("NSFileViewer" as CFString,
+                                              kCFPreferencesAnyApplication,
+                                              kCFPreferencesCurrentUser,
+                                              kCFPreferencesAnyHost) as? String, !id.isEmpty else {
+            return .finder
+        }
+        if id == "com.nspace.NSpace" { return .nspace }
+        let resolvable = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) != nil
+        return .other(id: id, resolvable: resolvable)
+    }
+
+    /// 开/关 Reveal 接管：写/删全局 NSFileViewer 键（即时生效，无需重启系统组件）
+    static func setRevealTakeover(_ on: Bool) {
+        CFPreferencesSetValue("NSFileViewer" as CFString,
+                              on ? "com.nspace.NSpace" as CFString : nil,
+                              kCFPreferencesAnyApplication,
+                              kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        CFPreferencesSynchronize(kCFPreferencesAnyApplication,
+                                 kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+    }
 }

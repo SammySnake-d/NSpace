@@ -107,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openFileURLs(_ urls: [URL]) {
+        // 外部打开审计面包屑（I-28 NSFileViewer 链路诊断；单键覆盖写，量恒小）
+        if let first = urls.first {
+            UserDefaults.standard.set("\(Date().timeIntervalSince1970)|\(first.path)", forKey: "debug.lastExternalOpen")
+        }
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
