@@ -599,6 +599,44 @@ enum UISelfTest {
             try? fs.removeItem(at: sandbox)
             window.makeKeyAndOrderFront(nil)
 
+            // ── I-30：⌘L 进入路径编辑后首键必须【一次生效】——字符落定 + 补全首键即触发（延迟到事务外）──
+            // 根因：controlTextDidChange 内同步 complete(nil) 会被文本变更事务吞掉首键补全 popup
+            // （首键无反应，需第二键才浮出）。修复：complete(nil) 延迟到下一 runloop。
+            window.makeKeyAndOrderFront(nil)
+            wc.grid.apply(layout: .single)
+            try? await Task.sleep(for: .milliseconds(250))
+            do {
+                let dpane = wc.grid.activePane
+                let editor = dpane.uiTestPathEditor
+                // 焦点复位到内容区（模拟按 ⌘L 前初态），再走真实 beginPathEditing（净种子便于精确断言）
+                window.makeFirstResponder(dpane.focusTarget)
+                try? await Task.sleep(for: .milliseconds(120))
+                dpane.uiTestBeginPathEditing(seed: "")
+                try? await Task.sleep(for: .milliseconds(20))
+                let seed = editor.stringValue
+                let fe = editor.currentEditor() as? NSTextView
+                // 首键 '/'：真实 field editor keyDown（interpretKeyEvents→insertText→controlTextDidChange→complete）
+                if let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil,
+                        characters: "/", charactersIgnoringModifiers: "/",
+                        isARepeat: false, keyCode: 44), let fe {
+                    fe.keyDown(with: ev)
+                }
+                try? await Task.sleep(for: .milliseconds(80))   // 等延迟补全跑完
+                let afterFirst = editor.stringValue
+                // 真实效果三连：①字符一次落定 ②首键即算出补全候选 ③补全在文本变更事务【之外】触发（修复本体）
+                record(afterFirst == seed + "/",
+                       "I-30 ⌘L 后首键 '/' 字符一次生效（stringValue=「\(afterFirst)」）")
+                record(editor.uiTestLastCompletionCount > 0,
+                       "I-30 首键即触发补全候选（数=\(editor.uiTestLastCompletionCount)）")
+                record(editor.uiTestCompletionWasDeferred,
+                       "I-30 补全在文本变更事务之外触发（首键 popup 不被吞）")
+                editor.stringValue = ""
+                window.makeFirstResponder(nil)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
