@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
         Theme.applyAppearance()   // 外观：启动即套明暗模式（跟随系统/浅色/深色）
+        // I-25 反向直达：Finder 右键"服务 → 用 NSpace 打开"（默认程序被 macOS 27 锁死后的正道）
+        NSApp.servicesProvider = self
+        NSUpdateDynamicServices()
         // 组合根（BG-2）：声明式注入 What —— 胶囊节点 + 冲突裁决者 + 进度订阅
         Task { @MainActor in
             await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])
@@ -81,6 +84,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// open-URL 路由：目录 → 开窗定位；文件 → 父目录 + 选中该文件（替代 Finder 的入口）。
     /// 打开模式（externalOpenTarget）：activePane 且已有窗口 → 复用活动窗格新建窗格标签定位。
     func application(_ application: NSApplication, open urls: [URL]) {
+        var fileURLs: [URL] = []
+        for url in urls {
+            // nspace:// 方案（I-25 第三方集成）：nspace://open?path=… / nspace://reveal?path=…
+            if url.scheme == "nspace" {
+                if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let path = comps.queryItems?.first(where: { $0.name == "path" })?.value {
+                    fileURLs.append(URL(fileURLWithPath: path))
+                }
+                continue
+            }
+            fileURLs.append(url)
+        }
+        openFileURLs(fileURLs)
+    }
+
+    /// 服务菜单入口（Finder 右键 → 服务 → 用 NSpace 打开；I-25）
+    @objc func openInNSpace(_ pboard: NSPasteboard, userData: String, error: NSErrorPointer) {
+        let urls = (pboard.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? []
+        openFileURLs(urls)
+        NSApp.activate()
+    }
+
+    private func openFileURLs(_ urls: [URL]) {
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }

@@ -112,7 +112,7 @@
 "settings.isDefault" = "NSpace 已是默认文件夹打开程序 ✓";
 "settings.notDefault" = "当前文件夹默认由 Finder 打开";
 "settings.setFailed" = "设置失败：%@";
-"settings.limitationNote" = "接管后：终端 open、第三方 App 打开文件夹都会用 NSpace。已知限制：部分 App 的“在 Finder 中显示”由系统直接发给 Finder，无法拦截（QSpace 亦然）。";
+"settings.limitationNote" = "实验实证（2026-08-26）：macOS 27 已在系统层把“文件夹默认程序”锁定为 Finder——连 Finder 自己都无法经 API 重设，直写偏好会被系统清除，QSpace 在本系统同样无法接管；“在 Finder 中显示”是发给 Finder 的定向事件，亦无法拦截。可用直达通道：① Finder 选中文件/文件夹 → 右键 → 服务 → “用 NSpace 打开”（系统设置-键盘-快捷键可配全局键）；② 终端 open -a NSpace 路径；③ 第三方集成 nspace://open?path=路径。";
 "settings.openFDA" = "打开“完全磁盘访问”设置";
 "settings.fdaNote" = "浏览受保护目录（如“下载”“桌面”）首次会弹系统授权；如需访问全部位置，请在系统设置中为 NSpace 勾选完全磁盘访问。";
 

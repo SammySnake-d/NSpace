@@ -112,7 +112,7 @@
 "settings.isDefault" = "NSpace is the default folder handler ✓";
 "settings.notDefault" = "Folders currently open in Finder";
 "settings.setFailed" = "Failed: %@";
-"settings.limitationNote" = "After taking over: `open` and third-party folder-open actions use NSpace. Known limit: some apps' “Reveal in Finder” targets Finder directly and cannot be intercepted (same for QSpace).";
+"settings.limitationNote" = "Proven by experiment (2026-08-26): macOS 27 locks the folder default handler to Finder at the OS level — even Finder itself cannot be re-set via API, direct pref writes get scrubbed, and QSpace cannot take over on this system either. Available channels: ① Finder right-click → Services → Open in NSpace (assignable global shortcut); ② Terminal: open -a NSpace <path>; ③ integrations via nspace://open?path=.";
 "settings.openFDA" = "Open Full Disk Access Settings";
 "settings.fdaNote" = "Protected folders (Downloads, Desktop) prompt once; grant Full Disk Access in System Settings for everything else.";
 

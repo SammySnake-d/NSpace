@@ -2,53 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleExecutable</key>
-	<string>NSpace</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.nspace.NSpace</string>
-	<key>CFBundleName</key>
-	<string>NSpace</string>
-	<key>CFBundleDisplayName</key>
-	<string>NSpace</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>CFBundleIconFile</key>
-	<string>NSpace</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh-Hans</string>
-	<key>CFBundleLocalizations</key>
-	<array>
-		<string>zh-Hans</string>
-		<string>en</string>
-	</array>
-	<key>LSMinimumSystemVersion</key>
-	<string>26.0</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.utilities</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSSupportsAutomaticTermination</key>
-	<false/>
-	<key>NSSupportsSuddenTermination</key>
-	<false/>
-	<key>NSHumanReadableCopyright</key>
-	<string>© 2026 snakesammy</string>
-	<key>NSDesktopFolderUsageDescription</key>
-	<string>NSpace 需要访问桌面以浏览和管理其中的文件。</string>
-	<key>NSDocumentsFolderUsageDescription</key>
-	<string>NSpace 需要访问文稿以浏览和管理其中的文件。</string>
-	<key>NSDownloadsFolderUsageDescription</key>
-	<string>NSpace 需要访问下载以浏览和管理其中的文件。</string>
-	<key>NSRemovableVolumesUsageDescription</key>
-	<string>NSpace 需要访问外置磁盘以浏览和管理其中的文件。</string>
-	<key>NSNetworkVolumesUsageDescription</key>
-	<string>NSpace 需要访问网络卷以浏览和管理其中的文件。</string>
+	<key>CFBundleDisplayName</key>
+	<string>NSpace</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -65,5 +22,81 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleExecutable</key>
+	<string>NSpace</string>
+	<key>CFBundleIconFile</key>
+	<string>NSpace</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.nspace.NSpace</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+		<string>en</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>NSpace</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.nspace.NSpace.scheme</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nspace</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>NSpace 需要访问桌面以浏览和管理其中的文件。</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>NSpace 需要访问文稿以浏览和管理其中的文件。</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>NSpace 需要访问下载以浏览和管理其中的文件。</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 snakesammy</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>NSpace 需要访问网络卷以浏览和管理其中的文件。</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>NSpace 需要访问外置磁盘以浏览和管理其中的文件。</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>用 NSpace 打开</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>openInNSpace</string>
+			<key>NSPortName</key>
+			<string>NSpace</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
 </dict>
 </plist>
