@@ -414,6 +414,8 @@ enum UISelfTest {
                 .appendingPathComponent("nspace-uitest-m23-\(UUID().uuidString)")
             let child = sandbox.appendingPathComponent("child")
             try? fs.createDirectory(at: child, withIntermediateDirectories: true)
+            let child2 = sandbox.appendingPathComponent("child2")   // I-39：区分"选中驱动"与"历史兜底"
+            try? fs.createDirectory(at: child2, withIntermediateDirectories: true)
 
             // M23-3：导航后退/前进/上层 → 路径真的变了（不是只看没崩）
             pane.setViewMode(.list)
@@ -433,6 +435,46 @@ enum UISelfTest {
             pane.goUpFolder(nil)
             try? await Task.sleep(for: .milliseconds(250))
             record(samePath(pane.activeTab.browser.current, sandbox), "导航上层路径真变父级")
+
+            // I-39：⌘↑ 自动选中来源子目录，⌘↓ 与其互逆（选中驱动优先；无选中回退历史直接子级）
+            var upSelectsChild = false
+            for _ in 0..<10 {
+                if pane.activeTab.listVC.selectedURLs.contains(where: { samePath($0, child) }) {
+                    upSelectsChild = true
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            record(upSelectsChild, "I-39 ⌘↑ 上层后自动选中来源子目录")
+            // 反假绿设计：历史里是 child，故意改选 child2——若 ⌘↓ 偷走历史兜底会落 child，
+            // 落 child2 才证明"进入所选"主路径真实生效（收敛终态断言曾在此假绿）
+            pane.activeTab.listVC.select(urls: [child2])
+            pane.goDownFolder(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, child2),
+                   "I-39 ⌘↓ 进入所选文件夹（选中驱动，非历史兜底）")
+            pane.goUpFolder(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            pane.activeTab.listVC.select(urls: [])   // 清选中 → 验"无选中回退历史直接子级"兜底
+            pane.goDownFolder(nil)
+            try? await Task.sleep(for: .milliseconds(250))
+            record(samePath(pane.activeTab.browser.current, child2), "I-39 ⌘↓ 无选中时回退最近历史直接子级")
+            pane.goUpFolder(nil)   // 复位到沙箱（后续场景假设从此出发）
+            try? await Task.sleep(for: .milliseconds(250))
+            // 守卫真值：禁用态 ⌘↓ 泄漏到表视图时必须被吞（原 bug=NSTableView 默认跳选行）——
+            // 直发按键事件给表（绕过菜单），选中与路径都不得变
+            let guardTable = pane.activeTab.listVC.tableView
+            let selBefore = guardTable.selectedRowIndexes
+            let pathBefore = pane.activeTab.browser.current
+            if let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                         timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                         characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}",
+                                         isARepeat: false, keyCode: 125) {
+                guardTable.keyDown(with: ev)
+            }
+            record(guardTable.selectedRowIndexes == selBefore
+                   && samePath(pane.activeTab.browser.current, pathBefore),
+                   "I-39 ⌘↓ 落表视图被吞不跳选（守卫真实生效）")
 
             // M23-4：新建窗格标签 → 标签数+1 且活动路径正确；关闭 → 复原
             let tabsBefore = pane.tabs.count
@@ -646,6 +688,56 @@ enum UISelfTest {
             } else {
                 record(false, "搜索结果右键「拷贝路径」→ 剪贴板内容==该路径")
             }
+            // I-38/I-40：结果流不打断选中 + 局部按根近排序 + 路径列常驻（夹具直驱 appendResults 真链）
+            let sp = SearchPanelController.shared
+            func fixtureHit(_ rel: String) -> SearchHit {
+                let u = URL(fileURLWithPath: sandbox.path + "/" + rel)
+                return SearchHit(url: u, name: u.lastPathComponent, isDirectory: false,
+                                 size: 1, modified: nil, contentTypeID: nil)
+            }
+            sp.uiTestReset(root: sandbox)
+            sp.uiTestAppend([fixtureHit("deep/deeper/c.txt"), fixtureHit("a.txt"), fixtureHit("deep/b.txt")])
+            let wantOrder = ["a.txt", "deep/b.txt", "deep/deeper/c.txt"].map { sandbox.path + "/" + $0 }
+            record(sp.uiTestResultPaths == wantOrder, "I-40 局部搜索按离根近者优先排序（直接子级最先）")
+            record(sp.uiTestFirstRowPathCellText?.isEmpty == false, "I-40 结果表常驻路径列实渲染父目录路径")
+            sp.uiTestSelectRow(1)                    // 选中 deep/b.txt
+            sp.uiTestAppend([fixtureHit("aa.txt")])  // 新批次插到更前 → 行号位移
+            // 同层字典序 tiebreaker 全序核验（a.txt 先于 aa.txt——比较器反向/被删则此断言必红）
+            let wantOrder2 = ["a.txt", "aa.txt", "deep/b.txt", "deep/deeper/c.txt"]
+                .map { sandbox.path + "/" + $0 }
+            record(sp.uiTestResultPaths == wantOrder2, "I-40 同层字典序（a.txt 先于 aa.txt，全序核验）")
+            record(sp.uiTestSelectedPath == sandbox.path + "/deep/b.txt",
+                   "I-38 流式新批次到达后选中项不丢不漂（行号位移仍锁同一 URL）")
+            // 符号链接口径：Spotlight 通道回报解析后路径（/var→/private/var）——
+            // 根为未解析表示时命中仍须按深度排序，不得整体沉底（评审实锤的主通道失效缺陷）
+            let resolvedBase = sandbox.resolvingSymlinksInPath().path
+            if resolvedBase != sandbox.path {
+                sp.uiTestAppend([SearchHit(url: URL(fileURLWithPath: resolvedBase + "/deep/rr.txt"),
+                                           name: "rr.txt", isDirectory: false,
+                                           size: 1, modified: nil, contentTypeID: nil)])
+                let rrIndex = sp.uiTestResultPaths.firstIndex { $0.hasSuffix("/deep/rr.txt") }
+                record(rrIndex != nil && rrIndex! < sp.uiTestResultPaths.count - 1
+                       && sp.uiTestResultPaths.last?.hasSuffix("/deep/deeper/c.txt") == true,
+                       "I-40 解析路径口径命中仍按深度排序（符号链接根不失效）")
+            } else {
+                record(true, "I-40 解析路径口径命中仍按深度排序（符号链接根不失效）")   // 本机无符号链接差异：口径天然一致
+            }
+            // 根外命中沉底（.max 兜底分支真值）：sandbox 之外的路径必须排最后
+            sp.uiTestAppend([SearchHit(url: URL(fileURLWithPath: fs.temporaryDirectory.path
+                                                    + "/nspace-uitest-outside.txt"),
+                                       name: "nspace-uitest-outside.txt", isDirectory: false,
+                                       size: 1, modified: nil, contentTypeID: nil)])
+            record(sp.uiTestResultPaths.last?.hasSuffix("/nspace-uitest-outside.txt") == true,
+                   "I-40 根外命中沉底为最后一行")
+            // 实景截图：路径列 + 根近排序 + 选中保持（人眼终审用）
+            if let spWin = NSApp.windows.first(where: { w in
+                w.isVisible && !(w.windowController is MainWindowController) &&
+                viewTree(w.contentView).contains { ($0 as? NSButton)?.title == L10n.t("search.includeHidden") }
+            }) {
+                capture(spWin, "05c-search-path-rank")
+            }
+            sp.uiTestReset(root: nil)
+
             window.makeKeyAndOrderFront(nil)   // 主窗夺 key → 面板 resignKey 自动关闭
             try? await Task.sleep(for: .milliseconds(200))
 

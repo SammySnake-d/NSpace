@@ -73,6 +73,10 @@ final class FocusReportingTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // 纯 ⌘↑/⌘↓ 落到表 = 导航菜单未接（禁用态）——吞掉，不让默认"跳选行"顶替导航语义（I-39）；
+        // 带 ⇧/⌥/⌃ 的组合（如 ⇧⌘↓ 扩选）不吞，保持系统行为
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+           event.keyCode == 125 || event.keyCode == 126 { return }
         // Return（36）/ Enter（76）：按使用习惯分发（rename→行内重命名 / open→打开选中）
         if event.keyCode == 36 || event.keyCode == 76 {
             if Preferences.enterAction == "open" { onOpenSelected?() } else { onReturn?() }

@@ -28,6 +28,7 @@
 "menu.refresh" = "刷新";
 "menu.go" = "前往";
 "menu.goUp" = "上层文件夹";
+"menu.goDown" = "下层文件夹";
 "menu.goHome" = "个人";
 "column.name" = "名称";
 "column.dateModified" = "修改日期";

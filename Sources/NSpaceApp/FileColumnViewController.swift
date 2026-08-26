@@ -647,7 +647,10 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
         guard !items.isEmpty else { return }          // 空列无行可选；desiredSelection 保留待后续载入
         guard !desiredSelection.isEmpty else { return } // 无待恢复选中：不动现状
         var indexes = IndexSet()
-        for (i, item) in items.enumerated() where desiredSelection.contains(item.url) {
+        // 标准化路径比较：外部注入的 URL 可能无尾斜杠、列内条目带尾斜杠（I-39 同病同修）
+        let wantedPaths = Set(desiredSelection.map { $0.standardizedFileURL.path })
+        for (i, item) in items.enumerated()
+        where wantedPaths.contains(item.url.standardizedFileURL.path) {
             indexes.insert(i)
         }
         desiredSelection = []

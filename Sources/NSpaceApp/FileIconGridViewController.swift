@@ -47,6 +47,10 @@ final class IconGridCollectionView: NSCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // 纯 ⌘↑/⌘↓ 落到网格 = 导航菜单未接（禁用态）——吞掉，不让默认选中跳变顶替导航语义（I-39）；
+        // 带 ⇧/⌥/⌃ 的组合不吞，保持系统行为
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+           event.keyCode == 125 || event.keyCode == 126 { return }
         // 空格（49）Quick Look；Return（36/76）图标视图不支持行内重命名——诚实 beep
         if event.keyCode == 49, let onSpace {
             onSpace()
@@ -416,11 +420,12 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     /// UISelfTest（I-32）：视图层原始选中数（直查 collectionView，不经 model 映射）——验删除后真清空
     var uiTestRawSelectionCount: Int { collectionView.selectionIndexPaths.count }
 
-    /// 按 URL 集恢复选中（视图模式切换迁移 / FSEvents 刷新保留）
+    /// 按 URL 集恢复选中（视图模式切换迁移 / FSEvents 刷新保留）；标准化路径匹配（尾斜杠跨源差异，I-39）
     func select(urls: [URL], scroll: Bool = true) {
-        let wanted = Set(urls)
+        let wanted = Set(urls.map { $0.standardizedFileURL.path })
         var paths = Set<IndexPath>()
-        for (i, item) in model.items.enumerated() where wanted.contains(item.url) {
+        for (i, item) in model.items.enumerated()
+        where wanted.contains(item.url.standardizedFileURL.path) {
             paths.insert(IndexPath(item: i, section: 0))
         }
         collectionView.deselectAll(nil)
@@ -438,8 +443,11 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
 
     private func revealPendingIfPossible() {
-        guard let pending = pendingReveal,
-              let idx = model.items.firstIndex(where: { $0.url == pending.url }) else { return }
+        // 标准化路径比较：目录条目 URL 带尾斜杠、导航/新建来源的不带（I-39 同病同修）
+        guard let pending = pendingReveal else { return }
+        let p = pending.url.standardizedFileURL.path
+        guard let idx = model.items.firstIndex(where: { $0.url.standardizedFileURL.path == p })
+        else { return }
         pendingReveal = nil
         collectionView.deselectAll(nil)
         collectionView.selectItems(at: [IndexPath(item: idx, section: 0)],

@@ -28,6 +28,7 @@
 "menu.refresh" = "Refresh";
 "menu.go" = "Go";
 "menu.goUp" = "Enclosing Folder";
+"menu.goDown" = "Inner Folder";
 "menu.goHome" = "Home";
 "column.name" = "Name";
 "column.dateModified" = "Date Modified";

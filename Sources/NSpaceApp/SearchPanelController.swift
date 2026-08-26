@@ -96,6 +96,13 @@ final class SearchPanelController: NSObject {
     private var searchTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
     private var isSearching = false
+    /// I-40：局部范围的搜索根（按"离根近者优先"排序用；全局搜索为 nil 保持到达顺序）
+    private var searchRoot: URL?
+    /// 根的两种前缀表示：原样 + 解析符号链接后——Spotlight 通道回报解析后路径
+    /// （/tmp⟷/private/tmp 等），单一未解析前缀会让主通道整体判为"根外"沉底
+    private var rootPrefixes: [String] = []
+    /// 每命中深度只算一次（键=url.path）；批次归并/过滤重排复用，不做全量重算
+    private var depthCache: [String: Int] = [:]
 
     /// 打开时捕获的"当前文件夹"与定位回调（每次 show 重新注入）
     private var currentDirectory: URL?
@@ -104,7 +111,7 @@ final class SearchPanelController: NSObject {
     private var onStash: (([URL]) -> Void)?
 
     override private init() {
-        panel = SearchPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 460),
+        panel = SearchPanel(contentRect: NSRect(x: 0, y: 0, width: 880, height: 460),
                             styleMask: [.borderless], backing: .buffered, defer: false)
         super.init()
         panel.isFloatingPanel = true
@@ -189,6 +196,9 @@ final class SearchPanelController: NSObject {
         let scope: SearchRequest.Scope = scopePopup.indexOfSelectedItem == 0
             ? .global
             : .directory(currentDirectory ?? FileManager.default.homeDirectoryForCurrentUser)
+        setSearchRoot(scopePopup.indexOfSelectedItem == 0
+            ? nil
+            : (currentDirectory ?? FileManager.default.homeDirectoryForCurrentUser))
         let request = SearchRequest(query: query, scope: scope,
                                     searchNames: nameCheck.state == .on,
                                     searchContents: contentCheck.state == .on,
@@ -209,8 +219,80 @@ final class SearchPanelController: NSObject {
         let filter = selectedKindFilter
         let visible = filter == .all ? batch : batch.filter { filter.matches($0) }
         guard !visible.isEmpty else { return }
-        hits.append(contentsOf: visible)
+        // 全局：到达顺序直追加；局部：新批排好序后与已序结果线性归并
+        // （每命中深度只算一次并缓存——不做全量重排，避免流式大结果 O(n²) 主线程开销）
+        setHits(searchRoot == nil ? hits + visible
+                                  : merged(hits, visible.sorted(by: inRankOrder)))
+    }
+
+    /// I-38：结果集更新唯一入口——重载前按 URL 记忆选中、重载后还原并保持可见
+    /// （流式批次此前每批 reloadData 直接清掉用户刚点的选中）
+    private func setHits(_ newHits: [SearchHit]) {
+        let selectedURL = tableView.selectedRow >= 0 && tableView.selectedRow < hits.count
+            ? hits[tableView.selectedRow].url : nil
+        hits = newHits
         tableView.reloadData()
+        guard let url = selectedURL,
+              let row = hits.firstIndex(where: { $0.url == url }) else { return }
+        tableView.selectRowIndexes([row], byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+    }
+
+    // MARK: I-40 局部排序（离根近者优先：根直接子级最先、逐层下推，同层按路径字典序）
+
+    /// 换根：重置前缀表示与深度缓存（restartSearch / 测试探针共用）
+    private func setSearchRoot(_ root: URL?) {
+        searchRoot = root
+        depthCache = [:]
+        guard let root else {
+            rootPrefixes = []
+            return
+        }
+        let raw = root.standardizedFileURL.path
+        let resolved = root.resolvingSymlinksInPath().standardizedFileURL.path
+        rootPrefixes = raw == resolved
+            ? [dirPrefix(raw)]
+            : [dirPrefix(raw), dirPrefix(resolved)]
+    }
+
+    private func dirPrefix(_ path: String) -> String { path == "/" ? "/" : path + "/" }
+
+    /// 命中相对根的层深（直接子级=1）；两种根表示都不匹配 → 根外沉底（.max）
+    private func depth(of hit: SearchHit) -> Int {
+        let key = hit.url.path
+        if let cached = depthCache[key] { return cached }
+        let p = hit.url.standardizedFileURL.path
+        var d = Int.max
+        for prefix in rootPrefixes where p.hasPrefix(prefix) {
+            d = p.dropFirst(prefix.count).split(separator: "/").count
+            break
+        }
+        depthCache[key] = d
+        return d
+    }
+
+    private func inRankOrder(_ a: SearchHit, _ b: SearchHit) -> Bool {
+        let da = depth(of: a), db = depth(of: b)
+        return da != db
+            ? da < db
+            : a.url.path.localizedStandardCompare(b.url.path) == .orderedAscending
+    }
+
+    /// 两个已序数组线性归并（hits 不变式：searchRoot 非空时恒按 inRankOrder 有序）
+    private func merged(_ a: [SearchHit], _ b: [SearchHit]) -> [SearchHit] {
+        var out: [SearchHit] = []
+        out.reserveCapacity(a.count + b.count)
+        var i = 0, j = 0
+        while i < a.count, j < b.count {
+            if inRankOrder(b[j], a[i]) {
+                out.append(b[j]); j += 1
+            } else {
+                out.append(a[i]); i += 1
+            }
+        }
+        out.append(contentsOf: a[i...])
+        out.append(contentsOf: b[j...])
+        return out
     }
 
     private func finishSearch() {
@@ -246,8 +328,9 @@ final class SearchPanelController: NSObject {
 
     @objc private func kindChanged(_ sender: Any?) {
         let filter = selectedKindFilter
-        hits = filter == .all ? allHits : allHits.filter { filter.matches($0) }
-        tableView.reloadData()
+        let base = filter == .all ? allHits : allHits.filter { filter.matches($0) }
+        // 过滤切换是显式用户动作：单次全排可接受（深度已缓存，仅比较成本）
+        setHits(searchRoot == nil ? base : base.sorted(by: inRankOrder))
         updateEmptyState()
     }
 
@@ -368,6 +451,33 @@ final class SearchPanelController: NSObject {
         InfoPanel.show(for: url)
     }
 
+    // MARK: UISelfTest 探针（I-38 流式不打断选中 / I-40 根近排序+路径列；不触真实搜索引擎）
+
+    /// 重置结果集并注入搜索根（夹具驱动，绕过引擎）
+    func uiTestReset(root: URL?) {
+        searchTask?.cancel()
+        debounceTask?.cancel()
+        setSearchRoot(root)
+        allHits = []
+        hits = []
+        tableView.reloadData()
+    }
+    /// 走真实 appendResults 链注入一批结果（排序/选中保持逻辑全生效）
+    func uiTestAppend(_ batch: [SearchHit]) { appendResults(batch) }
+    func uiTestSelectRow(_ row: Int) { tableView.selectRowIndexes([row], byExtendingSelection: false) }
+    var uiTestSelectedPath: String? {
+        tableView.selectedRow >= 0 && tableView.selectedRow < hits.count
+            ? hits[tableView.selectedRow].url.path : nil
+    }
+    var uiTestResultPaths: [String] { hits.map(\.url.path) }
+    /// 首行路径列单元格实渲染文本（真实效果断言：路径真的显示了，不是 tooltip）
+    var uiTestFirstRowPathCellText: String? {
+        guard !hits.isEmpty,
+              let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == "path" })
+        else { return nil }
+        return (tableView(tableView, viewFor: col, row: 0) as? TextCellView)?.textField?.stringValue
+    }
+
     // MARK: 构建 UI（4pt 网格）
 
     private func buildContent() {
@@ -440,7 +550,7 @@ final class SearchPanelController: NSObject {
         tableView.onReturn = { [weak self] in self?.revealSelection() }
         tableView.onEscape = { [weak self] in self?.closePanel() }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
-        for (id, width) in [("name", CGFloat(400)), ("size", 80), ("dateModified", 150)] {
+        for (id, width) in [("name", CGFloat(320)), ("path", 292), ("size", 72), ("dateModified", 148)] {
             let col = NSTableColumn(identifier: .init(id))
             col.width = width
             tableView.addTableColumn(col)
@@ -554,10 +664,20 @@ extension SearchPanelController: NSTableViewDataSource, NSTableViewDelegate {
         let cell = tableView.makeView(withIdentifier: .init("searchText"), owner: nil) as? TextCellView
             ?? TextCellView(identifier: .init("searchText"))
         switch colID {
+        case "path":
+            // I-40：常驻路径列（同名结果不再只靠悬浮区分）——中部省略保根与最近父级两头
+            let parent = hit.url.deletingLastPathComponent().path
+            cell.configure((parent as NSString).abbreviatingWithTildeInPath, alignment: .left)
+            cell.textField?.lineBreakMode = .byTruncatingMiddle
+            cell.toolTip = parent
         case "size":
             cell.configure(hit.size.map { Formatters.size.string(fromByteCount: $0) } ?? "—", alignment: .right)
+            cell.textField?.lineBreakMode = .byTruncatingTail   // 复用格重置（可能上轮是路径列）
+            cell.toolTip = nil
         case "dateModified":
             cell.configure(hit.modified.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left)
+            cell.textField?.lineBreakMode = .byTruncatingTail
+            cell.toolTip = nil
         default:
             cell.configure("", alignment: .left)
         }

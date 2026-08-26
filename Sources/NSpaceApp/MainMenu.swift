@@ -153,6 +153,9 @@ enum MainMenu {
         let upItem = goMenu.addItem(withTitle: L10n.t("menu.goUp"),
                                     action: #selector(PaneViewController.goUpFolder(_:)), keyEquivalent: "")
         KeyBindings.apply("goUp", to: upItem)
+        let downItem = goMenu.addItem(withTitle: L10n.t("menu.goDown"),
+                                      action: #selector(PaneViewController.goDownFolder(_:)), keyEquivalent: "")
+        KeyBindings.apply("goDown", to: downItem)
         goMenu.addItem(.separator())
         let homeItem = goMenu.addItem(withTitle: L10n.t("menu.goHome"),
                                       action: #selector(PaneViewController.goHome(_:)), keyEquivalent: "h")

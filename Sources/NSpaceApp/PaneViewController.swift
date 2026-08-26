@@ -580,8 +580,56 @@ final class PaneViewController: NSViewController {
         if activeTab.browser.goForward() != nil { applyLocation() }
     }
 
+    /// I-39：⌘↑ 上层后自动选中来源子目录（Finder/QSpace 语义）——与 ⌘↓ 互逆闭环的前半
     @objc func goUpFolder(_ sender: Any?) {
-        if activeTab.browser.goUp() != nil { applyLocation() }
+        let child = activeTab.browser.current
+        if activeTab.browser.goUp() != nil {
+            applyLocation()
+            revealAfterLoad(child)
+        }
+    }
+
+    /// I-39：⌘↓ 下层——单选文件夹在窗格内进入；有选中交视图打开逻辑（文件默认程序）；
+    /// 无选中时回退最近历史的直接子级（刚 ⌘↑ 上来的情形，历史不膨胀）
+    @objc func goDownFolder(_ sender: Any?) {
+        let items = currentSelectedItems()
+        if items.count == 1, let only = items.first, only.isDirectory, !only.isPackage {
+            navigate(to: only.url)
+            return
+        }
+        if !items.isEmpty {
+            switch activeTab.viewMode {
+            case .list: activeTab.listVC.openSelected(nil)
+            case .icons: activeTab.iconVC?.openSelected(nil)
+            case .columns: activeTab.columnVC?.openSelected(nil)
+            }
+            return
+        }
+        if canDescendIntoHistory, activeTab.browser.goBack() != nil { applyLocation() }
+    }
+
+    /// 最近后退历史是否为当前目录的直接子级（⌘↓ 无选中兜底 + 菜单校验共用）
+    private var canDescendIntoHistory: Bool {
+        guard let recent = activeTab.browser.backHistory.first else { return false }
+        return recent.deletingLastPathComponent().standardizedFileURL.path
+            == activeTab.browser.current.standardizedFileURL.path
+    }
+
+    private func currentSelectedItems() -> [FileItem] {
+        switch activeTab.viewMode {
+        case .list: return activeTab.listVC.selectedItems
+        case .icons: return activeTab.iconVC?.selectedItems ?? []
+        case .columns: return activeTab.columnVC?.selectedItems ?? []
+        }
+    }
+
+    /// 导航落位后选中指定条目（各视图自带"加载完成再选"机制，避开异步读目录竞态）
+    private func revealAfterLoad(_ url: URL) {
+        switch activeTab.viewMode {
+        case .list: activeTab.listVC.prepareReveal(url, rename: false)
+        case .icons: activeTab.iconVC?.prepareReveal(url, rename: false)
+        case .columns: activeTab.columnVC?.select(urls: [url])
+        }
     }
 
     /// 导航历史（长按历史菜单用）：最近的在前
@@ -654,6 +702,7 @@ extension PaneViewController: @preconcurrency NSMenuItemValidation {
         case #selector(goBack(_:)): return activeTab.browser.canGoBack
         case #selector(goForward(_:)): return activeTab.browser.canGoForward
         case #selector(goUpFolder(_:)): return activeTab.browser.canGoUp
+        case #selector(goDownFolder(_:)): return currentSelectionCount > 0 || canDescendIntoHistory
         case #selector(viewAsIcons(_:)):
             menuItem.state = activeTab.viewMode == .icons ? .on : .off
             return true

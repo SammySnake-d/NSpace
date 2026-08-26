@@ -359,7 +359,10 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     /// URL → 行号（未载入/在折叠组内 → nil）
     func row(forURL url: URL) -> Int? {
-        guard let idx = model.items.firstIndex(where: { $0.url == url }) else { return nil }
+        // 标准化路径比较：目录条目 URL 带尾斜杠、导航/搜索来源的不带，URL 精确相等会错配（I-39）
+        let p = url.standardizedFileURL.path
+        guard let idx = model.items.firstIndex(where: { $0.url.standardizedFileURL.path == p })
+        else { return nil }
         return row(forItemIndex: idx)
     }
 
@@ -509,11 +512,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
 
-    /// 按 URL 集恢复选中（视图模式切换时选中迁移用）
+    /// 按 URL 集恢复选中（视图模式切换时选中迁移用）；标准化路径匹配（尾斜杠跨源差异，I-39）
     func select(urls: [URL]) {
-        let wanted = Set(urls)
+        let wanted = Set(urls.map { $0.standardizedFileURL.path })
         var indexes = IndexSet()
-        for (i, item) in model.items.enumerated() where wanted.contains(item.url) {
+        for (i, item) in model.items.enumerated()
+        where wanted.contains(item.url.standardizedFileURL.path) {
             if let r = row(forItemIndex: i) { indexes.insert(r) }
         }
         tableView.selectRowIndexes(indexes, byExtendingSelection: false)
