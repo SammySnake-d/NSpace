@@ -48,4 +48,32 @@ extension UpdateEngine {
         let s = String(line ?? "").trimmingCharacters(in: .whitespaces)
         return s.count > 200 ? String(s.prefix(200)) + "…" : s
     }
+
+    /// 通用短工具执行（xattr 去隔离等）：非 0 退码抛 .external（携 stderr 摘要）
+    func runProcess(_ tool: String, _ args: [String]) async throws {
+        guard FileManager.default.isExecutableFile(atPath: tool) else {
+            throw UpdateError(.external, "系统工具缺失：\(tool)")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = args
+        let errPipe = Pipe()
+        process.standardError = errPipe
+        process.standardOutput = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        let result: (status: Int32, stderr: String) = try await withCheckedThrowingContinuation { cont in
+            process.terminationHandler = { proc in
+                let errData = (try? errPipe.fileHandleForReading.readToEnd()) ?? Data()
+                cont.resume(returning: (proc.terminationStatus, String(decoding: errData, as: UTF8.self)))
+            }
+            do { try process.run() } catch {
+                process.terminationHandler = nil
+                cont.resume(throwing: UpdateError(.external, "无法启动 \(tool)：\(error.localizedDescription)"))
+            }
+        }
+        if result.status != 0 {
+            let tail = Self.stderrSummary(result.stderr)
+            throw UpdateError(.external, "\(tool) 失败：\(tail.isEmpty ? "退出码 \(result.status)" : tail)")
+        }
+    }
 }

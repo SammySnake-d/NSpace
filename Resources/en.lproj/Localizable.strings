@@ -329,3 +329,4 @@
 "settings.globalHotkey.unset" = "Not set — click to record";
 "settings.globalHotkey.note" = "Press it in any app: hides NSpace when frontmost, summons it otherwise (no Accessibility permission needed). Remove any old Raycast binding to avoid conflicts.";
 "toast.globalHotkeySet" = "Global hotkey active";
+"settings.autoDownloadUpdates" = "Auto-download updates and stage (restart to finish)";

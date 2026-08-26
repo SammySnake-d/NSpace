@@ -83,10 +83,15 @@ final class UpdateController {
 
     // MARK: 私有
 
-    /// 记录可用更新并刷新所有窗口徽章为"↑"态。
+    /// 记录可用更新并刷新所有窗口徽章为"↑"态；
+    /// M25：autoDownloadUpdates 开 → 自动后台下载+就地安装，就绪后仅提示重启（用户点名模式）。
     private func markAvailable(_ info: UpdateInfo) {
         available = info
         refreshBadges()
+        if Preferences.autoDownloadUpdates {
+            let win = NSApp.windows.first { $0.isVisible && $0.windowController is MainWindowController }
+            startUpdateFlow(from: win)
+        }
     }
 
     /// 广播徽章态到所有主窗甲板。

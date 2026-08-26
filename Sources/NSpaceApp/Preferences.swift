@@ -149,11 +149,17 @@ enum Preferences {
     /// 更新 feed 地址（GitHub Releases latest API）；可改（企业/私有分发换源）
     static var updateFeedURL: String {
         get { d.string(forKey: "updateFeedURL")
-            ?? "https://api.github.com/repos/snakesammy/NSpace/releases/latest" }
+            ?? "https://api.github.com/repos/SammySnake-d/NSpace/releases/latest" }
         set { d.set(newValue, forKey: "updateFeedURL") }
     }
 
     /// 启动后台自动检查更新（默认开）
+        /// 发现新版后自动下载并就地安装（就绪后仅提示重启；默认开——用户点名"自动下载热更新重启"模式）
+    static var autoDownloadUpdates: Bool {
+        get { d.object(forKey: "autoDownloadUpdates") as? Bool ?? true }
+        set { d.set(newValue, forKey: "autoDownloadUpdates") }
+    }
+
     static var autoCheckUpdates: Bool {
         get { d.object(forKey: "autoCheckUpdates") as? Bool ?? true }
         set { d.set(newValue, forKey: "autoCheckUpdates") }

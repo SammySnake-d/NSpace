@@ -127,6 +127,8 @@ final class SettingsWindowController: NSWindowController {
         // M22：热更新——自动检查开关 + 手动"检查更新"按钮（有新版走徽章流程）
         let autoUpdate = checkRow("settings.autoCheckUpdates", checked: Preferences.autoCheckUpdates,
                                   action: #selector(autoCheckUpdatesChanged(_:)))
+        let autoDownload = checkRow("settings.autoDownloadUpdates", checked: Preferences.autoDownloadUpdates,
+                                    action: #selector(autoDownloadUpdatesChanged(_:)))
         let checkUpdate = NSButton(title: L10n.t("settings.checkForUpdates"), target: self,
                                    action: #selector(checkForUpdates))
         checkUpdate.bezelStyle = .push
@@ -147,7 +149,7 @@ final class SettingsWindowController: NSWindowController {
                                         NSBox.separatorLine(), hidden, folders, paneBar,
                                         NSBox.separatorLine(), hotkeyRow, hotkeyNote,
                                         NSBox.separatorLine(), restoreSeeds,
-                                        NSBox.separatorLine(), autoUpdate, checkUpdate,
+                                        NSBox.separatorLine(), autoUpdate, autoDownload, checkUpdate,
                                         NSBox.separatorLine(), note])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -183,6 +185,10 @@ final class SettingsWindowController: NSWindowController {
         for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
             wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
         }
+    }
+
+    @objc private func autoDownloadUpdatesChanged(_ sender: NSButton) {
+        Preferences.autoDownloadUpdates = sender.state == .on
     }
 
     @objc private func autoCheckUpdatesChanged(_ sender: NSButton) {

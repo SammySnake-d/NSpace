@@ -253,6 +253,9 @@ final class TextCellView: NSTableCellView {
     /// 大小列：数值 labelColor + 单位 secondaryLabelColor（墨色三级，单位灰阶退后），等宽数字。
     func configureSize(value: String, unit: String, alignment: NSTextAlignment) {
         let font = NSFont.monospacedDigitSystemFont(ofSize: Formatters.listFontSize, weight: .regular)
+        // I-34：窄列宽下禁止折行（"151.4 MB"折两行会撑爆 22pt 行高）——单行 + 头部截断保单位可见
+        label.usesSingleLineMode = true
+        label.lineBreakMode = .byTruncatingHead
         let s = NSMutableAttributedString(string: value,
             attributes: [.font: font, .foregroundColor: NSColor.labelColor])
         if !unit.isEmpty {

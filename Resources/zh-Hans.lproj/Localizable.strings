@@ -329,3 +329,4 @@
 "settings.globalHotkey.unset" = "未设置——点击录制";
 "settings.globalHotkey.note" = "在任何 App 中按此键：NSpace 在前台则隐藏，在后台则置顶呼出（无需辅助功能权限）。若之前用 Raycast 绑定过启动键，记得在 Raycast 里移除旧绑定避免抢占。";
 "toast.globalHotkeySet" = "全局热键已生效";
+"settings.autoDownloadUpdates" = "发现新版自动下载并就绪（重启即完成更新）";

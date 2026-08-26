@@ -44,6 +44,12 @@ public struct UpdateError: ClassifiedError {
     }
 }
 
+/// NSError 桥接（I-29b）：不实现 LocalizedError 时 Swift Error 桥出的是
+/// "未能完成操作（…错误 1）"——真实消息必须经 errorDescription 透出
+extension UpdateError: LocalizedError {
+    public var errorDescription: String? { localizedDescription }
+}
+
 // MARK: - 纯逻辑：语义化版本比较（自实现，带单测）
 
 /// 语义化版本比较工具（纯函数，可黑盒单测，无需网络/文件系统）。

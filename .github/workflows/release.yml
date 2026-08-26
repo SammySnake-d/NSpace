@@ -1,0 +1,35 @@
+name: Release
+
+# tag vX.Y.Z 推送 → 构建 NSpace.app → 打 zip → 建 GitHub Release 并挂资产
+# （App 内 UpdateEngine 轮询 releases/latest 完成热更新闭环）
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # build-app.sh 用 git 提交数作构建号
+
+      - name: Swift 版本
+        run: swift --version
+
+      - name: 构建并打包 .app（版本号取自 VERSION，构建号取 git 计数）
+        run: |
+          ./scripts/build-app.sh
+          ditto -c -k --keepParent build/NSpace.app "NSpace-${GITHUB_REF_NAME}.zip"
+          shasum -a 256 "NSpace-${GITHUB_REF_NAME}.zip" | tee checksums.txt
+
+      - name: 创建 Release 并上传资产
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            NSpace-*.zip
+            checksums.txt
+          generate_release_notes: true

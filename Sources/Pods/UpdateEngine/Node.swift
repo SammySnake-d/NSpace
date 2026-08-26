@@ -77,6 +77,10 @@ public actor UpdateEngine {
         guard info2.shortVersion == info.version else {
             throw UpdateError(.external, "更新包版本不符：期望 \(info.version) 实得 \(info2.shortVersion)")
         }
+
+        // 5) 去除下载隔离标记（xattr -dr com.apple.quarantine）：URLSession 落盘会带
+        // 隔离位，就地替换后重启会被 Gatekeeper 拦（"已损坏/无法打开"）。失败不致命（可能本就无标记）。
+        try? await runProcess("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app.path])
         return app
     }
 
