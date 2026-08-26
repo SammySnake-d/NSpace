@@ -111,6 +111,7 @@
 - 前端方法论：外科手术刀隐喻（全键盘直达/发丝边框/hover-reveal/4pt 网格/就地闭环/无假按钮 FG-1）
 - 版本管理像真产品：VERSION 文件 + CHANGELOG.md + 里程碑 git tag，构建注入版本号（用户点名）
 - 每里程碑：meta-doctor 退出 0 + 测试绿 + 真机验证截图 + 绿灯提交
+- **测试沙箱铁律（用户点名 2026-08-26）**：自动化测试严禁触碰用户真实文件——可变操作只准发生在自建临时夹具（temporaryDirectory/nspace-uitest-*，测完必清）；UISelfTest 的 assertSandboxed 守卫机械执法
 
 ## v2 蓄水池（架构已预留胶囊位）
 
