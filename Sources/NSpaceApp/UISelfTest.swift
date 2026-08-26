@@ -86,6 +86,33 @@ enum UISelfTest {
                 let same = window.frame.size == baseline.size
                 record(same, "视图切换[\(name)]窗口尺寸不变: \(Int(window.frame.width))x\(Int(window.frame.height))")
                 capture(window, "01-viewmode-\(name)")
+                // I-24b 内容级断言（"铺满"不够，行必须真渲染）：分栏首列行数>0 且表格有可见高度
+                if mode == .columns {
+                    let unit = pane.activeTab.columnVC?.columns.first
+                    let rows = unit?.tableView.numberOfRows ?? -1
+                    let tf = unit?.tableView.frame ?? .zero
+                    let clipW = unit?.tableView.superview?.frame.width ?? 0
+                    record(rows > 0 && tf.height > 20 && clipW > 100,
+                           "分栏首列内容真渲染（行数 \(rows)，表格 \(Int(tf.width))x\(Int(tf.height))，视口宽 \(Int(clipW))）")
+                    // I-24b 深探针：逐层 frame + 首列自渲染成图（定位内容在哪一层丢失）
+                    if let unit, let colVC = pane.activeTab.columnVC {
+                        var f: [String] = []
+                        var v: NSView? = unit.tableView
+                        while let cur = v, cur !== window.contentView {
+                            f.append("\(type(of: cur)) \(Int(cur.frame.origin.x)),\(Int(cur.frame.origin.y)) \(Int(cur.frame.width))x\(Int(cur.frame.height)) hidden=\(cur.isHidden) win=\(cur.window != nil)")
+                            v = cur.superview
+                        }
+                        Self.extraDump.append("I-24b 层链（table→contentView）:\n" + f.joined(separator: "\n") + "\ncolVC.view.frame=\(colVC.view.frame)")
+                        try? ("I-24b 层链（table→contentView）:\n" + f.joined(separator: "\n")
+                              + "\ncolVC.view.frame=\(colVC.view.frame)").data(using: .utf8)?
+                            .write(to: outDir.appendingPathComponent("i24b-chain.txt"))
+                        if let rep = unit.bitmapImageRepForCachingDisplay(in: unit.bounds) {
+                            unit.cacheDisplay(in: unit.bounds, to: rep)
+                            try? rep.representation(using: .png, properties: [:])?
+                                .write(to: outDir.appendingPathComponent("24-column-unit.png"))
+                        }
+                    }
+                }
             }
 
             // 场景2：五种布局遍历，窗口尺寸不变 + 不崩

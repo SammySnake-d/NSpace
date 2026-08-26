@@ -22,7 +22,7 @@ final class FileColumnViewController: NSViewController {
 
     private let hScroll = NSScrollView()
     private let stack = NSStackView()
-    private var columns: [ColumnUnit] = []
+    private(set) var columns: [ColumnUnit] = []   // setter 私有；UISelfTest 内容级断言需读
     private var preview: PreviewColumnView?
     private var focusedColumnIndex = 0
 
@@ -570,6 +570,9 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
             separator.topAnchor.constraint(equalTo: topAnchor),
             separator.bottomAnchor.constraint(equalTo: bottomAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            // I-24b：竖分隔线必须钉死宽 1——无宽度约束时横向歧义会被解成"分隔线 219/滚动区 0"，
+            // 内容全被 0 宽裁剪层裁掉（纵向坍缩修复后暴露；层链转储实锤 NSClipView 0x393）
+            separator.widthAnchor.constraint(equalToConstant: 1),
         ])
     }
 
