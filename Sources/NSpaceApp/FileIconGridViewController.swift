@@ -162,6 +162,10 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     /// 操作完成后待显露（选中）的目标；图标视图不支持行内重命名，rename 标志忽略
     private var pendingReveal: (url: URL, rename: Bool)?
 
+    /// 选中态 URL 缓存（I-32）：随选中变更记账，作 applySnapshot 恢复选中的真源。
+    /// 直接用 selectionIndexPaths 反查会错映（model.items 已换新），造成删除后选中"漂移"到顶项。
+    private var selectionURLCache: Set<URL> = []
+
     // 装饰状态（派生显示层，可随时丢弃）
     private var thumbOverlay: [URL: NSImage] = [:]
     private var thumbTasks: [URL: Task<Void, Never>] = [:]
@@ -314,9 +318,9 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         // 同目录刷新也清缩略图覆盖层：文件可能已改内容（IconThumb 缓存键含 mtime）
         thumbOverlay.removeAll()
         emptyLabel.isHidden = true
-        let kept = selectedURLs   // reloadData 会清选中：按 URL 保留（FSEvents 刷新不丢选中）
+        let kept = selectionURLCache   // I-32：删除前实际选中的真源（不用位移后的 selectionIndexPaths）
         collectionView.reloadData()
-        if !kept.isEmpty { select(urls: kept, scroll: false) }
+        select(urls: Array(kept), scroll: false)   // 空集也走 → deselectAll 显式清空（被删项不"漂移"到新项）
         if model.items.isEmpty, !model.isLoading {
             showEmptyState(L10n.t("empty.folder"))
         }
@@ -409,6 +413,9 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
 
+    /// UISelfTest（I-32）：视图层原始选中数（直查 collectionView，不经 model 映射）——验删除后真清空
+    var uiTestRawSelectionCount: Int { collectionView.selectionIndexPaths.count }
+
     /// 按 URL 集恢复选中（视图模式切换迁移 / FSEvents 刷新保留）
     func select(urls: [URL], scroll: Bool = true) {
         let wanted = Set(urls)
@@ -417,8 +424,13 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
             paths.insert(IndexPath(item: i, section: 0))
         }
         collectionView.deselectAll(nil)
-        guard !paths.isEmpty else { return }
-        collectionView.selectItems(at: paths, scrollPosition: scroll ? .nearestHorizontalEdge : [])
+        if !paths.isEmpty {
+            collectionView.selectItems(at: paths, scrollPosition: scroll ? .nearestHorizontalEdge : [])
+        }
+        // 程序化 select/deselect 不触发 delegate → 手动同步缓存为"实得的精确匹配集"（空即空）
+        selectionURLCache = Set(paths.compactMap {
+            model.items.indices.contains($0.item) ? model.items[$0.item].url : nil
+        })
     }
 
     // MARK: 显露（新建后选中；图标视图不支持行内重命名，rename 忽略——诚实不装）
@@ -432,6 +444,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         collectionView.deselectAll(nil)
         collectionView.selectItems(at: [IndexPath(item: idx, section: 0)],
                                    scrollPosition: .nearestHorizontalEdge)
+        selectionURLCache = [pending.url]   // I-32：程序化选中同步缓存真源
         onSelectionChange?()
     }
 
@@ -582,6 +595,8 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
     }
 
     private func selectionDidChange() {
+        // I-32：用户点选经此（didSelect/didDeselect）→ 记账真源
+        selectionURLCache = Set(selectedURLs)
         onSelectionChange?()
         if QLPreviewPanel.sharedPreviewPanelExists(),
            let panel = QLPreviewPanel.shared(), panel.isVisible {

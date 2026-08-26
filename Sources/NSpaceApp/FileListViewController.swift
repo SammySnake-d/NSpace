@@ -33,6 +33,11 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// 操作完成后待显露（选中/进入重命名）的目标
     private var pendingReveal: (url: URL, rename: Bool)?
 
+    /// 选中态 URL 缓存（I-32）：随选中变更实时记账。applySnapshot 时 model.items 已换新，
+    /// 用现行 selectedRowIndexes 反查会把旧行号错映到位移后的新项（删除后选中"漂移"到顶行的真凶）——
+    /// 故以此缓存为真源，reloadData 后按 URL 精确匹配恢复；被删项无匹配即显式清空。
+    private var selectionURLCache: Set<URL> = []
+
     /// spring-loaded 状态：拖拽悬停的文件夹行 + 触发计时器
     private var springLoad: (row: Int, timer: Timer)?
 
@@ -194,16 +199,17 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         // 同目录刷新也清缩略图覆盖层：文件可能已改内容（IconThumb 缓存键含 mtime，重取要么命中要么重生成）
         thumbOverlay.removeAll()
         emptyLabel.isHidden = true
-        // FSEvents 自动刷新绝不吞掉用户选中：reloadData 前记 URL、后按 URL 恢复（含多选）
-        let selectedBefore = Set(selectedURLs)
+        // FSEvents 自动刷新绝不吞掉用户选中：reloadData 前记 URL、后按 URL 恢复（含多选）。
+        // I-32：选中真源用 selectionURLCache（选中变更时记账，反映"删除前"实际选中），
+        // 不用此刻的 selectedURLs——model.items 已换新，旧行号会错映到位移后的新项造成"漂移"。
+        let selectedBefore = selectionURLCache
         tableView.reloadData()
-        if !selectedBefore.isEmpty {
-            var rows = IndexSet()
-            for (i, item) in model.items.enumerated() where selectedBefore.contains(item.url) {
-                rows.insert(i)
-            }
-            tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        var rows = IndexSet()
+        for (i, item) in model.items.enumerated() where selectedBefore.contains(item.url) {
+            rows.insert(i)
         }
+        // 精确匹配集即恢复；空集（如选中项全被删）也显式 select 清空——绝不留 reloadData 的按行号残留
+        tableView.selectRowIndexes(rows, byExtendingSelection: false)
         if model.items.isEmpty, !model.isLoading {
             showEmptyState(L10n.t("empty.folder"))
         }
@@ -657,6 +663,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        // I-32：选中真源记账（用户点选/程序化 select 都经此；reloadData 本身不触发，故缓存保留删除前值）
+        selectionURLCache = Set(selectedURLs)
         onSelectionChange?()
         if QLPreviewPanel.sharedPreviewPanelExists(),
            let panel = QLPreviewPanel.shared(), panel.isVisible {

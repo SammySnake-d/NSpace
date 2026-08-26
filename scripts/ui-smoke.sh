@@ -105,5 +105,13 @@ require_pass "I-30 ⌘L 后首键 '/' 字符一次生效"
 require_pass "I-30 首键即触发补全候选"
 require_pass "I-30 补全在文本变更事务之外触发"
 
+# I-32 回归（多选删除后选中清空，三视图同验；验"真实效果"：视图层选中真空 + 状态栏无"已选"）
+require_pass "多选删除后选中清空[list]"
+require_pass "多选删除后选中清空[icons]"
+require_pass "多选删除后选中清空[columns]"
+require_pass "沙箱守卫[list]: I-32 移废纸篓目标在自建夹具内"
+require_pass "沙箱守卫[icons]: I-32 移废纸篓目标在自建夹具内"
+require_pass "沙箱守卫[columns]: I-32 移废纸篓目标在自建夹具内"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE
