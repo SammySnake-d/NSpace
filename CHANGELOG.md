@@ -2,6 +2,17 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.14.0] - 2026-08-26
+
+### 里程碑：开源上线 + 热更新闭环（M25）
+- 公开仓库 github.com/SammySnake-d/NSpace（README/LICENSE/架构说明/诚实系统边界）
+- Release CI：推 tag 自动构建 .app、打 zip、上传 Release 资产（含 sha256）
+- 更新器修复三连：错误信息真实透出（LocalizedError 桥接，告别"错误 1"）；默认更新源指向真实仓库；下载包自动去 quarantine（重启不被 Gatekeeper 拦）
+- 自动下载就绪模式（默认开，可关）：发现新版 → 后台下载并就地安装 → 徽章亮 ↑ → 重启即完成
+
+### 修复
+- I-34 大小列窄宽折行撑爆行高：单行+头部截断
+
 ## [0.13.0] - 2026-08-26
 
 ### 新增
