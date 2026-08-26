@@ -44,11 +44,13 @@ private final class SearchPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-/// 结果表：Return=定位、Esc=关面板（其余交默认：方向键/双击）
+/// 结果表：Return=定位、Esc=关面板、右键=上下文菜单（其余交默认：方向键/双击）
 @MainActor
 private final class SearchResultTableView: NSTableView {
     var onReturn: (() -> Void)?
     var onEscape: (() -> Void)?
+    /// 右键菜单提供者：入参为点击行（-1 表示空白区，返回 nil 不弹菜单）
+    var menuProvider: ((Int) -> NSMenu?)?
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -56,6 +58,16 @@ private final class SearchResultTableView: NSTableView {
         case 53: onEscape?()       // Esc
         default: super.keyDown(with: event)
         }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        // 右击未选中行 → 先把它设为唯一选中（Finder 语义）
+        if row >= 0, !selectedRowIndexes.contains(row) {
+            selectRowIndexes([row], byExtendingSelection: false)
+        }
+        return menuProvider?(row)
     }
 }
 
@@ -88,6 +100,8 @@ final class SearchPanelController: NSObject {
     /// 打开时捕获的"当前文件夹"与定位回调（每次 show 重新注入）
     private var currentDirectory: URL?
     private var onReveal: ((URL) -> Void)?
+    /// 加入暂存架回调（MainWindowController 经 StashShelfController 注入；nil=不可达则菜单省该项，FG-1）
+    private var onStash: (([URL]) -> Void)?
 
     override private init() {
         panel = SearchPanel(contentRect: NSRect(x: 0, y: 0, width: 700, height: 460),
@@ -111,9 +125,11 @@ final class SearchPanelController: NSObject {
 
     /// ⌘F：scopeGlobal=false（当前文件夹）；⌥⌘F：scopeGlobal=true（全局）
     func show(scopeGlobal: Bool, currentDirectory: URL, attachedTo window: NSWindow?,
-              onReveal: @escaping (URL) -> Void) {
+              onReveal: @escaping (URL) -> Void,
+              onStash: (([URL]) -> Void)? = nil) {
         self.currentDirectory = currentDirectory
         self.onReveal = onReveal
+        self.onStash = onStash
         scopePopup.selectItem(at: scopeGlobal ? 0 : 1)
         position(over: window)
         panel.makeKeyAndOrderFront(nil)
@@ -261,6 +277,97 @@ final class SearchPanelController: NSObject {
         onReveal?(url)
     }
 
+    // MARK: 结果行右键菜单（I-31——按搜索上下文裁剪：持有 hits[URL] 而非 model；无 coordinator 依赖项一律省，FG-1 不留假项）
+
+    /// 点击行 → 命中，构造菜单（-1 或越界返回 nil：搜索面板无空白区目录菜单）
+    private func buildMenu(clickedRow row: Int) -> NSMenu? {
+        guard row >= 0, row < hits.count else { return nil }
+        return menu(for: hits[row])
+    }
+
+    /// 结果行上下文菜单。最小集：打开 / 在 NSpace 中定位 / 拷贝路径 / 加入暂存架(可达时) / 显示简介。
+    /// 每项 representedObject 携带该命中 URL；action 目标即本控制器（暴露供 UISelfTest 直接构造断言）。
+    func menu(for hit: SearchHit) -> NSMenu {
+        let menu = NSMenu()
+        let url = hit.url
+
+        addMenuItem(menu, "menu.open", #selector(openHit(_:)), url: url,
+                    symbol: hit.isDirectory ? "arrow.forward.square" : "arrow.up.forward.app")
+        // 在 NSpace 中定位：经 onReveal 链（show 时注入）；不可达则省（FG-1）
+        if onReveal != nil {
+            addMenuItem(menu, "search.reveal", #selector(revealHit(_:)), url: url,
+                        symbol: "scope")
+        }
+        menu.addItem(.separator())
+
+        addMenuItem(menu, "menu.copyPath", #selector(copyHitPath(_:)), url: url,
+                    symbol: "link")
+        // 加入暂存架：仅 StashShelfController 可达时提供（onStash 由 MainWindowController 注入）
+        if onStash != nil {
+            addMenuItem(menu, "search.addToStash", #selector(stashHit(_:)), url: url,
+                        symbol: "tray.and.arrow.down")
+        }
+        menu.addItem(.separator())
+
+        // 显示简介：InfoPanel 直接可复用
+        addMenuItem(menu, "menu.getInfo", #selector(getInfoForHit(_:)), url: url,
+                    symbol: "info.circle")
+        return menu
+    }
+
+    @discardableResult
+    private func addMenuItem(_ menu: NSMenu, _ key: String, _ action: Selector,
+                             url: URL, symbol: String) -> NSMenuItem {
+        let item = NSMenuItem(title: L10n.t(key), action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = url
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        menu.addItem(item)
+        return item
+    }
+
+    /// 打开：目录（非包）在 NSpace 内定位进入；文件/包走系统默认程序（与双击同语义）
+    @objc private func openHit(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
+        if exists, isDir.boolValue, !isPackage, onReveal != nil {
+            closePanel()
+            onReveal?(url)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// 在 NSpace 中定位：经 onReveal 链上抛 MainWindowController 导航并选中
+    @objc private func revealHit(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        closePanel()
+        onReveal?(url)
+    }
+
+    /// 拷贝路径：写入通用剪贴板（真实效果——NSPasteboard 内容==该路径）
+    @objc private func copyHitPath(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(url.path, forType: .string)
+        Toast.show(L10n.t("toast.copiedPath"), in: panel)
+    }
+
+    /// 加入暂存架：经注入的 onStash（StashShelfController.add）落地
+    @objc private func stashHit(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        onStash?([url])
+    }
+
+    /// 显示简介：复用 InfoPanel
+    @objc private func getInfoForHit(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        InfoPanel.show(for: url)
+    }
+
     // MARK: 构建 UI（4pt 网格）
 
     private func buildContent() {
@@ -332,6 +439,7 @@ final class SearchPanelController: NSObject {
         tableView.doubleAction = #selector(didDoubleClick(_:))
         tableView.onReturn = { [weak self] in self?.revealSelection() }
         tableView.onEscape = { [weak self] in self?.closePanel() }
+        tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         for (id, width) in [("name", CGFloat(400)), ("size", 80), ("dateModified", 150)] {
             let col = NSTableColumn(identifier: .init(id))
             col.width = width

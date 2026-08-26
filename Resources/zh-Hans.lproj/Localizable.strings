@@ -155,6 +155,8 @@
 "search.kind.movie" = "影片";
 "search.kind.audio" = "音频";
 "search.kind.archive" = "压缩包";
+"search.reveal" = "在 NSpace 中定位";
+"search.addToStash" = "加入暂存架";
 
 /* M9 视图模式 */
 "menu.viewAsIcons" = "为图标";

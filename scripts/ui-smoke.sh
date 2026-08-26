@@ -95,6 +95,10 @@ require_pass "设置页[settings.tab.permissions] makeView 无约束歧义"
 require_pass "设置页[settings.tab.appearance] makeView 无约束歧义"
 require_pass "快捷键注册表默认绑定读取正确"
 require_pass "侧栏含书签分组且种子书签行"
+# I-31 搜索结果行右键菜单（v0.13.x）
+require_pass "搜索结果右键菜单 items>0 且含「拷贝路径」"
+require_pass "搜索结果右键菜单含定位/加入暂存架/显示简介"
+require_pass "搜索结果右键「拷贝路径」→ 剪贴板内容==该路径"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

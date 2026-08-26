@@ -155,6 +155,8 @@
 "search.kind.movie" = "Movies";
 "search.kind.audio" = "Audio";
 "search.kind.archive" = "Archives";
+"search.reveal" = "Reveal in NSpace";
+"search.addToStash" = "Add to Stash";
 
 /* M9 View Modes */
 "menu.viewAsIcons" = "as Icons";

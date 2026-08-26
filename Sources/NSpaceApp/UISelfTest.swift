@@ -1,5 +1,6 @@
 import AppKit
 import NSpaceContracts
+import SearchEngine
 
 /// UI 自测通道（NSPACE_UITEST=1 时启动后自动执行；非产品路径，环境变量门控）。
 /// 无需辅助功能/录屏权限：场景由程序化驱动，截图走自渲染（cacheDisplay），
@@ -10,7 +11,8 @@ enum UISelfTest {
         ProcessInfo.processInfo.environment["NSPACE_UITEST"] == "1"
     }
 
-    private static let outDir = URL(fileURLWithPath: "/tmp/nspace-ui")
+    private static let outDir = URL(fileURLWithPath:
+        ProcessInfo.processInfo.environment["NSPACE_UITEST_OUT"] ?? "/tmp/nspace-ui")
     private static var lines: [String] = []
     private static var failed = false
 
@@ -589,6 +591,37 @@ enum UISelfTest {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             record(bmCount >= 1, "侧栏含书签分组且种子书签行 ≥1（\(bmCount)）")
+
+            // M23-15（I-31）：搜索结果行右键菜单 → items>0 + 含「拷贝路径」+ 执行后剪贴板==该路径（真实效果）
+            // 经真实链注入 onReveal/onStash（wc.showSearchGlobal → SearchPanelController.show）后，
+            // 用真实 fixture URL 构造 SearchHit 并调 menu(for:)——验搜索上下文裁剪后的菜单确有内容与可用拷贝路径。
+            wc.showSearchGlobal(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+            let searchHit = SearchHit(url: sandbox, name: sandbox.lastPathComponent,
+                                      isDirectory: true, size: nil, modified: nil, contentTypeID: nil)
+            let searchMenu = SearchPanelController.shared.menu(for: searchHit)
+            let copyPathTitle = L10n.t("menu.copyPath")
+            let hasCopyPath = searchMenu.items.contains { $0.title == copyPathTitle }
+            record(searchMenu.items.count > 0 && hasCopyPath,
+                   "搜索结果右键菜单 items>0 且含「拷贝路径」（\(searchMenu.items.count) 项）")
+            // 定位链 + 暂存架可达 → 对应项存在（FG-1：可达才出）
+            record(searchMenu.items.contains { $0.title == L10n.t("search.reveal") }
+                   && searchMenu.items.contains { $0.title == L10n.t("search.addToStash") }
+                   && searchMenu.items.contains { $0.title == L10n.t("menu.getInfo") },
+                   "搜索结果右键菜单含定位/加入暂存架/显示简介（可达项齐全）")
+            // 真实效果：执行「拷贝路径」→ 剪贴板内容 == 该 URL 路径
+            if let cp = searchMenu.items.first(where: { $0.title == copyPathTitle }) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("SENTINEL-\(UUID().uuidString)", forType: .string)
+                _ = cp.target?.perform(cp.action, with: cp)
+                try? await Task.sleep(for: .milliseconds(120))
+                let clip = NSPasteboard.general.string(forType: .string)
+                record(clip == sandbox.path, "搜索结果右键「拷贝路径」→ 剪贴板内容==该路径")
+            } else {
+                record(false, "搜索结果右键「拷贝路径」→ 剪贴板内容==该路径")
+            }
+            window.makeKeyAndOrderFront(nil)   // 主窗夺 key → 面板 resignKey 自动关闭
+            try? await Task.sleep(for: .milliseconds(200))
 
             // M23 收尾：复原确定性初态 + 清沙箱（绝不污染用户目录/暂存/书签）
             listVC.select(urls: [])

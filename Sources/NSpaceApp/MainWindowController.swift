@@ -434,9 +434,11 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     private func showSearch(scopeGlobal: Bool) {
         let dir = grid.activePane.activeTab.browser.current
         SearchPanelController.shared.show(scopeGlobal: scopeGlobal, currentDirectory: dir,
-                                          attachedTo: window) { [weak self] url in
+                                          attachedTo: window, onReveal: { [weak self] url in
             self?.revealSearchHit(url)
-        }
+        }, onStash: { [weak self] urls in
+            self?.stashShelf.add(urls)
+        })
     }
 
     /// 回车定位：目录（非包）直接进入；文件/包进父目录并选中（复用 prepareReveal 显露链）
