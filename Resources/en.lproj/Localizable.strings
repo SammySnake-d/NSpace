@@ -19,6 +19,12 @@
 "menu.zoom" = "Zoom";
 "menu.view" = "View";
 "menu.toggleHidden" = "Show/Hide Hidden Files";
+"menu.toggleGrouping" = "Use Grouping";
+"group.noDate" = "No Date";
+"group.count" = "%d items";
+"group.filter.only" = "Show Only This Group";
+"group.filter.all" = "Show All Groups";
+"group.filter.pill" = "Only: %@";
 "menu.refresh" = "Refresh";
 "menu.go" = "Go";
 "menu.goUp" = "Enclosing Folder";
@@ -237,6 +243,7 @@
 "settings.behavior.drag.copy" = "Always Copy";
 "settings.behavior.drag.move" = "Always Move";
 "settings.behavior.doubleClickBlank" = "Double-click background to go up";
+"settings.behavior.listGrouping" = "Group list view by Year/Month (when date-sorted)";
 "settings.behavior.sort" = "Default Sort";
 "settings.behavior.sort.name" = "Name";
 "settings.behavior.sort.dateModified" = "Date Modified";

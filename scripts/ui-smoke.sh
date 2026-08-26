@@ -120,6 +120,13 @@ require_pass "I-37 「…」折叠段存在且菜单项数==折叠层级数"
 require_pass "I-37 点折叠菜单项 → 窗格真跳到该层级"
 require_pass "I-37 可见末段 toolTip==完整名"
 require_pass "I-37 窄窗格仍不溢出"
+# M26 列表「年/月」分组（验真实效果：组头/折叠/过滤/跨排序选中/开关）
+require_pass "沙箱守卫[m26]: 分组夹具 6 文件在自建夹具内"
+require_pass "M26 分组组头数==3 标题含年月各组2项"
+require_pass "M26 折叠首组项消失其他不动"
+require_pass "M26 仅显示此组表仅剩该组+药丸可见，显示全部还原"
+require_pass "M26 跨组重排序后选中按 URL 仍在"
+require_pass "M26 关闭分组组头数==0 恢复单线"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

@@ -20,6 +20,10 @@ final class FocusReportingTableView: NSTableView {
     /// ←/→ 键（分栏视图列间移动用；nil 时交回系统默认行为）
     var onArrowLeft: (() -> Void)?
     var onArrowRight: (() -> Void)?
+    /// 组头行判定（M26）：真时该行为组头，点击切折叠、不参与选中语义
+    var isGroupRowProvider: ((Int) -> Bool)?
+    /// 组头行点击（M26）：切换该行所属组的折叠态
+    var onGroupRowClick: ((Int) -> Void)?
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         onDragExited?()
@@ -33,6 +37,13 @@ final class FocusReportingTableView: NSTableView {
 
     override func mouseDown(with event: NSEvent) {
         onInteract?()
+        // 组头行：单击切折叠（不落入 super 的选中/双击链）
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        if row >= 0, isGroupRowProvider?(row) == true {
+            onGroupRowClick?(row)
+            return
+        }
         super.mouseDown(with: event)
     }
 
@@ -50,6 +61,10 @@ final class FocusReportingTableView: NSTableView {
         onInteract?()
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
+        // 组头行右键：不改选中（组头不可选），直接交 menuProvider 出组过滤菜单
+        if row >= 0, isGroupRowProvider?(row) == true {
+            return menuProvider?(row)
+        }
         // 右击未选中行 → 先把它设为唯一选中（Finder 语义）
         if row >= 0, !selectedRowIndexes.contains(row) {
             selectRowIndexes([row], byExtendingSelection: false)
@@ -212,6 +227,55 @@ final class NameCellView: NSTableCellView {
         field?.removeFromSuperview()
         label.isHidden = false
         if let name = commit { onRenameCommit?(name) } else { onRenameCancel?() }
+    }
+}
+
+/// 组头行视图（M26 列表分组）：折叠三角 + 「2026年8月」 + 项数（tabular-nums 次级墨色）。
+/// 整行可点击切换折叠（onToggle）；右键菜单由表视图 menuProvider 按行类型分发。
+/// 行高 24、floatsGroupRows 悬浮由 FileListViewController 配置。
+@MainActor
+final class GroupHeaderView: NSTableCellView {
+    private let chevron = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let countLabel = NSTextField(labelWithString: "")
+
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+        chevron.contentTintColor = .secondaryLabelColor
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        countLabel.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.textColor = .secondaryLabelColor
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)  // tabular-nums
+        addSubview(chevron)
+        addSubview(titleLabel)
+        addSubview(countLabel)
+        NSLayoutConstraint.activate([
+            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 12),
+            chevron.heightAnchor.constraint(equalToConstant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
+            countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    func configure(title: String, count: Int, collapsed: Bool) {
+        chevron.image = NSImage.officialSymbol(collapsed ? "chevron.right" : "chevron.down",
+                                               fallback: collapsed ? "arrowtriangle.right.fill"
+                                                                    : "arrowtriangle.down.fill",
+                                               accessibility: title)
+        titleLabel.stringValue = title
+        countLabel.stringValue = L10n.f("group.count", count)
     }
 }
 

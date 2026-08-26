@@ -41,6 +41,22 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// spring-loaded 状态：拖拽悬停的文件夹行 + 触发计时器
     private var springLoad: (row: Int, timer: Timer)?
 
+    // MARK: 分组（M26）——行号↔item 映射的唯一真源
+
+    /// 展示行序列（分组开启时 = [组头, 项...] 交织；关闭时 = 每项一行）。
+    /// 严禁在别处散落 index 算术：所有「行号→item」「item→行号」换算一律走本数组的 helper。
+    private enum ListRow {
+        case group(key: String, title: String, count: Int, collapsed: Bool)
+        case item(Int)   // 下标指向 model.items
+    }
+    private var listRows: [ListRow] = []
+    /// 已折叠组键集合（重组时据此决定是否铺开组内项）
+    private var collapsedGroups: Set<String> = []
+    /// 组过滤：非 nil 时仅展示该组（「仅显示此组」）；nil = 全部组
+    private var groupFilterKey: String?
+    /// 过滤态提示药丸（FG-1：过滤态不留悬疑，可一键还原）
+    private let filterPill = FilterPillButton()
+
     // 装饰状态（派生显示层，可随时丢弃）：已回填的目录大小 / 已升级的缩略图 / 在飞请求
     private var sizeOverlay: [URL: Int64] = [:]
     private var thumbOverlay: [URL: NSImage] = [:]
@@ -73,12 +89,15 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.onBackspaceAction = { [weak self] in self?.handleBackspace() }
         tableView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
         tableView.onDragExited = { [weak self] in self?.cancelSpringLoad() }
+        tableView.isGroupRowProvider = { [weak self] row in self?.isGroupRow(row) ?? false }
+        tableView.onGroupRowClick = { [weak self] row in self?.handleGroupRowClick(row) }
         tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
         tableView.rowHeight = Self.rowHeight(for: Formatters.listFontSize)
         tableView.usesAutomaticRowHeights = false
         tableView.allowsMultipleSelection = true
         tableView.usesAlternatingRowBackgroundColors = true
+        tableView.floatsGroupRows = true   // M26：组头悬浮
         // 名称列弹性吃剩余宽、其余窄固定（QSpace/Finder 语义）——窄窗格四列俱全
         tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         tableView.dataSource = self
@@ -109,6 +128,10 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         NotificationCenter.default.addObserver(
             self, selector: #selector(columnsOrFontChanged(_:)),
             name: .nspaceColumnsChanged, object: nil)
+        // 分组开关变更广播：重组行序即时生效
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(groupingChanged(_:)),
+            name: .nspaceGroupingChanged, object: nil)
 
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
@@ -118,6 +141,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         let root = NSView()
         root.addSubview(scrollView)
         root.addSubview(emptyLabel)
+        // 过滤态药丸（FG-1）：悬浮在列表右上（列头附近），常态隐藏，过滤时显现，点击还原
+        filterPill.isHidden = true
+        filterPill.target = self
+        filterPill.action = #selector(filterPillClicked(_:))
+        filterPill.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(filterPill)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: root.topAnchor),
@@ -127,6 +156,9 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             emptyLabel.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: root.centerYAnchor),
             emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 20),
+            filterPill.topAnchor.constraint(equalTo: root.topAnchor, constant: 4),
+            filterPill.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8),
+            filterPill.heightAnchor.constraint(equalToConstant: 20),
         ])
         view = root
         model.reload()
@@ -203,10 +235,11 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         // I-32：选中真源用 selectionURLCache（选中变更时记账，反映"删除前"实际选中），
         // 不用此刻的 selectedURLs——model.items 已换新，旧行号会错映到位移后的新项造成"漂移"。
         let selectedBefore = selectionURLCache
+        rebuildListRows()          // M26：重组行序（分组时 [组头,项...]；否则每项一行）
         tableView.reloadData()
         var rows = IndexSet()
-        for (i, item) in model.items.enumerated() where selectedBefore.contains(item.url) {
-            rows.insert(i)
+        for url in selectedBefore {
+            if let r = row(forURL: url) { rows.insert(r) }
         }
         // 精确匹配集即恢复；空集（如选中项全被删）也显式 select 清空——绝不留 reloadData 的按行号残留
         tableView.selectRowIndexes(rows, byExtendingSelection: false)
@@ -225,6 +258,163 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     /// 仅重绘（剪切灰显变化时由协调器调用）
     func redraw() { tableView.reloadData() }
+
+    // MARK: 分组换算（M26）——唯一真源，别处严禁散落 index 算术
+
+    /// 分组是否生效：偏好开 且 当前排序键为日期类
+    private var groupingActive: Bool {
+        Preferences.listGrouping && Self.isDateKey(model.sort.key)
+    }
+
+    static func isDateKey(_ k: SortSpec.Key) -> Bool {
+        k == .dateModified || k == .created || k == .added
+    }
+
+    /// 取项在当前排序键下的分组日期
+    private static func groupDate(for item: FileItem, key: SortSpec.Key) -> Date? {
+        switch key {
+        case .dateModified: return item.modified
+        case .created: return item.created
+        case .added: return item.added
+        default: return nil
+        }
+    }
+
+    /// 「YYYY年M月」分组标题格式器（本地化：zh→2026年8月 / en→August 2026）
+    private static let groupTitleFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("yMMMM")
+        return f
+    }()
+
+    /// 组键（稳定，跨语言不变，用于折叠/过滤记账）+ 组标题（本地化显示）
+    private static func groupKeyTitle(for item: FileItem, key: SortSpec.Key) -> (key: String, title: String) {
+        guard let date = groupDate(for: item, key: key) else {
+            return ("__nodate__", L10n.t("group.noDate"))
+        }
+        let comps = Calendar.current.dateComponents([.year, .month], from: date)
+        let stableKey = String(format: "%04d-%02d", comps.year ?? 0, comps.month ?? 0)
+        return (stableKey, groupTitleFormatter.string(from: date))
+    }
+
+    /// 依当前 model.items（reader 已按 sort 排序）重建展示行序列。
+    /// 组顺序 = 组在已排序项中的首次出现顺序（排序方向天然决定组顺序）；组内保持项的相对顺序。
+    private func rebuildListRows() {
+        listRows.removeAll(keepingCapacity: true)
+        guard groupingActive else {
+            for i in model.items.indices { listRows.append(.item(i)) }
+            filterPill.isHidden = true
+            return
+        }
+        var order: [String] = []
+        var buckets: [String: [Int]] = [:]
+        var titles: [String: String] = [:]
+        let key = model.sort.key
+        for (i, item) in model.items.enumerated() {
+            let (gk, gt) = Self.groupKeyTitle(for: item, key: key)
+            if buckets[gk] == nil { buckets[gk] = []; order.append(gk); titles[gk] = gt }
+            buckets[gk]?.append(i)
+        }
+        // 过滤态失效自愈：被过滤组已不存在（换目录/排序键）→ 清过滤
+        if let only = groupFilterKey, !order.contains(only) { groupFilterKey = nil }
+        let visibleKeys = groupFilterKey.map { [$0] } ?? order
+        for gk in visibleKeys {
+            guard let idxs = buckets[gk] else { continue }
+            let collapsed = collapsedGroups.contains(gk)
+            listRows.append(.group(key: gk, title: titles[gk] ?? gk, count: idxs.count, collapsed: collapsed))
+            if !collapsed { for i in idxs { listRows.append(.item(i)) } }
+        }
+        updateFilterPill(titles: titles)
+    }
+
+    private func updateFilterPill(titles: [String: String]) {
+        if let only = groupFilterKey {
+            filterPill.title = L10n.f("group.filter.pill", titles[only] ?? only)
+            filterPill.isHidden = false
+        } else {
+            filterPill.isHidden = true
+        }
+    }
+
+    /// 行号 → model.items 下标（组头行/越界 → nil）
+    func itemIndex(forRow row: Int) -> Int? {
+        guard listRows.indices.contains(row) else { return nil }
+        if case .item(let i) = listRows[row] { return i }
+        return nil
+    }
+
+    /// 行号 → FileItem（组头行/越界 → nil）
+    func item(atRow row: Int) -> FileItem? {
+        guard let i = itemIndex(forRow: row), model.items.indices.contains(i) else { return nil }
+        return model.items[i]
+    }
+
+    /// model.items 下标 → 行号（项在折叠组内 → nil）
+    func row(forItemIndex idx: Int) -> Int? {
+        for (r, lr) in listRows.enumerated() {
+            if case .item(let i) = lr, i == idx { return r }
+        }
+        return nil
+    }
+
+    /// URL → 行号（未载入/在折叠组内 → nil）
+    func row(forURL url: URL) -> Int? {
+        guard let idx = model.items.firstIndex(where: { $0.url == url }) else { return nil }
+        return row(forItemIndex: idx)
+    }
+
+    /// 该行是否组头行
+    func isGroupRow(_ row: Int) -> Bool {
+        guard listRows.indices.contains(row) else { return false }
+        if case .group = listRows[row] { return true }
+        return false
+    }
+
+    /// 组头行点击：切换该组折叠（重组行序 + 保选中）
+    private func handleGroupRowClick(_ row: Int) {
+        guard listRows.indices.contains(row), case .group(let key, _, _, _) = listRows[row] else { return }
+        toggleGroup(key: key)
+    }
+
+    /// 切换某组折叠态并重建（保 URL 选中）
+    func toggleGroup(key: String) {
+        if collapsedGroups.contains(key) { collapsedGroups.remove(key) }
+        else { collapsedGroups.insert(key) }
+        rebuildRowsPreservingSelection()
+    }
+
+    /// 应用组过滤（「仅显示此组」）
+    func applyGroupFilter(key: String) {
+        groupFilterKey = key
+        rebuildRowsPreservingSelection()
+    }
+
+    /// 清除组过滤（「显示全部组」/ 药丸点击）
+    func clearGroupFilter() {
+        groupFilterKey = nil
+        rebuildRowsPreservingSelection()
+    }
+
+    @objc private func filterPillClicked(_ sender: Any?) { clearGroupFilter() }
+
+    /// 不触发 model reload 的重组：重建行序、reloadData、按 selectionURLCache 精确恢复选中
+    private func rebuildRowsPreservingSelection() {
+        let selectedBefore = selectionURLCache
+        rebuildListRows()
+        tableView.reloadData()
+        var rows = IndexSet()
+        for url in selectedBefore {
+            if let r = row(forURL: url) { rows.insert(r) }
+        }
+        tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        refreshVisibleDecorations()
+    }
+
+    /// 分组开关变更广播：重组即时生效（所有列表窗格）
+    @objc private func groupingChanged(_ note: Notification) {
+        rebuildRowsPreservingSelection()
+    }
+
 
     // MARK: 按需装饰（FolderSize 目录大小 + IconThumb 缩略图，只对可见行、滚出取消）
 
@@ -248,8 +438,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         var wantedThumbs = Set<URL>()
         if range.length > 0 {
             for row in range.location..<(range.location + range.length) {
-                guard model.items.indices.contains(row) else { continue }
-                let item = model.items[row]
+                guard let item = item(atRow: row) else { continue }   // 组头行跳过
                 if item.isDirectory, item.size == nil, sizeOverlay[item.url] == nil {
                     wantedSizes.insert(item.url)
                     requestFolderSize(item.url)
@@ -289,7 +478,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             guard let size else { return }
             self.sizeOverlay[url] = size
             // 仅当该行仍代表同一 URL 时刷新该行的大小列
-            guard let row = self.model.items.firstIndex(where: { $0.url == url }) else { return }
+            guard let row = self.row(forURL: url) else { return }
             let col = self.tableView.column(withIdentifier: .init("size"))
             guard col >= 0 else { return }
             self.tableView.reloadData(forRowIndexes: [row], columnIndexes: [col])
@@ -306,7 +495,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             let image = NSImage(cgImage: cg, size: NSSize(width: 16, height: 16))
             self.thumbOverlay[url] = image
             // 直接换图不 reload 行：避免打断可能进行中的行内重命名
-            guard let row = self.model.items.firstIndex(where: { $0.url == url }),
+            guard let row = self.row(forURL: url),
                   let cell = self.tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
                     as? NameCellView else { return }
             cell.imageView?.image = image
@@ -316,7 +505,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     // MARK: 选中态
 
     var selectedItems: [FileItem] {
-        tableView.selectedRowIndexes.compactMap { model.items.indices.contains($0) ? model.items[$0] : nil }
+        tableView.selectedRowIndexes.compactMap { item(atRow: $0) }
     }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
 
@@ -325,7 +514,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         let wanted = Set(urls)
         var indexes = IndexSet()
         for (i, item) in model.items.enumerated() where wanted.contains(item.url) {
-            indexes.insert(i)
+            if let r = row(forItemIndex: i) { indexes.insert(r) }
         }
         tableView.selectRowIndexes(indexes, byExtendingSelection: false)
         if let first = indexes.first { tableView.scrollRowToVisible(first) }
@@ -337,7 +526,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     private func revealPendingIfPossible() {
         guard let pending = pendingReveal,
-              let row = model.items.firstIndex(where: { $0.url == pending.url }) else { return }
+              let row = row(forURL: pending.url) else { return }
         pendingReveal = nil
         tableView.selectRowIndexes([row], byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
@@ -353,8 +542,8 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             if Preferences.doubleClickBlank { goUp() }
             return
         }
-        guard row < model.items.count else { return }
-        open(model.items[row])
+        guard let item = item(atRow: row) else { return }   // 组头行双击无操作
+        open(item)
     }
 
     func open(_ item: FileItem) {
@@ -385,8 +574,33 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     // MARK: 右键菜单
 
     private func buildMenu(clickedRow row: Int) -> NSMenu {
-        FileContextMenuBuilder.menu(selection: selectedItems, directory: currentDirectory, target: self)
+        // 组头行右键：组过滤菜单（仅显示此组 / 显示全部组）
+        if isGroupRow(row), case .group(let key, _, _, _) = listRows[row] {
+            return buildGroupMenu(key: key)
+        }
+        return FileContextMenuBuilder.menu(selection: selectedItems, directory: currentDirectory, target: self)
     }
+
+    /// 组头右键菜单（FG-3：仅显示此组 / 显示全部组）
+    private func buildGroupMenu(key: String) -> NSMenu {
+        let menu = NSMenu()
+        let only = menu.addItem(withTitle: L10n.t("group.filter.only"),
+                                action: #selector(groupFilterOnly(_:)), keyEquivalent: "")
+        only.target = self
+        only.representedObject = key
+        let all = menu.addItem(withTitle: L10n.t("group.filter.all"),
+                               action: #selector(groupFilterAll(_:)), keyEquivalent: "")
+        all.target = self
+        all.isEnabled = (groupFilterKey != nil)
+        return menu
+    }
+
+    @objc private func groupFilterOnly(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        applyGroupFilter(key: key)
+    }
+
+    @objc private func groupFilterAll(_ sender: Any?) { clearGroupFilter() }
 
     // MARK: 行内重命名（FG-6：失败原子回滚旧名 + beep + 原位红字 2s）
 
@@ -397,10 +611,9 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     }
 
     func beginRename(row: Int) {
-        guard row >= 0, row < model.items.count,
+        guard let item = item(atRow: row),
               let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NameCellView
         else { return }
-        let item = model.items[row]
         cell.onRenameCommit = { [weak self] newName in self?.submitRename(item, newName: newName, row: row) }
         cell.onRenameCancel = { }
         cell.beginRename()
@@ -416,7 +629,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// FG-6 就地错误：beep + 行上红字 2s，不跳页不白屏
     private func flashRenameError(row: Int) {
         NSSound.beep()
-        guard row >= 0, row < model.items.count else { return }
+        guard item(atRow: row) != nil else { return }
         let rect = tableView.rect(ofRow: row)
         let banner = NSTextField(labelWithString: L10n.t("rename.failed"))
         banner.textColor = .systemRed
@@ -435,6 +648,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     @objc func toggleHiddenFiles(_ sender: Any?) { model.includeHidden.toggle() }
     @objc func refresh(_ sender: Any?) { model.reload() }
+
+    /// 使用分组开关（显示菜单）：翻转偏好并广播，所有列表窗格重组即时生效
+    @objc func toggleGrouping(_ sender: Any?) {
+        Preferences.listGrouping.toggle()
+        NotificationCenter.default.post(name: .nspaceGroupingChanged, object: nil)
+    }
 
     // 复制/剪切/粘贴/拷贝路径（Edit 菜单 ⌘C/⌘X/⌘V/⌘⇧C 与右键菜单共用）
     @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
@@ -568,6 +787,9 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
             return !selectedArchiveURLs.isEmpty
         case #selector(renameSelected(_:)):
             return single
+        case #selector(toggleGrouping(_:)):
+            menuItem.state = Preferences.listGrouping ? .on : .off
+            return true
         case #selector(pasteItems(_:)), #selector(paste(_:)):
             return pasteboardHasFiles
         default:
@@ -608,18 +830,42 @@ extension FileListViewController: NSMenuDelegate {
 
 extension Notification.Name {
     static let nspaceColumnsChanged = Notification.Name("nspaceColumnsChanged")
+    /// 分组开关变更（显示菜单「使用分组」/ 设置项）：所有列表窗格重建行序即时生效
+    static let nspaceGroupingChanged = Notification.Name("nspaceGroupingChanged")
 }
 
 // MARK: - 数据源 / 委托
 
 extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        model.items.count
+        listRows.count
+    }
+
+    // MARK: 组行机制（M26）：isGroupRow + 组头不可选 + 组头行高 24
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+        isGroupRow(row)
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        !isGroupRow(row)
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        isGroupRow(row) ? 24 : Self.rowHeight(for: Formatters.listFontSize)
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let colID = tableColumn?.identifier.rawValue, row < model.items.count else { return nil }
-        let item = model.items[row]
+        // 组头行：整行铺满的组头视图（仅首列构建一次，其余列返回 nil）
+        if isGroupRow(row) {
+            guard tableColumn == nil || tableColumn == tableView.tableColumns.first else { return nil }
+            guard case .group(_, let title, let count, let collapsed) = listRows[row] else { return nil }
+            let cell = tableView.makeView(withIdentifier: .init("groupHeader"), owner: nil) as? GroupHeaderView
+                ?? GroupHeaderView(identifier: .init("groupHeader"))
+            cell.configure(title: title, count: count, collapsed: collapsed)
+            return cell
+        }
+        guard let colID = tableColumn?.identifier.rawValue, let item = item(atRow: row) else { return nil }
 
         if colID == "name" {
             let cell = tableView.makeView(withIdentifier: .init("nameCell"), owner: nil) as? NameCellView
@@ -675,8 +921,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
     // MARK: 拖拽源（可拖到 Finder/其他 App/另一窗格/侧边栏书签/暂存架）
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard row >= 0, row < model.items.count else { return nil }
-        return model.items[row].url as NSURL
+        guard let item = item(atRow: row) else { return nil }   // 组头行不可拖
+        return item.url as NSURL
     }
 
     // MARK: 投放目标（BG-1：落点只发意图，kind 判定与提交在 coordinator）
@@ -686,13 +932,12 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let urls = Self.draggedFileURLs(info), !urls.isEmpty else {
             cancelSpringLoad(); return []
         }
-        // 落点归一：目录行=投进该文件夹；文件行/空白=投进当前目录
+        // 落点归一：目录行=投进该文件夹；文件行/组头/空白=投进当前目录
         var targetRow = -1
-        if op == .on, row >= 0, row < model.items.count,
-           model.items[row].isDirectory, !model.items[row].isPackage {
+        if op == .on, let it = item(atRow: row), it.isDirectory, !it.isPackage {
             targetRow = row
         }
-        let target = targetRow >= 0 ? model.items[targetRow].url : currentDirectory
+        let target = targetRow >= 0 ? (item(atRow: targetRow)?.url ?? currentDirectory) : currentDirectory
         // 拒绝把目录投进它自己/子孙
         guard urls.allSatisfy({ !FileOpsCoordinator.isSelfOrDescendant(destination: target, ofSource: $0) }) else {
             cancelSpringLoad(); return []
@@ -722,9 +967,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         cancelSpringLoad()
         guard let urls = Self.draggedFileURLs(info), !urls.isEmpty else { return false }
         var target = currentDirectory
-        if op == .on, row >= 0, row < model.items.count,
-           model.items[row].isDirectory, !model.items[row].isPackage {
-            target = model.items[row].url
+        if op == .on, let it = item(atRow: row), it.isDirectory, !it.isPackage {
+            target = it.url
         }
         coordinator?.dropTransfer(urls: urls, into: target,
                                   forceCopy: info.draggingSourceOperationMask == .copy)
@@ -780,10 +1024,83 @@ extension FileListViewController: @preconcurrency QLPreviewPanelDataSource, @pre
     /// 缩放动画起点=行内图标位置（Finder 手感）
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
         guard let url = (item as? NSURL) as URL?,
-              let row = model.items.firstIndex(where: { $0.url == url }),
+              let row = row(forURL: url),
               let window = view.window else { return .zero }
         let rect = focusTarget.convert(NSRect(x: 4, y: 0, width: 22, height: 22)
             .offsetBy(dx: 0, dy: (focusTarget as! NSTableView).rect(ofRow: row).minY), to: nil)
         return window.convertToScreen(rect)
+    }
+}
+
+// MARK: - 过滤态药丸（FG-1：10% 药丸，克制样式，深浅色自适应重解析）
+
+@MainActor
+final class FilterPillButton: NSButton {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        isBordered = false
+        bezelStyle = .inline
+        font = .systemFont(ofSize: 11)
+        contentTintColor = .secondaryLabelColor
+        imagePosition = .imageRight
+        imageHugsTitle = true
+        image = NSImage.officialSymbol("xmark.circle.fill", accessibility: L10n.t("group.filter.all"))
+        symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let base = NSColor.controlBackgroundColor
+            let bg = base.blended(withFraction: 0.10, of: Theme.accent) ?? base   // 10% 药丸
+            layer?.backgroundColor = bg.cgColor
+            layer?.cornerRadius = 8
+        }
+    }
+}
+
+// MARK: - UISelfTest 探针（M26：只读断言入口，非产品路径）
+
+extension FileListViewController {
+    /// 组头行数（分组断言用）
+    var uiTestGroupHeaderCount: Int {
+        listRows.reduce(0) { if case .group = $1 { return $0 + 1 }; return $0 }
+    }
+    /// 组头标题串（按行序）
+    var uiTestGroupTitles: [String] {
+        listRows.compactMap { if case .group(_, let t, _, _) = $0 { return t }; return nil }
+    }
+    /// 组头（标题, 项数, 折叠）三元组（按行序）
+    var uiTestGroups: [(title: String, count: Int, collapsed: Bool)] {
+        listRows.compactMap {
+            if case .group(_, let t, let c, let col) = $0 { return (t, c, col) }
+            return nil
+        }
+    }
+    /// 组键（稳定键，按行序）
+    var uiTestGroupKeys: [String] {
+        listRows.compactMap { if case .group(let k, _, _, _) = $0 { return k }; return nil }
+    }
+    /// 当前展示行总数
+    var uiTestRowCount: Int { listRows.count }
+    /// 项行数（非组头行）
+    var uiTestItemRowCount: Int {
+        listRows.reduce(0) { if case .item = $1 { return $0 + 1 }; return $0 }
+    }
+    /// 过滤态药丸是否可见
+    var uiTestFilterPillVisible: Bool { !filterPill.isHidden }
+    /// 分组是否生效（偏好开 + 日期排序键）
+    var uiTestGroupingActive: Bool { groupingActive }
+    /// 驱动组头点击折叠（真实处理路径）
+    func uiTestClickGroupRow(_ row: Int) { handleGroupRowClick(row) }
+    /// 首个非组头（项）行的表行号
+    var uiTestFirstItemRow: Int? {
+        for (r, lr) in listRows.enumerated() { if case .item = lr { return r } }
+        return nil
     }
 }

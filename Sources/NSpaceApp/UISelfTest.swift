@@ -39,6 +39,11 @@ enum UISelfTest {
                 record(false, "窗口未创建")
                 return finish()
             }
+            // harness 前置：强制本 App 成为前台活动应用，令随后需真键窗焦点的场景（I-30 字段编辑补全
+            // popup）能显示，不被其他前台 App 抢焦造成补全 popup 嵌套 runloop 挂死（并行/后台启动加固）。
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(200))
 
             // 场景0：frame 持久化端到端（SETFRAME 阶段设定并退出；EXPECT 阶段断言恢复）
             let env = ProcessInfo.processInfo.environment
@@ -869,6 +874,9 @@ enum UISelfTest {
             window.makeKeyAndOrderFront(nil)
 
             if focusI37 { return finish() }   // 聚焦模式：I-37 验完即收尾
+            // ── 场景 M26：列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关 ─────────
+            // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
+            await runGroupingScenario(wc: wc, window: window)
 
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
@@ -941,6 +949,113 @@ enum UISelfTest {
 
             finish()
         }
+    }
+
+    // MARK: M26 分组场景（列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关）
+
+    private static func runGroupingScenario(wc: MainWindowController, window: NSWindow) async {
+        let fs = FileManager.default
+        let cal = Calendar.current
+        let token = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory
+            .appendingPathComponent("nspace-uitest-m26-\(token)", isDirectory: true)
+        // 三个不同年月，各 2 文件（共 6）：2024-01 / 2024-03 / 2024-08
+        let months = [(2024, 1), (2024, 3), (2024, 8)]
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        var created: [URL] = []
+        for (mi, (y, m)) in months.enumerated() {
+            guard let date = cal.date(from: DateComponents(year: y, month: m, day: 15, hour: 12)) else { continue }
+            for k in 0..<2 {
+                let f = box.appendingPathComponent("m26-\(token)-\(mi)-\(k).txt")
+                try? Data("x".utf8).write(to: f)
+                if assertSandboxed(f) {
+                    try? fs.setAttributes([.modificationDate: date], ofItemAtPath: f.path)
+                }
+                created.append(f)
+            }
+        }
+        let gSandbox = created.allSatisfy { assertSandboxed($0) }
+        record(gSandbox, "沙箱守卫[m26]: 分组夹具 6 文件在自建夹具内")
+
+        // 前置：分组开、日期排序
+        let hadGrouping = Preferences.listGrouping
+        Preferences.listGrouping = true
+        let pane = wc.grid.activePane
+        pane.setViewMode(.list)
+        try? await Task.sleep(for: .milliseconds(200))
+        pane.navigate(to: box)
+        _ = await pollFS { pane.activeTab.model.items.count == 6 }
+        let listVC = pane.activeTab.listVC
+        // 按修改日期升序排序（走列头同一 sortDescriptors 链路）
+        listVC.tableView.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: true)]
+        _ = await pollFS { listVC.uiTestGroupHeaderCount == 3 }
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // ① 组头行数==3 且标题含年月、各组项数正确
+        let groups = listVC.uiTestGroups
+        let headerCount = listVC.uiTestGroupHeaderCount
+        let titlesOK = groups.allSatisfy { $0.title.contains("2024") }
+        let countsOK = groups.map(\.count) == [2, 2, 2]
+        record(headerCount == 3 && titlesOK && countsOK && listVC.uiTestItemRowCount == 6,
+               "M26 分组组头数==3 标题含年月各组2项（头\(headerCount) 标题\(groups.map(\.title)) 项数\(groups.map(\.count))）")
+        capture(window, "31-grouping")
+
+        // ② 折叠首组 → 该组项从表消失、其他组不动
+        let firstKey = listVC.uiTestGroupKeys.first ?? ""
+        listVC.uiTestClickGroupRow(0)   // 真实点击处理路径
+        try? await Task.sleep(for: .milliseconds(200))
+        let afterCollapse = listVC.uiTestGroups
+        let collapsedFlags = afterCollapse.map(\.collapsed)
+        let itemRowsAfter = listVC.uiTestItemRowCount
+        record(collapsedFlags == [true, false, false] && itemRowsAfter == 4
+               && listVC.uiTestGroupHeaderCount == 3 && afterCollapse.map(\.count) == [2, 2, 2],
+               "M26 折叠首组项消失其他不动（折叠标记\(collapsedFlags) 余项行\(itemRowsAfter)）")
+        capture(window, "31b-collapsed")
+        listVC.uiTestClickGroupRow(0)   // 展开还原
+        try? await Task.sleep(for: .milliseconds(150))
+        let expandedBack = listVC.uiTestItemRowCount == 6
+
+        // ③ 仅显示此组 → 表中仅剩该组行且过滤提示可见；显示全部还原
+        listVC.applyGroupFilter(key: firstKey)
+        try? await Task.sleep(for: .milliseconds(200))
+        let onlyOK = listVC.uiTestGroupHeaderCount == 1 && listVC.uiTestItemRowCount == 2
+            && listVC.uiTestFilterPillVisible
+        capture(window, "31c-filtered")
+        listVC.clearGroupFilter()
+        try? await Task.sleep(for: .milliseconds(200))
+        let restoredOK = listVC.uiTestGroupHeaderCount == 3 && !listVC.uiTestFilterPillVisible
+        record(expandedBack && onlyOK && restoredOK,
+               "M26 仅显示此组表仅剩该组+药丸可见，显示全部还原（展开回\(expandedBack) 仅剩\(onlyOK) 还原\(restoredOK)）")
+
+        // ④ 选中某项后跨组重排序 → 选中按 URL 仍在（I-32 语义）
+        // victim 取自「已载入的真实项 URL」（避免 /var⟷/private/var symlink 路径不匹配——同 I-32 铁律）
+        let victim = listVC.model.items.count == 6 ? listVC.model.items[2].url : (created.count > 2 ? created[2] : box)
+        listVC.select(urls: [victim])
+        try? await Task.sleep(for: .milliseconds(150))
+        let selBefore = listVC.selectedURLs
+        listVC.tableView.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
+        _ = await pollFS { listVC.uiTestGroupHeaderCount == 3 }
+        try? await Task.sleep(for: .milliseconds(200))
+        let selAfter = listVC.selectedURLs
+        record(selBefore == [victim] && selAfter == [victim],
+               "M26 跨组重排序后选中按 URL 仍在（前\(selBefore.map(\.lastPathComponent)) 后\(selAfter.map(\.lastPathComponent))）")
+
+        // ⑤ 关闭分组 → 组头行数==0 恢复单线
+        Preferences.listGrouping = false
+        NotificationCenter.default.post(name: .nspaceGroupingChanged, object: nil)
+        try? await Task.sleep(for: .milliseconds(250))
+        record(listVC.uiTestGroupHeaderCount == 0 && listVC.uiTestRowCount == 6 && !listVC.uiTestGroupingActive,
+               "M26 关闭分组组头数==0 恢复单线（头\(listVC.uiTestGroupHeaderCount) 行\(listVC.uiTestRowCount)）")
+
+        // 收尾：恢复偏好/排序、清夹具
+        Preferences.listGrouping = hadGrouping
+        NotificationCenter.default.post(name: .nspaceGroupingChanged, object: nil)
+        listVC.tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        listVC.select(urls: [])
+        pane.navigate(to: fs.homeDirectoryForCurrentUser)
+        try? await Task.sleep(for: .milliseconds(200))
+        if assertSandboxed(box) { try? fs.removeItem(at: box) }
+        window.makeKeyAndOrderFront(nil)
     }
 
     // MARK: 工具
