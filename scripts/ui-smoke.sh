@@ -113,5 +113,13 @@ require_pass "沙箱守卫[list]: I-32 移废纸篓目标在自建夹具内"
 require_pass "沙箱守卫[icons]: I-32 移废纸篓目标在自建夹具内"
 require_pass "沙箱守卫[columns]: I-32 移废纸篓目标在自建夹具内"
 
+# I-37 回归：面包屑地址栏宽度自适应（深层级/长名不溢出 + 中间折叠全层级永远可达；验"真实效果"）
+require_pass "沙箱守卫: I-37 深层链在自建夹具内"
+require_pass "I-37 面包屑不溢出"
+require_pass "I-37 「…」折叠段存在且菜单项数==折叠层级数"
+require_pass "I-37 点折叠菜单项 → 窗格真跳到该层级"
+require_pass "I-37 可见末段 toolTip==完整名"
+require_pass "I-37 窄窗格仍不溢出"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

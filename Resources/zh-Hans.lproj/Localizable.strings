@@ -36,6 +36,7 @@
 "addressbar.placeholder" = "输入路径，回车前往";
 "addressbar.subfolders" = "子文件夹";
 "addressbar.noSubfolders" = "（无子文件夹）";
+"addressbar.collapsedLevels" = "折叠的层级";
 "menu.newWorkspace" = "新建工作区";
 "menu.closeWorkspace" = "关闭工作区";
 "menu.nextWorkspace" = "下一个工作区";
