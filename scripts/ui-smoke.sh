@@ -150,5 +150,12 @@ require_pass "M27 取消 → 决议返回 nil（整体放弃）"
 require_pass "M27 面板三按钮(取消/合并/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）"
 require_pass "M27 文件冲突「合并」禁用（仅文件夹可合并，诚实不可点）"
 
+# I-34 大小列单行不折行 + M26 v2 图标视图分组（section/折叠/过滤/选中跨 rebuild）
+require_pass "I-34 大小列单行不折行（usesSingleLineMode + 头部截断）"
+require_pass "M26v2 图标视图分组 section==3 标题含年月"
+require_pass "M26v2 图标视图折叠首组"
+require_pass "M26v2 图标视图仅显示此组+药丸，显示全部还原"
+require_pass "M26v2 图标视图选中按 URL 跨 rebuild 保持"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

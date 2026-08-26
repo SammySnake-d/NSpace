@@ -738,6 +738,13 @@ enum UISelfTest {
             }
             sp.uiTestReset(root: nil)
 
+            // ── I-34：大小列窄宽不折行（单行 + 头部截断，防 22pt 行高装不下 attributed 串）──
+            let i34cell = TextCellView(identifier: .init("i34-size"))
+            i34cell.configureSize(value: "151.4", unit: "MB", alignment: .right)
+            record(i34cell.textField?.usesSingleLineMode == true
+                   && i34cell.textField?.lineBreakMode == .byTruncatingHead,
+                   "I-34 大小列单行不折行（usesSingleLineMode + 头部截断）")
+
             // ── M27 冲突体验：三按钮 + 「应用到此文件夹」checkbox 的按文件夹批量决议 + 自绘面板截图 ──
             // 夹具跨两个文件夹：folderA 两条冲突、folderB 一条 → checkbox 批量一次只作用一个文件夹。
             let folderA = sandbox.appendingPathComponent("conflictA")
@@ -1184,6 +1191,47 @@ enum UISelfTest {
         let selAfter = listVC.selectedURLs
         record(selBefore == [victim] && selAfter == [victim],
                "M26 跨组重排序后选中按 URL 仍在（前\(selBefore.map(\.lastPathComponent)) 后\(selAfter.map(\.lastPathComponent))）")
+
+        // ④b 图标视图分组（M26 v2）：同夹具切图标视图，section=组、折叠、过滤、选中跨 rebuild 保持
+        pane.setViewMode(.icons)
+        try? await Task.sleep(for: .milliseconds(300))
+        if let iconVC = pane.activeTab.iconVC {
+            _ = await pollFS { iconVC.uiTestSectionCount == 3 }
+            let iTitles = iconVC.uiTestGroupTitles
+            record(iconVC.uiTestSectionCount == 3 && iTitles.allSatisfy { $0.contains("2024") },
+                   "M26v2 图标视图分组 section==3 标题含年月（\(iTitles)）")
+            capture(window, "31d-icon-grouping")
+            iconVC.uiTestToggleFirstGroup()
+            try? await Task.sleep(for: .milliseconds(200))
+            record(iconVC.uiTestCollapsedCount == 1 && iconVC.uiTestSectionCount == 3,
+                   "M26v2 图标视图折叠首组（collapsed=\(iconVC.uiTestCollapsedCount) section=\(iconVC.uiTestSectionCount)）")
+            iconVC.uiTestToggleFirstGroup()   // 展开还原
+            try? await Task.sleep(for: .milliseconds(150))
+            iconVC.uiTestFilterFirstGroup()
+            try? await Task.sleep(for: .milliseconds(200))
+            let iFilterOK = iconVC.uiTestSectionCount == 1 && iconVC.uiTestFilterPillVisible
+            iconVC.uiTestClearFilter()
+            try? await Task.sleep(for: .milliseconds(200))
+            let iRestore = iconVC.uiTestSectionCount == 3 && !iconVC.uiTestFilterPillVisible
+            record(iFilterOK && iRestore,
+                   "M26v2 图标视图仅显示此组+药丸，显示全部还原（仅剩\(iFilterOK) 还原\(iRestore)）")
+            // 选中按 URL 跨 rebuild 保持（分组映射不丢选中，I-32 语义在图标视图成立）
+            let ivictim = iconVC.model.items.count == 6 ? iconVC.model.items[0].url : box
+            iconVC.select(urls: [ivictim])
+            try? await Task.sleep(for: .milliseconds(150))
+            let iSelBefore = iconVC.selectedURLs
+            iconVC.uiTestClearFilter()   // 触发一次 rebuild+reload
+            try? await Task.sleep(for: .milliseconds(150))
+            record(iSelBefore == [ivictim] && iconVC.selectedURLs == [ivictim],
+                   "M26v2 图标视图选中按 URL 跨 rebuild 保持")
+        } else {
+            record(false, "M26v2 图标视图分组 section==3 标题含年月")
+            record(false, "M26v2 图标视图折叠首组")
+            record(false, "M26v2 图标视图仅显示此组+药丸，显示全部还原")
+            record(false, "M26v2 图标视图选中按 URL 跨 rebuild 保持")
+        }
+        pane.setViewMode(.list)   // 切回列表供 ⑤ 断言
+        try? await Task.sleep(for: .milliseconds(250))
 
         // ⑤ 关闭分组 → 组头行数==0 恢复单线
         Preferences.listGrouping = false

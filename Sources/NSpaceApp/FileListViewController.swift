@@ -259,43 +259,14 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// 仅重绘（剪切灰显变化时由协调器调用）
     func redraw() { tableView.reloadData() }
 
-    // MARK: 分组换算（M26）——唯一真源，别处严禁散落 index 算术
+    // MARK: 分组换算（M26）——组键/桶划分委托 FileGrouping（列表/图标共用真源）；本层只管展示行序与视图态
 
     /// 分组是否生效：偏好开 且 当前排序键为日期类
     private var groupingActive: Bool {
-        Preferences.listGrouping && Self.isDateKey(model.sort.key)
+        FileGrouping.active(model.sort)
     }
 
-    static func isDateKey(_ k: SortSpec.Key) -> Bool {
-        k == .dateModified || k == .created || k == .added
-    }
-
-    /// 取项在当前排序键下的分组日期
-    private static func groupDate(for item: FileItem, key: SortSpec.Key) -> Date? {
-        switch key {
-        case .dateModified: return item.modified
-        case .created: return item.created
-        case .added: return item.added
-        default: return nil
-        }
-    }
-
-    /// 「YYYY年M月」分组标题格式器（本地化：zh→2026年8月 / en→August 2026）
-    private static let groupTitleFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("yMMMM")
-        return f
-    }()
-
-    /// 组键（稳定，跨语言不变，用于折叠/过滤记账）+ 组标题（本地化显示）
-    private static func groupKeyTitle(for item: FileItem, key: SortSpec.Key) -> (key: String, title: String) {
-        guard let date = groupDate(for: item, key: key) else {
-            return ("__nodate__", L10n.t("group.noDate"))
-        }
-        let comps = Calendar.current.dateComponents([.year, .month], from: date)
-        let stableKey = String(format: "%04d-%02d", comps.year ?? 0, comps.month ?? 0)
-        return (stableKey, groupTitleFormatter.string(from: date))
-    }
+    static func isDateKey(_ k: SortSpec.Key) -> Bool { FileGrouping.isDateKey(k) }
 
     /// 依当前 model.items（reader 已按 sort 排序）重建展示行序列。
     /// 组顺序 = 组在已排序项中的首次出现顺序（排序方向天然决定组顺序）；组内保持项的相对顺序。
@@ -306,23 +277,15 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             filterPill.isHidden = true
             return
         }
-        var order: [String] = []
-        var buckets: [String: [Int]] = [:]
+        let groups = FileGrouping.buckets(model.items, key: model.sort.key)
         var titles: [String: String] = [:]
-        let key = model.sort.key
-        for (i, item) in model.items.enumerated() {
-            let (gk, gt) = Self.groupKeyTitle(for: item, key: key)
-            if buckets[gk] == nil { buckets[gk] = []; order.append(gk); titles[gk] = gt }
-            buckets[gk]?.append(i)
-        }
+        for g in groups { titles[g.key] = g.title }
         // 过滤态失效自愈：被过滤组已不存在（换目录/排序键）→ 清过滤
-        if let only = groupFilterKey, !order.contains(only) { groupFilterKey = nil }
-        let visibleKeys = groupFilterKey.map { [$0] } ?? order
-        for gk in visibleKeys {
-            guard let idxs = buckets[gk] else { continue }
-            let collapsed = collapsedGroups.contains(gk)
-            listRows.append(.group(key: gk, title: titles[gk] ?? gk, count: idxs.count, collapsed: collapsed))
-            if !collapsed { for i in idxs { listRows.append(.item(i)) } }
+        if let only = groupFilterKey, !groups.contains(where: { $0.key == only }) { groupFilterKey = nil }
+        for g in groups where groupFilterKey == nil || groupFilterKey == g.key {
+            let collapsed = collapsedGroups.contains(g.key)
+            listRows.append(.group(key: g.key, title: g.title, count: g.indices.count, collapsed: collapsed))
+            if !collapsed { for i in g.indices { listRows.append(.item(i)) } }
         }
         updateFilterPill(titles: titles)
     }

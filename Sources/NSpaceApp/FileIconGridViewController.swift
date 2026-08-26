@@ -170,6 +170,13 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     /// 直接用 selectionIndexPaths 反查会错映（model.items 已换新），造成删除后选中"漂移"到顶项。
     private var selectionURLCache: Set<URL> = []
 
+    // 分组视图态（M26 v2）：section↔model 下标映射的唯一真源，别处严禁散落 index 算术。
+    // 不分组时为单 section 全量（identity 映射）；分组时每 section 一组。
+    private var sections: [FileGrouping.Group] = []
+    private var collapsedGroups: Set<String> = []
+    private var groupFilterKey: String?
+    private let filterPill = FilterPillButton(frame: .zero)
+
     // 装饰状态（派生显示层，可随时丢弃）
     private var thumbOverlay: [URL: NSImage] = [:]
     private var thumbTasks: [URL: Task<Void, Never>] = [:]
@@ -202,6 +209,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         flowLayout.minimumInteritemSpacing = 8
         flowLayout.minimumLineSpacing = 8
         flowLayout.sectionInset = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        flowLayout.sectionHeadersPinToVisibleBounds = true   // M26 v2：组头悬浮（对齐列表 floatsGroupRows）
 
         collectionView.collectionViewLayout = flowLayout
         collectionView.isSelectable = true
@@ -211,12 +219,15 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.register(FileIconItem.self, forItemWithIdentifier: FileIconItem.reuseID)
+        collectionView.register(IconGroupHeaderView.self,
+                                forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader,
+                                withIdentifier: IconGroupHeaderView.reuseID)
         collectionView.onInteract = { [weak self] in self?.onInteract?() }
         collectionView.menuProvider = { [weak self] _ in self?.buildMenu() }
         collectionView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
         collectionView.onDoubleClick = { [weak self] ip in
-            guard let self, self.model.items.indices.contains(ip.item) else { return }
-            self.open(self.model.items[ip.item])
+            guard let self, let file = self.fileItem(at: ip) else { return }
+            self.open(file)
         }
         // 拖拽：语义与列表一致（拖出 NSURL；投放到目录项或空白=当前目录，⌥ 复制）
         collectionView.registerForDraggedTypes([.fileURL])
@@ -231,6 +242,10 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         NotificationCenter.default.addObserver(
             self, selector: #selector(scrollBoundsChanged(_:)),
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        // 分组开关变更广播：重建 section 即时生效（与列表共用同一通知）
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(groupingChanged(_:)),
+            name: Notification.Name.nspaceGroupingChanged, object: nil)
 
         // 底部工具条：图标大小滑块（4pt 网格：高 24、右缘 8）
         let separator = NSBox()
@@ -244,7 +259,10 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         sizeSlider.target = self
         sizeSlider.action = #selector(sliderChanged(_:))
         sizeSlider.toolTip = L10n.t("iconGrid.sizeTooltip")
-        for sub in [separator, sizeSlider] {
+        filterPill.target = self
+        filterPill.action = #selector(clearGroupFilter(_:))
+        filterPill.isHidden = true
+        for sub in [separator, sizeSlider, filterPill] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             bottomBar.addSubview(sub)
         }
@@ -255,6 +273,8 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
             sizeSlider.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -8),
             sizeSlider.centerYAnchor.constraint(equalTo: bottomBar.centerYAnchor),
             sizeSlider.widthAnchor.constraint(equalToConstant: 120),
+            filterPill.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 8),
+            filterPill.centerYAnchor.constraint(equalTo: bottomBar.centerYAnchor),
         ])
 
         emptyLabel.textColor = .secondaryLabelColor
@@ -323,6 +343,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         thumbOverlay.removeAll()
         emptyLabel.isHidden = true
         let kept = selectionURLCache   // I-32：删除前实际选中的真源（不用位移后的 selectionIndexPaths）
+        rebuildSections()              // M26 v2：分组时重建 section↔model 映射（reloadData 前）
         collectionView.reloadData()
         select(urls: Array(kept), scroll: false)   // 空集也走 → deselectAll 显式清空（被删项不"漂移"到新项）
         if model.items.isEmpty, !model.isLoading {
@@ -342,13 +363,103 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     func redraw() {
         for ip in collectionView.indexPathsForVisibleItems() {
             guard let cell = collectionView.item(at: ip) as? FileIconItem,
-                  model.items.indices.contains(ip.item) else { continue }
-            let file = model.items[ip.item]
+                  let file = fileItem(at: ip) else { continue }
             let cut = coordinator?.isCut(file.url) ?? false
             cell.configure(icon: thumbOverlay[file.url] ?? Formatters.fullIcon(for: file),
                            name: file.name, dimmed: file.isHidden || cut)
         }
     }
+
+    // MARK: 分组换算（M26 v2）——section↔model 下标映射唯一真源
+
+    private var groupingActive: Bool { FileGrouping.active(model.sort) }
+
+    /// 依当前 model.items（reader 已排序）重建 section 序列 + 刷过滤药丸。
+    private func rebuildSections() {
+        if groupingActive {
+            var gs = FileGrouping.buckets(model.items, key: model.sort.key)
+            if let only = groupFilterKey, !gs.contains(where: { $0.key == only }) { groupFilterKey = nil }
+            if let only = groupFilterKey { gs = gs.filter { $0.key == only } }
+            sections = gs
+        } else {
+            sections = [FileGrouping.Group(key: "__all__", title: "", indices: Array(model.items.indices))]
+            groupFilterKey = nil
+        }
+        updateFilterPill()
+        flowLayout.headerReferenceSize = groupingActive ? NSSize(width: 100, height: 28) : .zero
+        flowLayout.invalidateLayout()
+    }
+
+    /// section+item 下标 → model.items 下标（折叠 section 无可见项 → nil）
+    private func modelIndex(at ip: IndexPath) -> Int? {
+        guard sections.indices.contains(ip.section) else { return nil }
+        let sec = sections[ip.section]
+        if groupingActive, collapsedGroups.contains(sec.key) { return nil }
+        guard sec.indices.indices.contains(ip.item) else { return nil }
+        return sec.indices[ip.item]
+    }
+
+    private func fileItem(at ip: IndexPath) -> FileItem? {
+        guard let i = modelIndex(at: ip), model.items.indices.contains(i) else { return nil }
+        return model.items[i]
+    }
+
+    /// model 下标 → indexPath（在折叠/被过滤 section 内 → nil）
+    private func indexPath(forModelIndex idx: Int) -> IndexPath? {
+        for (s, sec) in sections.enumerated() {
+            if groupingActive, collapsedGroups.contains(sec.key) { continue }
+            if let pos = sec.indices.firstIndex(of: idx) { return IndexPath(item: pos, section: s) }
+        }
+        return nil
+    }
+
+    private func updateFilterPill() {
+        if let only = groupFilterKey, let g = sections.first(where: { $0.key == only }) {
+            filterPill.title = L10n.f("group.filter.pill", g.title)
+            filterPill.isHidden = false
+        } else {
+            filterPill.isHidden = true
+        }
+    }
+
+    /// 重建 section + reload（保 URL 选中）——折叠/过滤/开关变更共用
+    private func rebuildAndReloadPreservingSelection() {
+        let kept = selectionURLCache
+        rebuildSections()
+        collectionView.reloadData()
+        select(urls: Array(kept), scroll: false)
+    }
+
+    @objc func toggleGrouping(_ sender: Any?) {
+        Preferences.listGrouping.toggle()
+        NotificationCenter.default.post(name: Notification.Name.nspaceGroupingChanged, object: nil)
+    }
+
+    @objc private func groupingChanged(_ note: Notification) {
+        rebuildAndReloadPreservingSelection()
+    }
+
+    private func toggleGroup(key: String) {
+        if collapsedGroups.contains(key) { collapsedGroups.remove(key) } else { collapsedGroups.insert(key) }
+        rebuildAndReloadPreservingSelection()
+    }
+
+    private func applyGroupFilter(key: String) { groupFilterKey = key; rebuildAndReloadPreservingSelection() }
+    @objc private func clearGroupFilter(_ sender: Any?) { groupFilterKey = nil; rebuildAndReloadPreservingSelection() }
+    @objc private func groupFilterOnly(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        applyGroupFilter(key: key)
+    }
+    @objc private func groupFilterAll(_ sender: Any?) { groupFilterKey = nil; rebuildAndReloadPreservingSelection() }
+
+    /// UISelfTest（M26 v2）：可见 section 数（分组开=组数；关=1）
+    var uiTestSectionCount: Int { sections.count }
+    var uiTestGroupTitles: [String] { sections.map(\.title) }
+    var uiTestCollapsedCount: Int { collapsedGroups.count }
+    func uiTestToggleFirstGroup() { if let k = sections.first?.key { toggleGroup(key: k) } }
+    func uiTestFilterFirstGroup() { if let k = sections.first?.key { applyGroupFilter(key: k) } }
+    func uiTestClearFilter() { groupFilterKey = nil; rebuildAndReloadPreservingSelection() }
+    var uiTestFilterPillVisible: Bool { !filterPill.isHidden }
 
     // MARK: 按需缩略图（只对可见项、滚出取消——北极星零浪费）
 
@@ -367,8 +478,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         guard view.window != nil, !model.items.isEmpty else { return }
         var wanted = Set<URL>()
         for ip in collectionView.indexPathsForVisibleItems() {
-            guard model.items.indices.contains(ip.item) else { continue }
-            let item = model.items[ip.item]
+            guard let item = fileItem(at: ip) else { continue }
             if thumbOverlay[item.url] == nil, wantsThumbnail(item) {
                 wanted.insert(item.url)
                 requestThumbnail(item.url)
@@ -402,7 +512,8 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
             let image = NSImage(cgImage: cg, size: NSSize(width: 128, height: 128))
             self.thumbOverlay[url] = image
             guard let idx = self.model.items.firstIndex(where: { $0.url == url }),
-                  let cell = self.collectionView.item(at: IndexPath(item: idx, section: 0)) as? FileIconItem
+                  let ip = self.indexPath(forModelIndex: idx),
+                  let cell = self.collectionView.item(at: ip) as? FileIconItem
             else { return }
             cell.setIcon(image)
         }
@@ -411,31 +522,28 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     // MARK: 选中态
 
     var selectedItems: [FileItem] {
-        collectionView.selectionIndexPaths.sorted().compactMap {
-            model.items.indices.contains($0.item) ? model.items[$0.item] : nil
-        }
+        collectionView.selectionIndexPaths.sorted().compactMap { fileItem(at: $0) }
     }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
 
     /// UISelfTest（I-32）：视图层原始选中数（直查 collectionView，不经 model 映射）——验删除后真清空
     var uiTestRawSelectionCount: Int { collectionView.selectionIndexPaths.count }
 
-    /// 按 URL 集恢复选中（视图模式切换迁移 / FSEvents 刷新保留）；标准化路径匹配（尾斜杠跨源差异，I-39）
+    /// 按 URL 集恢复选中（视图模式切换迁移 / FSEvents 刷新保留）；标准化路径匹配（尾斜杠跨源差异，I-39）；
+    /// 经 indexPath(forModelIndex:) 走分组映射（折叠/过滤组内的项自然落选）。
     func select(urls: [URL], scroll: Bool = true) {
         let wanted = Set(urls.map { $0.standardizedFileURL.path })
         var paths = Set<IndexPath>()
         for (i, item) in model.items.enumerated()
         where wanted.contains(item.url.standardizedFileURL.path) {
-            paths.insert(IndexPath(item: i, section: 0))
+            if let ip = indexPath(forModelIndex: i) { paths.insert(ip) }
         }
         collectionView.deselectAll(nil)
         if !paths.isEmpty {
             collectionView.selectItems(at: paths, scrollPosition: scroll ? .nearestHorizontalEdge : [])
         }
         // 程序化 select/deselect 不触发 delegate → 手动同步缓存为"实得的精确匹配集"（空即空）
-        selectionURLCache = Set(paths.compactMap {
-            model.items.indices.contains($0.item) ? model.items[$0.item].url : nil
-        })
+        selectionURLCache = Set(paths.compactMap { fileItem(at: $0)?.url })
     }
 
     // MARK: 显露（新建后选中；图标视图不支持行内重命名，rename 忽略——诚实不装）
@@ -446,12 +554,12 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         // 标准化路径比较：目录条目 URL 带尾斜杠、导航/新建来源的不带（I-39 同病同修）
         guard let pending = pendingReveal else { return }
         let p = pending.url.standardizedFileURL.path
-        guard let idx = model.items.firstIndex(where: { $0.url.standardizedFileURL.path == p })
+        guard let idx = model.items.firstIndex(where: { $0.url.standardizedFileURL.path == p }),
+              let ip = indexPath(forModelIndex: idx)
         else { return }
         pendingReveal = nil
         collectionView.deselectAll(nil)
-        collectionView.selectItems(at: [IndexPath(item: idx, section: 0)],
-                                   scrollPosition: .nearestHorizontalEdge)
+        collectionView.selectItems(at: [ip], scrollPosition: .nearestHorizontalEdge)
         selectionURLCache = [pending.url]   // I-32：程序化选中同步缓存真源
         onSelectionChange?()
     }
@@ -569,6 +677,9 @@ extension FileIconGridViewController: @preconcurrency NSMenuItemValidation {
         case #selector(pasteItems(_:)), #selector(paste(_:)):
             return NSPasteboard.general.canReadObject(forClasses: [NSURL.self],
                                                       options: [.urlReadingFileURLsOnly: true])
+        case #selector(toggleGrouping(_:)):
+            menuItem.state = Preferences.listGrouping ? .on : .off
+            return true
         default:
             return true
         }
@@ -578,20 +689,53 @@ extension FileIconGridViewController: @preconcurrency NSMenuItemValidation {
 // MARK: - 数据源 / 委托
 
 extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionViewDelegate {
+    func numberOfSections(in collectionView: NSCollectionView) -> Int { sections.count }
+
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-        model.items.count
+        guard sections.indices.contains(section) else { return 0 }
+        if groupingActive, collapsedGroups.contains(sections[section].key) { return 0 }
+        return sections[section].indices.count
     }
 
     func collectionView(_ collectionView: NSCollectionView,
                         itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: FileIconItem.reuseID, for: indexPath)
-        guard let cell = item as? FileIconItem, model.items.indices.contains(indexPath.item) else { return item }
-        let file = model.items[indexPath.item]
+        guard let cell = item as? FileIconItem, let file = fileItem(at: indexPath) else { return item }
         let cut = coordinator?.isCut(file.url) ?? false
         // 快路径先出类型图标；已到货的内容缩略图直接用（升级路径见 requestThumbnail）
         cell.configure(icon: thumbOverlay[file.url] ?? Formatters.fullIcon(for: file),
                        name: file.name, dimmed: file.isHidden || cut)
         return item
+    }
+
+    /// 分组组头（悬浮 section header）：折叠三角 + 「2026年8月」 + 项数；点击折叠、右键过滤（M26 v2）
+    func collectionView(_ collectionView: NSCollectionView,
+                        viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind,
+                        at indexPath: IndexPath) -> NSView {
+        let header = collectionView.makeSupplementaryView(
+            ofKind: kind, withIdentifier: IconGroupHeaderView.reuseID, for: indexPath) as! IconGroupHeaderView
+        guard groupingActive, sections.indices.contains(indexPath.section) else {
+            header.configure(title: "", count: 0, collapsed: false); return header
+        }
+        let g = sections[indexPath.section]
+        header.configure(title: g.title, count: g.indices.count, collapsed: collapsedGroups.contains(g.key))
+        header.onToggle = { [weak self] in self?.toggleGroup(key: g.key) }
+        header.menuProvider = { [weak self] in self?.buildGroupMenu(key: g.key) }
+        return header
+    }
+
+    /// 组头右键菜单（FG-3：仅显示此组 / 显示全部组）
+    private func buildGroupMenu(key: String) -> NSMenu {
+        let menu = NSMenu()
+        let only = menu.addItem(withTitle: L10n.t("group.filter.only"),
+                                action: #selector(groupFilterOnly(_:)), keyEquivalent: "")
+        only.target = self
+        only.representedObject = key
+        let all = menu.addItem(withTitle: L10n.t("group.filter.all"),
+                               action: #selector(groupFilterAll(_:)), keyEquivalent: "")
+        all.target = self
+        all.isEnabled = (groupFilterKey != nil)
+        return menu
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
@@ -616,8 +760,7 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
 
     func collectionView(_ collectionView: NSCollectionView,
                         pasteboardWriterForItemAt indexPath: IndexPath) -> (any NSPasteboardWriting)? {
-        guard model.items.indices.contains(indexPath.item) else { return nil }
-        return model.items[indexPath.item].url as NSURL
+        fileItem(at: indexPath)?.url as NSURL?
     }
 
     // MARK: 投放目标（BG-1：落点只发意图，kind 判定与提交在 coordinator）
@@ -628,10 +771,9 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
         guard let urls = Self.draggedFileURLs(draggingInfo), !urls.isEmpty else { return [] }
         // 落点归一：目录项=投进该文件夹；文件项/空白=投进当前目录
         var target = model.directory
-        let idx = proposedIndexPath.pointee.item
-        if dropOperation.pointee == .on, model.items.indices.contains(idx),
-           model.items[idx].isDirectory, !model.items[idx].isPackage {
-            target = model.items[idx].url
+        let dropItem = fileItem(at: proposedIndexPath.pointee as IndexPath)
+        if dropOperation.pointee == .on, let f = dropItem, f.isDirectory, !f.isPackage {
+            target = f.url
         } else {
             dropOperation.pointee = .before
         }
@@ -654,9 +796,8 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
                         indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
         guard let urls = Self.draggedFileURLs(draggingInfo), !urls.isEmpty else { return false }
         var target = model.directory
-        if dropOperation == .on, model.items.indices.contains(indexPath.item),
-           model.items[indexPath.item].isDirectory, !model.items[indexPath.item].isPackage {
-            target = model.items[indexPath.item].url
+        if dropOperation == .on, let f = fileItem(at: indexPath), f.isDirectory, !f.isPackage {
+            target = f.url
         }
         coordinator?.dropTransfer(urls: urls, into: target,
                                   forceCopy: draggingInfo.draggingSourceOperationMask == .copy)
@@ -693,9 +834,63 @@ extension FileIconGridViewController: @preconcurrency QLPreviewPanelDataSource, 
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
         guard let url = (item as? NSURL) as URL?,
               let idx = model.items.firstIndex(where: { $0.url == url }),
-              let attrs = collectionView.layoutAttributesForItem(at: IndexPath(item: idx, section: 0)),
+              let ip = indexPath(forModelIndex: idx),
+              let attrs = collectionView.layoutAttributesForItem(at: ip),
               let window = view.window else { return .zero }
         let rect = collectionView.convert(attrs.frame, to: nil)
         return window.convertToScreen(rect)
     }
+}
+
+/// 图标视图分组组头（NSCollectionView section header，M26 v2）：折叠三角 + 「2026年8月」 + 项数。
+/// 整块可点击切折叠（onToggle）；右键出「仅显示此组/显示全部组」过滤菜单（menuProvider）。
+@MainActor
+final class IconGroupHeaderView: NSView {
+    static let reuseID = NSUserInterfaceItemIdentifier("iconGroupHeader")
+
+    var onToggle: (() -> Void)?
+    var menuProvider: (() -> NSMenu?)?
+
+    private let chevron = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let countLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        chevron.contentTintColor = .secondaryLabelColor
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)  // tabular-nums
+        countLabel.textColor = .secondaryLabelColor
+        countLabel.translatesAutoresizingMaskIntoConstraints = false
+        for v in [chevron, titleLabel, countLabel] { addSubview(v) }
+        NSLayoutConstraint.activate([
+            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 12),
+            chevron.heightAnchor.constraint(equalToConstant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
+            countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    func configure(title: String, count: Int, collapsed: Bool) {
+        chevron.image = NSImage.officialSymbol(collapsed ? "chevron.right" : "chevron.down",
+                                               fallback: collapsed ? "arrowtriangle.right.fill"
+                                                                    : "arrowtriangle.down.fill",
+                                               accessibility: title)
+        titleLabel.stringValue = title
+        countLabel.stringValue = L10n.f("group.count", count)
+    }
+
+    override func mouseDown(with event: NSEvent) { onToggle?() }
+    override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
 }

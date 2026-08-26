@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else if ProcessInfo.processInfo.environment["NSPACE_CONFLICT_PREVIEW"] != nil {
                 // 冲突面板真机预览（非产品路径，仅供人眼终审截图）：造夹具冲突并弹真 sheet
                 presentConflictPreview()
+            } else if ProcessInfo.processInfo.environment["NSPACE_GROUPING_PREVIEW"] != nil {
+                // 图标视图分组真机预览（非产品路径，仅供人眼终审截图）：造跨年月夹具 + 图标视图 + 分组
+                presentGroupingPreview()
             } else if ProcessInfo.processInfo.environment["NSPACE_PERF_DIRS"] == nil {
                 // 权限引导：未授权且未勾"不再提示" → 主窗口就绪后弹一次 sheet（自测/性能跑不打扰）
                 promptFullDiskAccessIfNeeded()
@@ -88,6 +91,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         conflicts.insert(FileConflict(source: sSub, existing: dSub, bothDirectories: true), at: 0)
         win.makeKeyAndOrderFront(nil)
         Task { @MainActor in _ = await conflictSheet.arbitrate(operation: UUID(), conflicts: conflicts) }
+    }
+
+    /// 图标视图分组真机预览（NSPACE_GROUPING_PREVIEW）：跨年月夹具 + 图标视图 + 分组，供人眼终审截图。
+    /// 沙箱铁律：只动 temporaryDirectory 下的自建夹具。
+    private func presentGroupingPreview() {
+        guard let wc = NSApp.windows.compactMap({ $0.windowController as? MainWindowController }).first else { return }
+        let fm = FileManager.default
+        let box = fm.temporaryDirectory.appendingPathComponent("nspace-grouping-preview", isDirectory: true)
+        try? fm.createDirectory(at: box, withIntermediateDirectories: true)
+        let cal = Calendar.current
+        for (mi, (y, m)) in [(2026, 8), (2026, 5), (2025, 12)].enumerated() {
+            guard let date = cal.date(from: DateComponents(year: y, month: m, day: 15, hour: 12)) else { continue }
+            for k in 0..<3 {
+                let f = box.appendingPathComponent("文件-\(mi)-\(k).txt")
+                try? Data("x".utf8).write(to: f)
+                try? fm.setAttributes([.modificationDate: date], ofItemAtPath: f.path)
+            }
+        }
+        Preferences.listGrouping = true
+        let pane = wc.grid.activePane
+        pane.setViewMode(.icons)
+        pane.navigate(to: box)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            pane.activeTab.model.sort = SortSpec(key: .dateModified, ascending: false)
+            pane.activeTab.model.reload()
+            wc.window?.makeKeyAndOrderFront(nil)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
