@@ -10,7 +10,13 @@ enum UISelfTest {
         ProcessInfo.processInfo.environment["NSPACE_UITEST"] == "1"
     }
 
-    private static let outDir = URL(fileURLWithPath: "/tmp/nspace-ui")
+    private static let outDir: URL = {
+        // 并行 worktree 隔离：NSPACE_UITEST_OUT 指定私有输出目录，避免多实例抢 /tmp/nspace-ui
+        if let custom = ProcessInfo.processInfo.environment["NSPACE_UITEST_OUT"], !custom.isEmpty {
+            return URL(fileURLWithPath: custom)
+        }
+        return URL(fileURLWithPath: "/tmp/nspace-ui")
+    }()
     private static var lines: [String] = []
     private static var failed = false
 
@@ -597,6 +603,86 @@ enum UISelfTest {
             wc.grid.apply(layout: .single)
             try? await Task.sleep(for: .milliseconds(200))
             try? fs.removeItem(at: sandbox)
+            window.makeKeyAndOrderFront(nil)
+
+            // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
+            // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。
+            // 铁律：只动自建 nspace-uitest-i32-* 夹具（assertSandboxed 守卫）；经 coordinator 走真实
+            //       移废纸篓；等终态后断言视图层选中真清空（原始 selectedRowIndexes 空）且状态栏无"已选"药丸。
+            let i32TrashDir = fs.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+            for (i32Mode, i32Name) in [(PaneViewMode.list, "list"), (.icons, "icons"), (.columns, "columns")] {
+                let token = String(UUID().uuidString.prefix(8))
+                let i32box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i32-\(token)", isDirectory: true)
+                let fileNames = ["nspace-uitest-i32-\(token)-a.txt",
+                                 "nspace-uitest-i32-\(token)-b.txt",
+                                 "nspace-uitest-i32-\(token)-c.txt"]
+                try? fs.createDirectory(at: i32box, withIntermediateDirectories: true)
+                for n in fileNames { try? Data("x".utf8).write(to: i32box.appendingPathComponent(n)) }
+
+                pane.setViewMode(i32Mode)
+                try? await Task.sleep(for: .milliseconds(250))
+                pane.navigate(to: i32box)
+                // 焦点视图可见项数（分栏读焦点列，列/图标读共享 model）
+                @MainActor func i32VisibleCount() -> Int {
+                    i32Mode == .columns ? (pane.activeTab.columnVC?.statusCounts.items ?? 0)
+                                        : pane.activeTab.model.items.count
+                }
+                _ = await pollFS { i32VisibleCount() >= 3 }
+                try? await Task.sleep(for: .milliseconds(200))
+
+                // 选中前两项，走各视图真实选中链；victims 取自"已载入的真实项 URL"（避免 symlink 路径不匹配）
+                let victims: [URL]
+                switch i32Mode {
+                case .list, .icons:
+                    victims = Array(pane.activeTab.model.items.prefix(2)).map(\.url)
+                case .columns:
+                    victims = Array((pane.activeTab.columnVC?.uiTestFocusedColumnItemURLs ?? []).prefix(2))
+                }
+                switch i32Mode {
+                case .list:    pane.activeTab.listVC.select(urls: victims)
+                case .icons:   pane.activeTab.iconVC?.select(urls: victims)
+                case .columns: pane.activeTab.columnVC?.uiTestSelectInFocusedColumn(victims)
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+                let selBefore = pane.currentSelectionCount
+
+                let gI32 = victims.allSatisfy { assertSandboxed($0) }
+                record(gI32, "沙箱守卫[\(i32Name)]: I-32 移废纸篓目标在自建夹具内")
+                if gI32 { wc.coordinator.moveToTrash(victims) }   // 真实 coordinator → kernel → trash
+                // 等终态：焦点视图只剩 1 项（reloadLists 在 kernel 终态后触发）
+                let settled = gI32 ? (await pollFS { i32VisibleCount() == 1 }) : false
+                try? await Task.sleep(for: .milliseconds(150))
+
+                // 断言：视图层原始选中数=0（不是"漂移"到新行）且状态栏无"已选"药丸
+                let rawSel: Int
+                switch i32Mode {
+                case .list:    rawSel = pane.activeTab.listVC.tableView.selectedRowIndexes.count
+                case .icons:   rawSel = pane.activeTab.iconVC?.uiTestRawSelectionCount ?? -1
+                case .columns: rawSel = pane.activeTab.columnVC?.uiTestFocusedRawSelectionCount ?? -1
+                }
+                let pillVisible = pane.uiTestRefreshAndSelectionPillVisible()
+                record(selBefore == 2 && settled && rawSel == 0 && !pillVisible,
+                       "多选删除后选中清空[\(i32Name)]（删前选\(selBefore)、终态余1=\(settled)、删后选\(rawSel)、药丸=\(pillVisible)）")
+
+                // 清理：夹具目录 + 落入废纸篓的唯一名测试件（token 唯一，安全）
+                switch i32Mode {
+                case .list:    pane.activeTab.listVC.select(urls: [])
+                case .icons:   pane.activeTab.iconVC?.select(urls: [])
+                case .columns: pane.activeTab.columnVC?.select(urls: [])
+                }
+                pane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(150))
+                try? fs.removeItem(at: i32box)
+                if let entries = try? fs.contentsOfDirectory(atPath: i32TrashDir.path) {
+                    for e in entries where e.hasPrefix("nspace-uitest-i32-\(token)") {
+                        try? fs.removeItem(at: i32TrashDir.appendingPathComponent(e))
+                    }
+                }
+            }
+            pane.setViewMode(.list)
+            pane.navigate(to: fs.homeDirectoryForCurrentUser)
+            try? await Task.sleep(for: .milliseconds(150))
             window.makeKeyAndOrderFront(nil)
 
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）

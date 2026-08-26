@@ -46,6 +46,27 @@ final class FileColumnViewController: NSViewController {
     }
     var selectedURLs: [URL] { selectedItems.map(\.url) }
 
+    /// UISelfTest（I-32）：焦点列视图层原始选中行数（直查 tableView）——验删除后真清空
+    var uiTestFocusedRawSelectionCount: Int {
+        columns.indices.contains(focusedColumnIndex)
+            ? columns[focusedColumnIndex].tableView.selectedRowIndexes.count : 0
+    }
+
+    /// UISelfTest（I-32）：在焦点列按 URL 集选中（模拟用户多选；走真实选中变更链）
+    func uiTestSelectInFocusedColumn(_ urls: [URL]) {
+        guard columns.indices.contains(focusedColumnIndex) else { return }
+        let col = columns[focusedColumnIndex]
+        let wanted = Set(urls)
+        var idx = IndexSet()
+        for (i, item) in col.items.enumerated() where wanted.contains(item.url) { idx.insert(i) }
+        col.tableView.selectRowIndexes(idx, byExtendingSelection: false)
+    }
+
+    /// UISelfTest（I-32）：焦点列当前项 URL（供测试取真实 URL，避免 symlink 路径不匹配）
+    var uiTestFocusedColumnItemURLs: [URL] {
+        columns.indices.contains(focusedColumnIndex) ? columns[focusedColumnIndex].items.map(\.url) : []
+    }
+
     /// 焦点列所在目录（粘贴/新建/空白右键的落点）
     var currentDirectory: URL {
         columns.indices.contains(focusedColumnIndex) ? columns[focusedColumnIndex].directory : model.directory
@@ -623,13 +644,15 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func applyDesiredSelectionIfLoaded() {
-        guard !desiredSelection.isEmpty, !items.isEmpty else { return }
+        guard !items.isEmpty else { return }          // 空列无行可选；desiredSelection 保留待后续载入
+        guard !desiredSelection.isEmpty else { return } // 无待恢复选中：不动现状
         var indexes = IndexSet()
         for (i, item) in items.enumerated() where desiredSelection.contains(item.url) {
             indexes.insert(i)
         }
         desiredSelection = []
-        guard !indexes.isEmpty else { return }
+        // I-32：精确匹配集即恢复；空集（选中项全被删）也显式 select 清空——
+        // 不再 `guard !indexes.isEmpty else { return }` 留 reloadData 的按行号残留（删除后选中"漂移"真凶）
         isProgrammaticSelection = true
         tableView.selectRowIndexes(indexes, byExtendingSelection: false)
         isProgrammaticSelection = false
