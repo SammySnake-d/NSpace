@@ -15,7 +15,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="license"></a>
 </p>
 
-![双栏工作区](docs/assets/screenshot-dual.png)
+![双栏工作区](docs/assets/screenshot.png)
 
 ## 为什么做 NSpace
 

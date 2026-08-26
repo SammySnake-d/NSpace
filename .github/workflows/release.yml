@@ -26,10 +26,17 @@ jobs:
           ditto -c -k --keepParent build/NSpace.app "NSpace-${GITHUB_REF_NAME}.zip"
           shasum -a 256 "NSpace-${GITHUB_REF_NAME}.zip" | tee checksums.txt
 
+      - name: 提取本版 CHANGELOG 作为 Release 说明
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v ver="$V" '$0 ~ "^## \\["ver"\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > release-body.md
+          [ -s release-body.md ] || echo "（本版无独立 CHANGELOG 节，见仓库 CHANGELOG.md）" > release-body.md
+          cat release-body.md
+
       - name: 创建 Release 并上传资产
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-body.md
           files: |
             NSpace-*.zip
             checksums.txt
-          generate_release_notes: true

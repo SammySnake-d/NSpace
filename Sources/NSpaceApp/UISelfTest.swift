@@ -301,6 +301,16 @@ enum UISelfTest {
             }
             try? FileManager.default.removeItem(at: tmp2)
 
+            // 公开素材脱敏通道（I-35）：NSPACE_UITEST_DEMO=演示目录 → 截图前全部窗格导航到演示数据，
+            // 保证 README 等公开截图零真实文件名
+            if let demo = env["NSPACE_UITEST_DEMO"], !demo.isEmpty {
+                let demoURL = URL(fileURLWithPath: demo)
+                wc.grid.apply(layout: .dualH)
+                try? await Task.sleep(for: .milliseconds(250))
+                for p in wc.grid.visiblePanes { p.navigate(to: demoURL) }
+                try? await Task.sleep(for: .milliseconds(600))
+            }
+
             // M17 截图矩阵：单/双/四窗格 + 折叠态 + 深/浅外观（人查无裁切/错位）
             wc.setSidebar(collapsed: false)  // 全高侧栏可见（展开态）
             try? await Task.sleep(for: .milliseconds(250))
