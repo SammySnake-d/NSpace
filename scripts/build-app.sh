@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # NSpace 无 Xcode 构建管线：swift build → 组装 .app → 签名
 # 用法: ./scripts/build-app.sh [debug|release]   (默认 release)
+# 签名身份优先级：env SIGN_IDENTITY > 本机固定证书 "NSpace Dev"（I-29 根治：ad-hoc 每次构建换指纹
+# 会让图标服务/TCC 把每个构建当陌生 App——图标空白+FDA 授权漂移）> ad-hoc 兜底（CI 无证书自动落此）
+if [ -z "${SIGN_IDENTITY:-}" ] && security find-identity -v -p codesigning 2>/dev/null | grep -q "NSpace Dev"; then
+  SIGN_IDENTITY="NSpace Dev"
+fi
 # 环境: SIGN_IDENTITY 可指自签证书使 TCC 授权跨构建持久；默认 "-"(ad-hoc)
 set -euo pipefail
 cd "$(dirname "$0")/.."

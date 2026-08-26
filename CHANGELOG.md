@@ -2,6 +2,12 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.15.1] - 2026-08-26
+
+### 修复（I-29 根治）
+- FDA/系统面板图标空白 + 授权随构建漂移：根因 = ad-hoc 每次构建更换签名指纹，系统把每个构建当陌生 App。本机构建自动改用固定自签证书 "NSpace Dev"（env SIGN_IDENTITY 可覆写；CI 无证书自动回落 ad-hoc）；Info.plist 补 CFBundleIconName
+- 签名切换后 TCC 需最后一次重新授权（FDA 开关重拨一次），此后跨构建持久
+
 ## [0.15.0] - 2026-08-26
 
 ### 新增

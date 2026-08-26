@@ -26,6 +26,8 @@
 	<string>NSpace</string>
 	<key>CFBundleIconFile</key>
 	<string>NSpace</string>
+	<key>CFBundleIconName</key>
+	<string>NSpace</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.nspace.NSpace</string>
 	<key>CFBundleLocalizations</key>

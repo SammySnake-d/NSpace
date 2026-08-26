@@ -160,7 +160,7 @@
 - ✅（v0.12.0，用户报障立功）**I-28 Typora"打开文件位置"无反应 → 发现 Reveal 接管真机制**：根因 = QSpace 卸载残留的全局 NSFileViewer 键指向已不存在的 com.jinghaoshe.qspace.pro（open 日志实锤"Finder replacement not found"）——这也揭穿了 I-25 漏扫的一整维：QSpace"替代 Finder"= NSFileViewer 全局键，不走 LaunchServices。实验实证 open -R 经该键真落 NSpace（面包屑审计）。落地：FinderIntegration.revealHandler 三态检测（NSpace/Finder/其他+失效残留红字警示）+ 设置页开关（即时生效可逆）+ debug.lastExternalOpen 审计面包屑。普通"打开文件夹"默认程序仍被 OS 锁定（I-25 结论对该半边维持）。
 - ✅（v0.13.0）**M24 全局呼出/隐藏热键**（用户点名替代 Raycast 桥接）：Carbon RegisterEventHotKey（系统认可全局通道，无需辅助功能权限）——前台按=隐藏、后台按=置顶呼出（无窗自动开新窗）；组合键外部化（设置-通用录制，keyCode 级，Esc 取消/⌫ 清除/强制含修饰键）；注册与切换双断言（smoke 81）。
 - ✅（v0.13.0）**I-25 UI 收尾**：设默认程序永败按钮撤除（FG-1 无假按钮），改诚实状态陈述"由 macOS 锁定为 Finder"（若未来系统解锁状态自动变绿）。
-- ⬜ **I-29 FDA 面板 NSpace 无图标**（用户报告）：包内 CFBundleIconFile/NSpace.icns 完好（Dock 正常）——嫌疑系统设置面板图标缓存；已重启系统设置待用户复核，仍缺则查 TCC 图标解析链。
+- ✅（v0.15.1 根治）**I-29 FDA 面板无图标 + 授权漂移**：根因 ad-hoc 逐构建换指纹被系统当陌生 App。固定自签证书 "NSpace Dev"（用户信任一次）+ CFBundleIconName；构建脚本自动选用、CI 回落 ad-hoc。签名切换后 FDA 重拨一次即永久。
 - ⬜ **I-30 ⌘L 路径编辑首个"/"卡住**（用户报告）：进入编辑后第一次输入 / 无反应需输两次——疑 pathEditor 焦点/补全首键吞字。修复+回归断言。
 - ⬜ **I-31 搜索面板结果无右键菜单**（用户报告，全局/局部同）：结果行应有基本操作菜单（打开/定位/拷贝路径/暂存等）。补菜单+断言。
 - 🚧 **M25 GitHub 开源 + CI 自动发版 + 热更新闭环**（用户点名）：公开仓 SammySnake-d/NSpace、README/LICENSE、tag 触发 CI 构建上传 Release 资产、UpdateEngine 对接（含错误文案桥接修复、默认 feed 指向真仓库、下载去 quarantine、自动下载就绪+重启模式）。
