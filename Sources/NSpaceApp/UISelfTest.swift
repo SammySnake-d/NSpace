@@ -250,6 +250,29 @@ enum UISelfTest {
             sortListVC.tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
             try? await Task.sleep(for: .milliseconds(150))
 
+            // I-27：目录"打开"一律 App 内导航（QSpace 语义；沙箱夹具，绝不碰真实文件）
+            let openSandbox = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nspace-uitest-open-\(UUID().uuidString)", isDirectory: true)
+            let openChild = openSandbox.appendingPathComponent("子文件夹", isDirectory: true)
+            try? FileManager.default.createDirectory(at: openChild, withIntermediateDirectories: true)
+            let openPane = wc.grid.activePane
+            openPane.navigate(to: openSandbox)
+            try? await Task.sleep(for: .milliseconds(500))
+            let openListVC = openPane.activeTab.listVC
+            if let idx = openListVC.model.items.firstIndex(where: { $0.name == "子文件夹" }) {
+                openListVC.tableView.selectRowIndexes([idx], byExtendingSelection: false)
+                openListVC.openSelected(nil)   // 右键"打开"/⌘O 同一路径
+                try? await Task.sleep(for: .milliseconds(400))
+                let landed = openPane.activeTab.browser.current.standardizedFileURL.path
+                record(landed == openChild.standardizedFileURL.path,
+                       "目录右键打开=App 内导航（落点 \(landed.hasSuffix("子文件夹") ? "子文件夹" : landed)）")
+            } else {
+                record(false, "目录右键打开=App 内导航（夹具行未找到）")
+            }
+            openPane.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+            try? await Task.sleep(for: .milliseconds(300))
+            try? FileManager.default.removeItem(at: openSandbox)
+
             // M17-7：暂存架 contentGroup 居中（|中心偏移|≤2pt，I-07 回归）
             let tmp2 = FileManager.default.temporaryDirectory
                 .appendingPathComponent("nspace-uitest-\(UUID().uuidString).txt")
