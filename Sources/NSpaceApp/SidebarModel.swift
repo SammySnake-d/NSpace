@@ -110,13 +110,17 @@ final class SidebarModel {
     }
 
     private func applyRebuild(bookmarks: [BookmarkItem]) {
-        // 书签组：起始位置种子与用户书签同栈。home 域已知路径用 SF Symbol+符号蓝，否则真实文件图标。
+        // 书签组：起始位置种子与用户书签同栈。已知路径优先 Finder 原版侧栏图标（CoreTypes 模板），
+        // 次选 SF Symbol+符号蓝，其余真实文件图标。
         let bookmarkGroup = SidebarGroupNode(kind: .bookmarks, title: L10n.t("sidebar.bookmarks"))
         bookmarkGroup.children = bookmarks.map { item in
             let url = bookmarkStore.resolve(item)
             let icon: NSImage
             var tint: NSColor? = nil
-            if let url, let (symbol, color) = Self.symbolFor(url: url),
+            if let url, let finder = Self.finderSidebarIcon(url: url) {
+                icon = finder
+                tint = .systemBlue
+            } else if let url, let (symbol, color) = Self.symbolFor(url: url),
                let symImage = NSImage(systemSymbolName: symbol, accessibilityDescription: item.name) {
                 icon = symImage
                 tint = color
@@ -213,6 +217,31 @@ final class SidebarModel {
         let target = url.standardizedFileURL.path
         for (u, symbol) in map where u.standardizedFileURL.path == target {
             return (symbol, .systemBlue)
+        }
+        return nil
+    }
+
+    /// Finder 原版侧栏图标（I-20b 用户点名"原版"）：直读系统 CoreTypes 公共资源的
+    /// Sidebar*.icns（Finder 自己用的同一批模板图），isTemplate 随主题着色。
+    /// 优先级高于 SF 近似映射；文件不存在（系统版本差异）自动回退。
+    static func finderSidebarIcon(url: URL) -> NSImage? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let map: [(URL, String)] = [
+            (home, "SidebarHomeFolder"),
+            (home.appendingPathComponent("Desktop"), "SidebarDesktopFolder"),
+            (home.appendingPathComponent("Documents"), "SidebarDocumentsFolder"),
+            (home.appendingPathComponent("Movies"), "SidebarMoviesFolder"),
+            (home.appendingPathComponent("Music"), "SidebarMusicFolder"),
+            (home.appendingPathComponent("Pictures"), "SidebarPicturesFolder"),
+            (home.appendingPathComponent("Downloads"), "SidebarDownloadsFolder"),
+            (URL(fileURLWithPath: "/Applications"), "SidebarApplicationsFolder"),
+        ]
+        let target = url.standardizedFileURL.path
+        for (u, name) in map where u.standardizedFileURL.path == target {
+            let path = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/\(name).icns"
+            guard let img = NSImage(contentsOfFile: path) else { return nil }
+            img.isTemplate = true
+            return img
         }
         return nil
     }

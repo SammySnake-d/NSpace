@@ -143,12 +143,15 @@ private final class TabItemView: NSView {
 
         addSubview(label)
         addSubview(closeButton)
+        // I-23：文字必须在胶囊正中——对称 12/12 内边距 + 居中对齐；
+        // 关闭钮 hover 时叠加在左内边距区，不参与布局（原先"给关闭钮留位"导致文字偏移）
+        label.alignment = .center
         NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 12),
-            label.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 1),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             widthAnchor.constraint(lessThanOrEqualToConstant: 160),
             heightAnchor.constraint(equalToConstant: height),
