@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // I-25 反向直达：Finder 右键"服务 → 用 NSpace 打开"（默认程序被 macOS 27 锁死后的正道）
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
+        // M24：全局呼出/隐藏热键（Carbon，无需 AX；偏好外部化，设置-通用可录制）
+        GlobalHotkey.apply()
         // 组合根（BG-2）：声明式注入 What —— 胶囊节点 + 冲突裁决者 + 进度订阅
         Task { @MainActor in
             await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])

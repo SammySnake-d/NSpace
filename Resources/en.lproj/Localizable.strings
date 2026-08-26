@@ -323,3 +323,9 @@
 "settings.reveal.note" = "Mechanism: global NSFileViewer key (same as QSpace; proven 2026-08-26). Affects reveal/locate requests only; the folder default handler remains OS-locked to Finder. Reversible anytime, effective immediately.";
 "toast.revealOn" = "Reveal takeover enabled";
 "toast.revealOff" = "Restored to Finder";
+"settings.folderDefault.title" = "Default Folder Handler";
+"settings.folderDefault.locked" = "Locked to Finder by macOS — a system-level restriction no app (QSpace included) can change. Reveal requests are covered by the switch above.";
+"settings.globalHotkey" = "Global show/hide";
+"settings.globalHotkey.unset" = "Not set — click to record";
+"settings.globalHotkey.note" = "Press it in any app: hides NSpace when frontmost, summons it otherwise (no Accessibility permission needed). Remove any old Raycast binding to avoid conflicts.";
+"toast.globalHotkeySet" = "Global hotkey active";

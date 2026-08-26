@@ -6,7 +6,6 @@ import AppKit
 final class SettingsWindowController: NSWindowController {
     static let shared = SettingsWindowController()
 
-    private let defaultHandlerButton = NSButton()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
 
     private init() {
@@ -132,8 +131,21 @@ final class SettingsWindowController: NSWindowController {
                                    action: #selector(checkForUpdates))
         checkUpdate.bezelStyle = .push
 
+        // M24：全局呼出/隐藏热键（Carbon，无需辅助功能权限；替代 Raycast 桥接）
+        let hotkeyLabel = NSTextField(labelWithString: L10n.t("settings.globalHotkey"))
+        hotkeyLabel.font = .systemFont(ofSize: 12)
+        hotkeyLabel.widthAnchor.constraint(equalToConstant: 152).isActive = true
+        let hotkeyRecorder = GlobalHotkeyRecorderButton()
+        let hotkeyRow = NSStackView(views: [hotkeyLabel, hotkeyRecorder])
+        hotkeyRow.orientation = .horizontal
+        hotkeyRow.spacing = 8
+        let hotkeyNote = NSTextField(wrappingLabelWithString: L10n.t("settings.globalHotkey.note"))
+        hotkeyNote.font = .systemFont(ofSize: 11)
+        hotkeyNote.textColor = .tertiaryLabelColor
+
         let stack = NSStackView(views: [layoutRow, viewRow, termRow,
                                         NSBox.separatorLine(), hidden, folders, paneBar,
+                                        NSBox.separatorLine(), hotkeyRow, hotkeyNote,
                                         NSBox.separatorLine(), restoreSeeds,
                                         NSBox.separatorLine(), autoUpdate, checkUpdate,
                                         NSBox.separatorLine(), note])
@@ -268,11 +280,9 @@ final class SettingsWindowController: NSWindowController {
         revealNote.font = .systemFont(ofSize: 11)
         revealNote.textColor = .tertiaryLabelColor
 
-        defaultHandlerButton.title = L10n.t("settings.setDefault")
-        defaultHandlerButton.bezelStyle = .push
-        defaultHandlerButton.target = self
-        defaultHandlerButton.action = #selector(setAsDefault)
-
+        // I-25 UI 收尾：设默认程序被 OS 锁死后按钮=永败假按钮（违 FG-1），撤按钮改诚实状态陈述
+        let folderHeader = NSTextField(labelWithString: L10n.t("settings.folderDefault.title"))
+        folderHeader.font = .systemFont(ofSize: 13, weight: .semibold)
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
 
@@ -283,7 +293,7 @@ final class SettingsWindowController: NSWindowController {
         // 完全磁盘访问的按钮与说明统一收口在「权限」页（I-09 去重），此页只留替代 Finder 主题内容
         let stack = NSStackView(views: [revealHeader, revealCheck, revealStatus, revealNote,
                                         NSBox.separatorLine(),
-                                        defaultHandlerButton, statusLabel, limitation])
+                                        folderHeader, statusLabel, limitation])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -305,13 +315,12 @@ final class SettingsWindowController: NSWindowController {
 
     private func refreshFinderState() {
         if FinderIntegration.isDefaultFolderHandler {
+            // 万一某个未来系统版本解锁——状态照实变绿
             statusLabel.stringValue = L10n.t("settings.isDefault")
             statusLabel.textColor = .systemGreen
-            defaultHandlerButton.isEnabled = false
         } else {
-            statusLabel.stringValue = L10n.t("settings.notDefault")
+            statusLabel.stringValue = L10n.t("settings.folderDefault.locked")
             statusLabel.textColor = .secondaryLabelColor
-            defaultHandlerButton.isEnabled = true
         }
     }
 
@@ -340,19 +349,6 @@ final class SettingsWindowController: NSWindowController {
         Toast.show(L10n.t(sender.state == .on ? "toast.revealOn" : "toast.revealOff"), in: window)
     }
 
-    @objc private func setAsDefault() {
-        defaultHandlerButton.isEnabled = false
-        FinderIntegration.requestDefaultFolderHandler { [weak self] error in
-            if let error {
-                self?.statusLabel.stringValue = String(format: L10n.t("settings.setFailed"),
-                                                       error.localizedDescription)
-                self?.statusLabel.textColor = .systemRed
-                self?.defaultHandlerButton.isEnabled = true
-            } else {
-                self?.refreshFinderState()
-            }
-        }
-    }
 }
 
 extension NSBox {
@@ -408,6 +404,71 @@ final class ShortcutRecorderButton: NSButton {
             KeyBindings.set(self.bindingID, key: chars.lowercased(), mods: mods)
             KeyBindings.rebuildMenus()
             self.refreshTitle()
+            return nil
+        }
+    }
+
+    private func endRecording() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+}
+
+
+/// 全局热键录制钮（M24）：记录 keyCode+修饰键（Carbon 需 keyCode）；至少一个修饰键；Esc 取消、⌫ 清除
+@MainActor
+final class GlobalHotkeyRecorderButton: NSButton {
+    private var monitor: Any?
+
+    init() {
+        super.init(frame: .zero)
+        bezelStyle = .rounded
+        font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        target = self
+        action = #selector(beginRecording)
+        widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+        refreshTitle()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    func refreshTitle() {
+        title = GlobalHotkey.current?.display ?? L10n.t("settings.globalHotkey.unset")
+    }
+
+    @objc private func beginRecording() {
+        guard monitor == nil else { return }
+        title = L10n.t("settings.pressKey")
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            defer { self.endRecording() }
+            if event.keyCode == 53 { self.refreshTitle(); return nil }          // Esc 取消
+            if event.keyCode == 51 {                                             // ⌫ 清除
+                GlobalHotkey.clear()
+                self.refreshTitle()
+                return nil
+            }
+            let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard !mods.isEmpty else { NSSound.beep(); self.refreshTitle(); return nil }
+            var disp = ""
+            if mods.contains(.control) { disp += "⌃" }
+            if mods.contains(.option) { disp += "⌥" }
+            if mods.contains(.shift) { disp += "⇧" }
+            if mods.contains(.command) { disp += "⌘" }
+            let keyName: String = {
+                switch event.keyCode {
+                case 49: return "Space"
+                case 36: return "↩"
+                case 48: return "⇥"
+                default: return (event.charactersIgnoringModifiers ?? "?").uppercased()
+                }
+            }()
+            GlobalHotkey.set(mods: mods, keyCode: UInt32(event.keyCode), display: disp + keyName)
+            self.refreshTitle()
+            Toast.show(L10n.t("toast.globalHotkeySet"), in: self.window)
             return nil
         }
     }

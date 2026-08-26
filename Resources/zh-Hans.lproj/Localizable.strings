@@ -323,3 +323,9 @@
 "settings.reveal.note" = "机制：全局 NSFileViewer 键（QSpace 同款，实验实证 2026-08-26）。只影响“定位/显示”类请求；普通“打开文件夹”默认程序仍被 macOS 锁定为 Finder（见下方说明）。随时可关，即时生效。";
 "toast.revealOn" = "已接管「打开文件位置」";
 "toast.revealOff" = "已还给 Finder";
+"settings.folderDefault.title" = "文件夹默认程序";
+"settings.folderDefault.locked" = "由 macOS 锁定为 Finder——系统级限制，任何 App（含 QSpace）都无法更改。定位类请求已由上方开关接管。";
+"settings.globalHotkey" = "全局呼出／隐藏";
+"settings.globalHotkey.unset" = "未设置——点击录制";
+"settings.globalHotkey.note" = "在任何 App 中按此键：NSpace 在前台则隐藏，在后台则置顶呼出（无需辅助功能权限）。若之前用 Raycast 绑定过启动键，记得在 Raycast 里移除旧绑定避免抢占。";
+"toast.globalHotkeySet" = "全局热键已生效";

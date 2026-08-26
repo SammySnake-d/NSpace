@@ -622,6 +622,23 @@ enum UISelfTest {
             }
             try? await Task.sleep(for: .milliseconds(200))
 
+            // M24：全局热键注册 + 呼出/隐藏切换真生效（测完恢复原偏好）
+            let hadHotkey = UserDefaults.standard.string(forKey: GlobalHotkey.prefKey)
+            GlobalHotkey.set(mods: [.control, .option, .shift], keyCode: 79, display: "⌃⌥⇧F18")
+            record(GlobalHotkey.apply(), "全局热键注册成功（⌃⌥⇧F18 测试组合）")
+            GlobalHotkey.toggle()   // 前台 → 隐藏
+            try? await Task.sleep(for: .milliseconds(350))
+            let hiddenOK = NSApp.isHidden || !NSApp.isActive
+            GlobalHotkey.toggle()   // 后台 → 呼出置顶
+            try? await Task.sleep(for: .milliseconds(450))
+            let backOK = NSApp.windows.contains { $0.isVisible && $0.windowController is MainWindowController }
+            record(hiddenOK && backOK, "全局热键呼出/隐藏切换真生效（隐藏=\(hiddenOK) 回归=\(backOK)）")
+            if let hadHotkey { UserDefaults.standard.set(hadHotkey, forKey: GlobalHotkey.prefKey) }
+            else { UserDefaults.standard.removeObject(forKey: GlobalHotkey.prefKey) }
+            GlobalHotkey.apply()
+            window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+
             // 场景6（I-21）：⌘W 分层关闭 + MRU 回退 + 关最后窗口后可重开
             // 6a 分层：设置窗为 key 时 closeTopmost 只关设置窗，不动工作区
             SettingsWindowController.shared.showWindow(nil)

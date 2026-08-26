@@ -54,6 +54,8 @@ require_pass "列头排序真生效[kind]"
 require_pass "列头排序真生效[created]"
 require_pass "列头排序真生效[added]"
 require_pass "目录右键打开=App 内导航"
+require_pass "全局热键注册成功"
+require_pass "全局热键呼出/隐藏切换真生效"
 
 # M23 全功能自测矩阵（v0.11.0）：全部验「真实效果」而非「没崩溃」
 require_pass "视图模式[list]对应视图真在层级且可见"

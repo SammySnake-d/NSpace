@@ -157,3 +157,6 @@
 - ✅（v0.11.2）**I-26 可选列（创建/添加日期）点列头无法排序**（用户报告）：根因 SortSpec.Key 枚举缺 created/added，列注册诚实标了 sortable=false。修复：枚举补全+DirectoryReader 比较器补 case（nil 归 distantPast）+两列开排序+默认排序设置项同步扩展；单测（严格弱序+nil）与 UI 真效果断言双锁；v0.11.3 追加全键矩阵：六列×双向逐一断言+单测补全（用户点名其他列也要进矩阵）。
 - ✅（v0.11.4 核实+加锁）**I-27 "搜索打开跳 Finder"复查**：清查全部 12 处系统 open 调用——四个视图与搜索面板的目录打开均已 App 内导航（I-18 v0.9.3 起），无 activateFileViewer 泄漏。新增沙箱断言锁死"目录打开=App 内"。若用户仍可复现需具体入口步骤。
 - ✅（v0.12.0，用户报障立功）**I-28 Typora"打开文件位置"无反应 → 发现 Reveal 接管真机制**：根因 = QSpace 卸载残留的全局 NSFileViewer 键指向已不存在的 com.jinghaoshe.qspace.pro（open 日志实锤"Finder replacement not found"）——这也揭穿了 I-25 漏扫的一整维：QSpace"替代 Finder"= NSFileViewer 全局键，不走 LaunchServices。实验实证 open -R 经该键真落 NSpace（面包屑审计）。落地：FinderIntegration.revealHandler 三态检测（NSpace/Finder/其他+失效残留红字警示）+ 设置页开关（即时生效可逆）+ debug.lastExternalOpen 审计面包屑。普通"打开文件夹"默认程序仍被 OS 锁定（I-25 结论对该半边维持）。
+- ✅（v0.13.0）**M24 全局呼出/隐藏热键**（用户点名替代 Raycast 桥接）：Carbon RegisterEventHotKey（系统认可全局通道，无需辅助功能权限）——前台按=隐藏、后台按=置顶呼出（无窗自动开新窗）；组合键外部化（设置-通用录制，keyCode 级，Esc 取消/⌫ 清除/强制含修饰键）；注册与切换双断言（smoke 81）。
+- ✅（v0.13.0）**I-25 UI 收尾**：设默认程序永败按钮撤除（FG-1 无假按钮），改诚实状态陈述"由 macOS 锁定为 Finder"（若未来系统解锁状态自动变绿）。
+- ⬜ **I-29 FDA 面板 NSpace 无图标**（用户报告）：包内 CFBundleIconFile/NSpace.icns 完好（Dock 正常）——嫌疑系统设置面板图标缓存；已重启系统设置待用户复核，仍缺则查 TCC 图标解析链。
