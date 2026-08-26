@@ -78,12 +78,18 @@ final class FileColumnViewController: NSViewController {
         hScroll.hasVerticalScroller = false
         hScroll.autohidesScrollers = true
 
+        // 横向滚动 NSStackView：stack 钉 clip 的 top/leading + 高度铺满视口；宽度铺满约束用 .defaultLow。
+        // 宽度铺满若为 required，会把单列内容宽（220）经 required 反推、defeat PaneViewController 挂载
+        // 内容视图用的 999 铺满边约束 → 列宽坍缩（M23 断言实锤 220×…）。降为 .defaultLow 即可少列铺满
+        // 又不与 999 抢。（纵向坍缩另有真凶：ColumnUnit 竖分隔线 NSBox 的伪固有高度，见下方修复。）
         let clip = hScroll.contentView
+        let fillW = stack.widthAnchor.constraint(greaterThanOrEqualTo: clip.widthAnchor)
+        fillW.priority = .defaultLow
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: clip.topAnchor),
             stack.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
             stack.heightAnchor.constraint(equalTo: clip.heightAnchor),
-            stack.widthAnchor.constraint(greaterThanOrEqualTo: clip.widthAnchor),
+            fillW,
         ])
 
         let root = NSView()
@@ -546,6 +552,12 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
+        // 竖向分隔线：NSBox separator 的固有内容尺寸默认为「横线（高=1）」，会经 required 约束链
+        // （separator↔ColumnUnit↔stack↔clip↔scrollView↔列根↔contentContainer）把整列纵向拉塌成 1pt
+        // （M23 断言 + 约束转储实锤 NSContentSizeLayoutConstraint: NSBox.height==1）。把它的纵向
+        // hugging/抗压降到最低，由 top/bottom 约束定高，消除这条伪高度诉求。
+        separator.setContentHuggingPriority(.init(1), for: .vertical)
+        separator.setContentCompressionResistancePriority(.init(1), for: .vertical)
 
         addSubview(scroll)
         addSubview(separator)
