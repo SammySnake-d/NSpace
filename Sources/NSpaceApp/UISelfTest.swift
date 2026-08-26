@@ -653,6 +653,10 @@ enum UISelfTest {
             try? fs.removeItem(at: sandbox)
             window.makeKeyAndOrderFront(nil)
 
+            // NSPACE_UITEST_ONLY=i37：聚焦跑 I-37（跳过 I-30/I-32——二者依赖 NSTextView.complete()
+            // 补全 popup 的嵌套事件循环，在非前台/无 key 窗的 headless 环境会阻塞）。仅调试 I-37 时用。
+            let focusI37 = env["NSPACE_UITEST_ONLY"] == "i37"
+            if !focusI37 {
             // ── I-30：⌘L 进入路径编辑后首键必须【一次生效】——字符落定 + 补全首键即触发（延迟到事务外）──
             // 根因：controlTextDidChange 内同步 complete(nil) 会被文本变更事务吞掉首键补全 popup
             // （首键无反应，需第二键才浮出）。修复：complete(nil) 延迟到下一 runloop。
@@ -769,6 +773,102 @@ enum UISelfTest {
             pane.navigate(to: fs.homeDirectoryForCurrentUser)
             try? await Task.sleep(for: .milliseconds(150))
             window.makeKeyAndOrderFront(nil)
+
+            }  // 结束 if !focusI37（I-30/I-32 环境相关跳过门）
+
+            // ── 场景 I-37：面包屑地址栏宽度自适应——深层级/长名不溢出 + 中间折叠全层级永远可达 ──
+            // 用户原话「尽可能保证地址栏可以展示全部层级」。沙箱建 8 层深、每层 40 字符的目录链，
+            // 导航到最深层后断言：①内容真实不溢出 ②「…」折叠段存在且菜单项数==被折叠层级数
+            // ③程序化触发折叠菜单项 → 窗格路径真跳到该层级 ④可见末段 toolTip==完整名。
+            // 铁律：只动自建 nspace-uitest-i37-* 夹具（assertSandboxed 守卫）；测完清理。
+            wc.grid.apply(layout: .single)
+            pane.setViewMode(.list)
+            try? await Task.sleep(for: .milliseconds(200))
+            window.contentView?.layoutSubtreeIfNeeded()
+            do {
+                let token = String(UUID().uuidString.prefix(8))
+                // 每层名恰 40 字符（唯一可辨识前缀 + 「长」补齐）
+                @MainActor func longName(_ i: Int) -> String {
+                    let prefix = "nspace-uitest-i37-\(token)-L\(i)-"
+                    return prefix + String(repeating: "长", count: max(0, 40 - prefix.count))
+                }
+                let base = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i37-\(token)", isDirectory: true)
+                var deep = base
+                for i in 1...8 { deep = deep.appendingPathComponent(longName(i), isDirectory: true) }
+                try? fs.createDirectory(at: deep, withIntermediateDirectories: true)
+
+                let gI37 = assertSandboxed(deep)
+                record(gI37, "沙箱守卫: I-37 深层链在自建夹具内")
+
+                let bc = pane.uiTestBreadcrumb
+                pane.navigate(to: deep)
+                try? await Task.sleep(for: .milliseconds(400))
+                window.contentView?.layoutSubtreeIfNeeded()
+                bc.layoutSubtreeIfNeeded()
+
+                // ① 不溢出：内容右缘 ≤ 容器宽 + 2（真实测排布，不是"没崩"）
+                let containerW = bc.bounds.width
+                let contentR = bc.uiTestContentRight
+                record(contentR <= containerW + 2,
+                       "I-37 面包屑不溢出（内容右缘 \(Int(contentR)) ≤ 容器 \(Int(containerW))+2）")
+                capture(window, "30-breadcrumb-deep")
+
+                // ② 「…」折叠段存在且菜单项数 == 被折叠层级数
+                let hasEllipsis = bc.uiTestHasEllipsis
+                let collapsed = bc.uiTestCollapsedURLs
+                let menu = bc.uiTestEllipsisMenu()
+                let menuCount = menu?.items.count ?? -1
+                record(hasEllipsis && menu != nil && collapsed.count > 0 && menuCount == collapsed.count,
+                       "I-37 「…」折叠段存在且菜单项数==折叠层级数（折叠 \(collapsed.count)，菜单 \(menuCount)）")
+
+                // ③ 程序化触发折叠菜单中间项 → 窗格路径真跳到该层级
+                if let menu, !menu.items.isEmpty,
+                   let mid = Optional(menu.items[menu.items.count / 2]),
+                   let targetURL = mid.representedObject as? URL {
+                    _ = mid.target?.perform(mid.action, with: mid)
+                    try? await Task.sleep(for: .milliseconds(350))
+                    record(samePath(pane.activeTab.browser.current, targetURL),
+                           "I-37 点折叠菜单项 → 窗格真跳到该层级（\(targetURL.lastPathComponent.prefix(16))…）")
+                } else {
+                    record(false, "I-37 点折叠菜单项 → 窗格真跳到该层级")
+                }
+
+                // 回到最深层，验 ④ 与窄窗格态
+                pane.navigate(to: deep)
+                try? await Task.sleep(for: .milliseconds(350))
+                window.contentView?.layoutSubtreeIfNeeded()
+                bc.layoutSubtreeIfNeeded()
+
+                // ④ 可见末段 toolTip == 完整名（40 字符全名）
+                let tip = bc.uiTestLastSegmentToolTip
+                let full = bc.uiTestLastSegmentFullName
+                record(tip != nil && full != nil && tip == full && (full?.count ?? 0) == 40,
+                       "I-37 可见末段 toolTip==完整名（长度 \(full?.count ?? -1)）")
+
+                // 窄窗格态：缩窄窗口再截一张，逐级折叠后仍真实不溢出
+                let savedFrame = window.frame
+                window.setFrame(NSRect(x: savedFrame.origin.x, y: savedFrame.origin.y,
+                                       width: 520, height: savedFrame.height), display: true)
+                try? await Task.sleep(for: .milliseconds(400))
+                window.contentView?.layoutSubtreeIfNeeded()
+                bc.layoutSubtreeIfNeeded()
+                let narrowW = bc.bounds.width
+                let narrowR = bc.uiTestContentRight
+                record(narrowR <= narrowW + 2,
+                       "I-37 窄窗格仍不溢出（内容右缘 \(Int(narrowR)) ≤ 容器 \(Int(narrowW))+2）")
+                capture(window, "30b-breadcrumb-narrow")
+                window.setFrame(savedFrame, display: true)
+                try? await Task.sleep(for: .milliseconds(250))
+
+                // 清理夹具（token 唯一，安全）
+                pane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(200))
+                try? fs.removeItem(at: base)
+            }
+            window.makeKeyAndOrderFront(nil)
+
+            if focusI37 { return finish() }   // 聚焦模式：I-37 验完即收尾
 
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs

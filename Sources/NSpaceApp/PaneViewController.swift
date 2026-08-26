@@ -376,6 +376,8 @@ final class PaneViewController: NSViewController {
 
     /// UISelfTest（I-30）：程序化进入路径编辑，暴露编辑框以驱动首键探针
     var uiTestPathEditor: PathEditorField { pathEditor }
+    /// UISelfTest（I-37）：暴露面包屑地址栏以驱动截断/折叠/宽度自适应断言
+    var uiTestBreadcrumb: BreadcrumbBar { breadcrumb }
     /// I-30 探针：以指定种子进入编辑（走真实 begin 链，仅替换种子文本便于净首键断言）
     func uiTestBeginPathEditing(seed: String) {
         onRequestFocus?()
