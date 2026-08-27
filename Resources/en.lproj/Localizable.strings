@@ -255,6 +255,7 @@
 "settings.behavior.drag.move" = "Always Move";
 "settings.behavior.doubleClickBlank" = "Double-click background to go up";
 "settings.behavior.listGrouping" = "Group list view by Year/Month (when date-sorted)";
+"settings.behavior.smartSearchSort" = "Smart search order by usage (learns your opens/reveals)";
 "settings.behavior.sort" = "Default Sort";
 "settings.behavior.sort.name" = "Name";
 "settings.behavior.sort.dateModified" = "Date Modified";

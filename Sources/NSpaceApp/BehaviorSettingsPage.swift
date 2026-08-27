@@ -39,6 +39,10 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let grouping = checkRow("settings.behavior.listGrouping",
             checked: Preferences.listGrouping, action: #selector(listGroupingChanged(_:)))
 
+        // M28：聚焦搜索按使用习惯智能排序（默认开）
+        let smartSearch = checkRow("settings.behavior.smartSearchSort",
+            checked: Preferences.searchSmartSort, action: #selector(smartSearchSortChanged(_:)))
+
         let sortRow = makeSortRow()
 
         let tabLimitRow = popupRow("settings.behavior.tabLimit",
@@ -64,7 +68,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         let openNote = note("settings.behavior.openTarget.note")
 
         let stack = NSStackView(views: [
-            enterRow, backspaceRow, dragRow, blank, grouping, sortRow,
+            enterRow, backspaceRow, dragRow, blank, grouping, smartSearch, sortRow,
             NSBox.separatorLine(), tabLimitRow, wsLimitRow, tabLimitNote,
             NSBox.separatorLine(), openHeader, openRow, openNote,
         ])
@@ -209,6 +213,10 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
     @objc private func listGroupingChanged(_ sender: NSButton) {
         Preferences.listGrouping = sender.state == .on
         NotificationCenter.default.post(name: .nspaceGroupingChanged, object: nil)  // 打开窗格即时重组
+    }
+
+    @objc private func smartSearchSortChanged(_ sender: NSButton) {
+        Preferences.searchSmartSort = sender.state == .on   // 下次搜索即时生效（restartSearch 读取）
     }
 
     @objc private func sortKeyChanged(_ sender: NSPopUpButton) {

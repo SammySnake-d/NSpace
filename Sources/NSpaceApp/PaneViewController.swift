@@ -402,6 +402,7 @@ final class PaneViewController: NSViewController {
     // MARK: 导航（唯一入口：历史/地址栏/内容/标签标题四方同步）
 
     func navigate(to url: URL) {
+        coordinator?.recordAccess(url)   // M28：进入文件夹 = 一次使用记账（搜索按习惯排序用）
         activeTab.browser.navigate(to: url)
         applyLocation()
     }

@@ -1,6 +1,7 @@
 import AppKit
 import UniformTypeIdentifiers
 import SearchEngine
+import Frecency
 
 /// 种类过滤（客户端过滤结果，不重发搜索）
 private enum SearchKindFilter: Int, CaseIterable {
@@ -106,6 +107,17 @@ final class SearchPanelController: NSObject {
     /// 每命中深度只算一次（键=url.path）；批次归并/过滤重排复用，不做全量重算
     private var depthCache: [String: Int] = [:]
 
+    /// M28 使用习惯学习排序：注入的 frecency 载体（AppDelegate 设一次，与全应用记账同一实例）
+    var frecencyStore: FrecencyStore?
+    /// 本次搜索的 frecency 快照（搜索任务开头 await 一次；搜索期内稳定，per-hit 同步打分）
+    private var frecencySnapshot: [String: FrecencyEntry] = [:]
+    /// 本次搜索是否走智能排序（偏好开且有查询词）——搜索期内固定
+    private var smartSortActive = false
+    /// 本次查询词（智能匹配打分用）
+    private var currentQuery = ""
+    /// 每命中融合分只算一次（键=url.path）
+    private var scoreCache: [String: Double] = [:]
+
     /// 打开时捕获的"当前文件夹"与定位回调（每次 show 重新注入）
     private var currentDirectory: URL?
     private var onReveal: ((URL) -> Void)?
@@ -195,6 +207,9 @@ final class SearchPanelController: NSObject {
         }
         isSearching = true
         spinner.startAnimation(nil)
+        currentQuery = query
+        smartSortActive = Preferences.searchSmartSort
+        scoreCache = [:]
         let scope: SearchRequest.Scope = scopePopup.indexOfSelectedItem == 0
             ? .global
             : .directory(currentDirectory ?? FileManager.default.homeDirectoryForCurrentUser)
@@ -207,6 +222,9 @@ final class SearchPanelController: NSObject {
                                     includeHidden: hiddenCheck.state == .on)
         searchTask = Task { [weak self] in
             guard let self else { return }
+            // M28：搜索排序前取一次 frecency 快照（放在流之前 → 首批命中即按习惯排序，期内稳定）
+            self.frecencySnapshot = await self.frecencyStore?.snapshot() ?? [:]
+            guard !Task.isCancelled else { return }
             for await batch in engine.search(request) {
                 guard !Task.isCancelled else { return }
                 self.appendResults(batch)
@@ -224,12 +242,12 @@ final class SearchPanelController: NSObject {
         // 选中记忆（I-38）：变更前按 URL 记住当前选中
         let selectedURL = tableView.selectedRow >= 0 && tableView.selectedRow < hits.count
             ? hits[tableView.selectedRow].url : nil
-        // 全局：到达序原地追加（O(1) 摊销）；局部：新批排序后与已序结果线性归并。
-        // 关键修复：绝不用 `hits + visible` 每批全量重拼数组（O(n²) 主线程开销 → 大结果卡死）。
-        if searchRoot == nil {
-            hits.append(contentsOf: visible)
+        // 智能排序（M28）或局部根近序：新批排序后线性归并（O(n) 摊销，避免全量重拼）。
+        // 全局 + 智能关：到达序原地追加（O(1)）。
+        if smartSortActive || searchRoot != nil {
+            hits = merged(hits, visible.sorted(by: rankLess))
         } else {
-            hits = merged(hits, visible.sorted(by: inRankOrder))
+            hits.append(contentsOf: visible)
         }
         tableView.reloadData()
         restoreSelection(selectedURL)
@@ -298,13 +316,39 @@ final class SearchPanelController: NSObject {
             : a.url.path.localizedStandardCompare(b.url.path) == .orderedAscending
     }
 
-    /// 两个已序数组线性归并（hits 不变式：searchRoot 非空时恒按 inRankOrder 有序）
+    // MARK: M28 智能排序（frecency + 匹配质量融合；偏好开时接管全局与局部）
+
+    /// 融合分（每命中只算一次，缓存）：匹配质量 + frecency（快照，搜索期内稳定）。
+    private func smartScore(of hit: SearchHit) -> Double {
+        let key = hit.url.path
+        if let c = scoreCache[key] { return c }
+        let match = SearchRanking.matchScore(query: currentQuery, name: hit.name, path: hit.url.path) ?? 0
+        let frec = frecencySnapshot[hit.url.standardizedFileURL.path]
+            .map { SearchRanking.frecencyScore($0, now: Date()) } ?? 0
+        let s = SearchRanking.fused(match: match, frecency: frec, queryLen: currentQuery.count)
+        scoreCache[key] = s
+        return s
+    }
+
+    /// 排序比较器：智能开 → 融合分降序（局部再按离根近、否则字典序 tiebreak）；智能关 → 原 inRankOrder。
+    private func rankLess(_ a: SearchHit, _ b: SearchHit) -> Bool {
+        guard smartSortActive else { return inRankOrder(a, b) }
+        let sa = smartScore(of: a), sb = smartScore(of: b)
+        if sa != sb { return sa > sb }
+        if searchRoot != nil {
+            let da = depth(of: a), db = depth(of: b)
+            if da != db { return da < db }
+        }
+        return a.url.path.localizedStandardCompare(b.url.path) == .orderedAscending
+    }
+
+    /// 两个已序数组线性归并（hits 不变式：智能/局部时恒按 rankLess 有序）
     private func merged(_ a: [SearchHit], _ b: [SearchHit]) -> [SearchHit] {
         var out: [SearchHit] = []
         out.reserveCapacity(a.count + b.count)
         var i = 0, j = 0
         while i < a.count, j < b.count {
-            if inRankOrder(b[j], a[i]) {
+            if rankLess(b[j], a[i]) {
                 out.append(b[j]); j += 1
             } else {
                 out.append(a[i]); i += 1
@@ -349,8 +393,8 @@ final class SearchPanelController: NSObject {
     @objc private func kindChanged(_ sender: Any?) {
         let filter = selectedKindFilter
         let base = filter == .all ? allHits : allHits.filter { filter.matches($0) }
-        // 过滤切换是显式用户动作：单次全排可接受（深度已缓存，仅比较成本）
-        setHits(searchRoot == nil ? base : base.sorted(by: inRankOrder))
+        // 过滤切换是显式用户动作：单次全排可接受（深度/融合分已缓存，仅比较成本）
+        setHits((smartSortActive || searchRoot != nil) ? base.sorted(by: rankLess) : base)
         updateEmptyState()
     }
 
@@ -367,6 +411,7 @@ final class SearchPanelController: NSObject {
             closePanel()
             onReveal?(url)
         } else {
+            if let store = frecencyStore { Task { await store.record(url) } }   // M28：搜索结果打开=记账
             NSWorkspace.shared.open(url)
         }
     }
@@ -490,6 +535,13 @@ final class SearchPanelController: NSObject {
             ? hits[tableView.selectedRow].url.path : nil
     }
     var uiTestResultPaths: [String] { hits.map(\.url.path) }
+    /// M28：注入智能排序状态（查询词 + frecency 快照 + 开关），配合 uiTestAppend 确定性验证融合排序
+    func uiTestConfigureSmart(query: String, snapshot: [String: FrecencyEntry], active: Bool) {
+        currentQuery = query
+        frecencySnapshot = snapshot
+        smartSortActive = active
+        scoreCache = [:]
+    }
     var uiTestTruncationVisible: Bool { !truncationLabel.isHidden }
     var uiTestResultCount: Int { hits.count }
     /// 首行路径列单元格实渲染文本（真实效果断言：路径真的显示了，不是 tooltip）

@@ -49,6 +49,13 @@ enum Preferences {
         set { d.set(newValue, forKey: "listGrouping") }
     }
 
+    /// 聚焦搜索按使用习惯智能排序（M28，Listary 式 frecency + 匹配质量融合）。默认开；
+    /// 关则回退原排序（局部按离根近、全局按到达序）。
+    static var searchSmartSort: Bool {
+        get { d.object(forKey: "searchSmartSort") as? Bool ?? true }
+        set { d.set(newValue, forKey: "searchSmartSort") }
+    }
+
     /// 侧栏分组顺序（QSpace 语义——用户点名：书签可拖到最前）。
     /// outline 分组键：bookmarks/icloud/volumes（暂存架在专区不入 outline）；拖动分组标题行重排落盘于此。
     static var sidebarGroupOrder: [String] {

@@ -255,6 +255,7 @@
 "settings.behavior.drag.move" = "总是移动";
 "settings.behavior.doubleClickBlank" = "双击空白处前往上层文件夹";
 "settings.behavior.listGrouping" = "列表视图按「年/月」分组（日期排序时）";
+"settings.behavior.smartSearchSort" = "聚焦搜索按使用习惯智能排序（学习你的打开/定位）";
 "settings.behavior.sort" = "新标签默认排序";
 "settings.behavior.sort.name" = "名称";
 "settings.behavior.sort.dateModified" = "修改日期";

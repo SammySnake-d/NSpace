@@ -2,6 +2,7 @@ import AppKit
 import NSpaceKernel
 import NSpaceContracts
 import ArchiveEngine
+import Frecency
 
 /// 操作后显露落点（新建完成 → 选中并按需进入重命名）；列表/图标视图各自实现（分栏传 nil）
 @MainActor
@@ -20,6 +21,15 @@ final class FileOpsCoordinator {
 
     /// 剪切态 URL 集：被剪切的行灰显；粘贴或复制后清空
     private var cutURLs: Set<URL> = []
+
+    /// 使用习惯学习（M28）：全应用打开/进入记账的载体（AppDelegate 注入同一实例；nil=不学习）。
+    var frecencyStore: FrecencyStore?
+
+    /// 记一次访问（打开文件/进入文件夹）——供聚焦搜索按使用习惯排序。actor 异步提交，发后不等。
+    func recordAccess(_ url: URL) {
+        guard let store = frecencyStore else { return }
+        Task { await store.record(url) }
+    }
 
     init(kernel: OperationKernel, grid: PaneGridController) {
         self.kernel = kernel

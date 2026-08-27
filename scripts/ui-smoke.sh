@@ -172,6 +172,10 @@ require_pass "M29 日期列本年隐年份/非本年显年份"
 require_pass "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）"
 # I-43 点选区内收敛卡顿（AppKit 双击间隔~0.5s 等待）：纯单击已选多选行抢先收敛谓词
 require_pass "I-43 点选区内收敛谓词：纯单击多选已选行=抢先收敛，修饰键/双击/选区外/单选=不介入"
+# M28 搜索智能排序（frecency+匹配融合）：开关开=高频次命中最前 / 关=回退到达序
+require_pass "M28 智能排序开：高 frecency 命中排最前"
+require_pass "M28 智能排序关：回退到达序"
+require_pass "M28 UITEST frecency 隔离（记账写临时目录不碰用户真实 frecency）"
 # I-44 第三方"打开文件位置"真定位选中（select 参数此前被丢弃）：接通 + 列表 + 图标视图模式感知
 require_pass "I-44 openWindow(selecting:) 真定位选中目标文件"
 require_pass "I-44 列表视图 reveal 真定位选中目标文件"
@@ -180,6 +184,7 @@ require_pass "I-44 图标视图 reveal 真定位选中目标文件（视图模�
 require_pass "I-45 QL 收起 sourceFrame 淡出(.zero)、开启为图标矩形缩放"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
-# 测试沙箱铁律收尾（I-46）：清理 UITEST 隔离帧键，绝不留测试残留在用户偏好域
+# 测试沙箱铁律收尾（I-46 / M28）：清理 UITEST 隔离态，绝不留测试残留在用户真实域
 defaults delete com.nspace.NSpace "windowFrame.uitest" 2>/dev/null || true
+rm -rf "$TMPDIR/nspace-uitest-frecency" /tmp/nspace-uitest-frecency 2>/dev/null || true
 exit $CODE

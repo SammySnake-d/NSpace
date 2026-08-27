@@ -5,6 +5,7 @@ import Transfer
 import LocalOps
 import ArchiveEngine
 import SessionStore
+import Frecency
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -16,12 +17,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let sessionStore = SessionStore(
         directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NSpace"))
+    /// 使用习惯学习（M28）：全应用打开/进入记账 → 聚焦搜索按 frecency 排序。单一实例，注入到各窗口 coordinator 与搜索面板。
+    let frecencyStore = FrecencyStore(directory: AppDelegate.frecencyDirectory)
+
+    /// frecency 存储目录：UITEST 走隔离临时目录，绝不把测试夹具路径污染进用户真实搜索排序
+    /// （测试沙箱铁律，同 I-46 windowFrame 隔离）。产品走 Application Support。
+    static var frecencyDirectory: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NSpace")
+        return ProcessInfo.processInfo.environment["NSPACE_UITEST"] != nil
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("nspace-uitest-frecency")
+            : support
+    }
     /// 恢复完成前的状态变化不落盘（防启动过程把半成品覆盖上次会话）
     private var sessionReady = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
         Theme.applyAppearance()   // 外观：启动即套明暗模式（跟随系统/浅色/深色）
+        // M28：使用习惯学习排序——搜索面板共享同一 frecencyStore（全应用记账在各窗口 coordinator）
+        SearchPanelController.shared.frecencyStore = frecencyStore
         // I-25 反向直达：Finder 右键"服务 → 用 NSpace 打开"（默认程序被 macOS 27 锁死后的正道）
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
@@ -205,7 +220,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @discardableResult
     func openWindow(at directory: URL, selecting: URL? = nil, orderFront: Bool = true) -> MainWindowController {
-        let wc = MainWindowController(kernel: kernel, initialDirectory: directory, select: selecting)
+        let wc = MainWindowController(kernel: kernel, frecencyStore: frecencyStore,
+                                     initialDirectory: directory, select: selecting)
         windowControllers.append(wc)
         wc.window?.delegate = self
         if orderFront { wc.showWindow(nil) }

@@ -1,6 +1,7 @@
 import AppKit
 import NSpaceContracts
 import SearchEngine
+import Frecency
 
 /// UI 自测通道（NSPACE_UITEST=1 时启动后自动执行；非产品路径，环境变量门控）。
 /// 无需辅助功能/录屏权限：场景由程序化驱动，截图走自渲染（cacheDisplay），
@@ -1055,6 +1056,10 @@ enum UISelfTest {
             record(MainWindowController.frameDefaultsKey == "windowFrame.uitest",
                    "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）")
 
+            // M28 测试沙箱：frecency 记账在 UITEST 走隔离临时目录，绝不污染用户真实搜索排序
+            record(AppDelegate.frecencyDirectory.path.contains("nspace-uitest-frecency"),
+                   "M28 UITEST frecency 隔离（记账写临时目录不碰用户真实 frecency）")
+
             // ── 场景 I-43：点选区内收敛谓词（纯逻辑确定性；行为层 0.5s→0.16s 已真机插桩实测）─────
             let i43a = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [], clickCount: 1, selectedCount: 5, rowIsSelected: true)
             let i43cmd = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [.command], clickCount: 1, selectedCount: 5, rowIsSelected: true)
@@ -1063,6 +1068,9 @@ enum UISelfTest {
             let i43single = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [], clickCount: 1, selectedCount: 1, rowIsSelected: true)
             record(i43a && !i43cmd && !i43dbl && !i43out && !i43single,
                    "I-43 点选区内收敛谓词：纯单击多选已选行=抢先收敛，修饰键/双击/选区外/单选=不介入（\(i43a)/\(i43cmd)/\(i43dbl)/\(i43out)/\(i43single)）")
+
+            // ── 场景 M28：搜索智能排序（frecency+匹配融合）接管排序 vs 开关关回退到达序 ──────────
+            runSmartSortScenario()
 
             // ── 场景 I-44：第三方"打开文件位置"→ openWindow(selecting:) 真定位选中（列表+图标）──
             await runRevealSelectScenario(delegate: delegate)
@@ -1414,6 +1422,38 @@ enum UISelfTest {
         wc.window?.close()
         try? await Task.sleep(for: .milliseconds(150))
         if assertSandboxed(box) { try? fs.removeItem(at: box) }
+    }
+
+    /// M28：搜索智能排序集成——两条同名（同匹配质量）命中仅 frecency 不同，验证：
+    /// 开关开 → 高 frecency 排最前（融合分接管）；开关关 → 回退到达序（frecency 不介入）。
+    /// 走真实 appendResults/rankLess 链（uiTestAppend），确定性、不碰真实引擎与用户文件。
+    private static func runSmartSortScenario() {
+        let sp = SearchPanelController.shared
+        let base = URL(fileURLWithPath: "/tmp/nspace-m28-\(UUID().uuidString.prefix(6))")
+        let a = base.appendingPathComponent("A/note.txt")
+        let b = base.appendingPathComponent("B/note.txt")
+        func hit(_ u: URL) -> SearchHit {
+            SearchHit(url: u, name: "note.txt", isDirectory: false, size: 1, modified: nil,
+                      contentTypeID: "public.plain-text")
+        }
+        let snapshot = [b.standardizedFileURL.path: FrecencyEntry(count: 12, lastAccess: Date())]
+
+        // 智能开：B（高 frecency）排到 A 前（二者匹配质量相同 → 仅 frecency 决定）
+        sp.uiTestReset(root: nil)
+        sp.uiTestConfigureSmart(query: "note", snapshot: snapshot, active: true)
+        sp.uiTestAppend([hit(a), hit(b)])
+        let onFirst = sp.uiTestResultPaths.first
+        record(onFirst == b.path,
+               "M28 智能排序开：高 frecency 命中排最前（首=\((onFirst.map { ($0 as NSString).lastPathComponent }) ?? "nil")，期望 B/note.txt）")
+
+        // 智能关：回退到达序（先 append A → A 在前，不受 frecency 影响）
+        sp.uiTestReset(root: nil)
+        sp.uiTestConfigureSmart(query: "note", snapshot: snapshot, active: false)
+        sp.uiTestAppend([hit(a), hit(b)])
+        let offFirst = sp.uiTestResultPaths.first
+        record(offFirst == a.path,
+               "M28 智能排序关：回退到达序（首=\((offFirst.map { ($0 as NSString).lastPathComponent }) ?? "nil")，期望 A/note.txt）")
+        sp.uiTestReset(root: nil)
     }
 
     // MARK: 工具

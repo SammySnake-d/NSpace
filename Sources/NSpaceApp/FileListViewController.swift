@@ -517,6 +517,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         if item.isDirectory && !item.isPackage {
             onNavigate?(item.url)
         } else {
+            coordinator?.recordAccess(item.url)   // M28：打开文件 = 一次使用记账
             NSWorkspace.shared.open(item.url)
         }
     }

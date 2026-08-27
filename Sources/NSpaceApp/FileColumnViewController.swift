@@ -280,6 +280,7 @@ final class FileColumnViewController: NSViewController {
         let item = column.items[row]
         // 目录已由单击下钻；文件/包 = 系统默认 App 打开
         if !item.isDirectory || item.isPackage {
+            coordinator?.recordAccess(item.url)   // M28：打开文件 = 一次使用记账
             NSWorkspace.shared.open(item.url)
         }
     }
@@ -385,6 +386,7 @@ final class FileColumnViewController: NSViewController {
             if item.isDirectory && !item.isPackage {
                 onNavigate?(item.url)
             } else {
+                coordinator?.recordAccess(item.url)   // M28：打开文件 = 一次使用记账
                 NSWorkspace.shared.open(item.url)
             }
         }

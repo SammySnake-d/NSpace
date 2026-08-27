@@ -3,6 +3,7 @@ import NSpaceKernel
 import BookmarkStore
 import StashStore
 import SessionStore
+import Frecency
 
 /// 主窗口（M17 自绘甲板）：两列贯通结构——
 /// 左列 sidebarColumn（.sidebar 材质全高：红绿灯行 + 暂存架 + 书签），
@@ -33,10 +34,12 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     private var sidebarCollapsedState = false
     private var keyMonitor: Any?
 
-    init(kernel: OperationKernel, initialDirectory: URL, select: URL? = nil) {
+    init(kernel: OperationKernel, frecencyStore: FrecencyStore? = nil,
+         initialDirectory: URL, select: URL? = nil) {
         self.kernel = kernel
         self.grid = PaneGridController(initialDirectory: initialDirectory)
         self.coordinator = FileOpsCoordinator(kernel: kernel, grid: grid)
+        self.coordinator.frecencyStore = frecencyStore   // M28：全应用打开/进入记账
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NSpace")
         let model = SidebarModel(bookmarkStore: BookmarkStore(directory: supportDir))

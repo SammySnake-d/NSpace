@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.19.0] - 2026-08-27
+
+### 里程碑：M28 使用习惯学习排序（Listary 式 frecency + 匹配质量融合，用户点名）
+- **搜索自动按习惯排序**：聚焦搜索结果不再需要手动选位置才排得好——现按「匹配质量 + 使用频次×新近（frecency）」自动排序。你越常打开、越近打开的文件/文件夹，搜同名时越靠前。短查询更靠使用习惯、长查询更靠匹配质量（对齐 Listary 观测行为）
+- **全应用学习**：不只搜索面板——整个 App 里打开文件、进入文件夹、搜索定位都会记账，故冷启动即反映你的真实习惯（一个你天天用但从没经搜索打开过的文件也会靠前）
+- **匹配质量分层**：精确名 > 名前缀 > 词边界 > 名子串 > 路径子串 > 缩写/子序列（如 "prfi8" 命中 "program files 86"），参照 fzf/fzy 的词首/连续命中加权
+- **设置开关**（使用习惯页，默认开）：不喜欢可关，回到原来的排序（全局到达序 / 局部离根近序）
+
+### 实现
+- 新增 `Frecency` 胶囊：`FrecencyStore`（actor 持久化 count+lastAccess，30 天半衰期指数衰减，超容量按分淘汰最低）+ `SearchRanking`（纯逻辑：匹配打分 + 与 frecency 的融合，权重随查询长度调节）。四公理合规（构造注入无单例、独立自证测试、零跨胶囊依赖）
+- 记账经 `FileOpsCoordinator.recordAccess` 单一实例注入（`PaneViewController.navigate` 记文件夹、三视图 `open()` 记文件、搜索打开记账）；`SearchPanelController` 搜索开头 `await snapshot()` 后用 `rankLess` 融合比较器接管排序，复用流式线性归并（不退回 O(n²)）
+- **测试沙箱铁律**：UITEST 下 frecency 记账写隔离临时目录（`AppDelegate.frecencyDirectory`），绝不把测试夹具路径污染进用户真实搜索排序（同 I-46 windowFrame 隔离的教训）
+
+### 测试
+- Frecency 胶囊 11 单测（衰减 30 天减半、新近压过久远高频、匹配分层序、融合短/长查询主导、record 累加、持久化往返、超容量淘汰保留热路径）；15→17 套件全绿
+- ui-smoke 138 → 141：M28 智能排序开（高 frecency 命中排最前）/ 关（回退到达序）/ UITEST frecency 隔离 ×3
+
 ## [0.18.6] - 2026-08-27
 
 ### 修复
