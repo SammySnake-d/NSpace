@@ -158,7 +158,12 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
             name: NSWindow.willCloseNotification, object: window)
 
         sidebar.onNavigate = { [weak self] url in self?.grid.activePane.navigate(to: url) }
-        grid.onActiveLocationChange = { [weak self] url in self?.updateTitle(for: url) }
+        grid.onActiveLocationChange = { [weak self] url in
+            self?.updateTitle(for: url)
+            // I-47：导航即落盘（防抖 1s）——否则位置只在干净退出才保存，非干净退出（热更新重启/强退/
+            // Mac 重启/崩溃）会回退到 home。restore 期间 sessionReady=false，noteStateChanged 被 guard 挡住不自覆盖。
+            (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+        }
         grid.onActiveStatusChange = { [weak self] in
             guard let self else { return }
             self.deck.validateActions(hasSelection: self.grid.activePane.currentSelectionCount > 0)

@@ -1056,9 +1056,9 @@ enum UISelfTest {
             record(MainWindowController.frameDefaultsKey == "windowFrame.uitest",
                    "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）")
 
-            // M28 测试沙箱：frecency 记账在 UITEST 走隔离临时目录，绝不污染用户真实搜索排序
-            record(AppDelegate.frecencyDirectory.path.contains("nspace-uitest-frecency"),
-                   "M28 UITEST frecency 隔离（记账写临时目录不碰用户真实 frecency）")
+            // M28/I-47 测试沙箱：frecency 记账 + 会话保存在 UITEST 走隔离临时目录，绝不污染用户真实排序/会话
+            record(AppDelegate.supportDirectory.path.contains("nspace-uitest-support"),
+                   "M28/I-47 UITEST 存储隔离（frecency/session 写临时目录不碰用户真实数据）")
 
             // ── 场景 I-43：点选区内收敛谓词（纯逻辑确定性；行为层 0.5s→0.16s 已真机插桩实测）─────
             let i43a = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [], clickCount: 1, selectedCount: 5, rowIsSelected: true)
@@ -1071,6 +1071,9 @@ enum UISelfTest {
 
             // ── 场景 M28：搜索智能排序（frecency+匹配融合）接管排序 vs 开关关回退到达序 ──────────
             runSmartSortScenario()
+
+            // ── 场景 I-47：导航即落盘（会话记住上次目录，非干净退出也不回 home）──────────────────
+            await runSessionSaveScenario(delegate: delegate)
 
             // ── 场景 I-44：第三方"打开文件位置"→ openWindow(selecting:) 真定位选中（列表+图标）──
             await runRevealSelectScenario(delegate: delegate)
@@ -1454,6 +1457,31 @@ enum UISelfTest {
         record(offFirst == a.path,
                "M28 智能排序关：回退到达序（首=\((offFirst.map { ($0 as NSString).lastPathComponent }) ?? "nil")，期望 A/note.txt）")
         sp.uiTestReset(root: nil)
+    }
+
+    /// I-47：导航即落盘——导航活动窗格到夹具后，会话（隔离存储）应在防抖内记住该目录。
+    /// 证明 onActiveLocationChange→noteStateChanged 生效：位置不再只在干净退出才保存，非干净退出也不回 home。
+    private static func runSessionSaveScenario(delegate: AppDelegate) async {
+        let fs = FileManager.default
+        let token = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory.appendingPathComponent("nspace-uitest-sess-\(token)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        record(assertSandboxed(box), "沙箱守卫[I-47]: 会话夹具在自建夹具内")
+        guard let wc = NSApp.windows.compactMap({ $0.windowController as? MainWindowController }).first else {
+            record(false, "I-47 导航即落盘：会话记住导航目录"); return
+        }
+        let pane = wc.grid.activePane
+        pane.navigate(to: box)   // → onActiveLocationChange → noteStateChanged（UITEST 下 sessionReady=true）
+        try? await Task.sleep(for: .milliseconds(1400))   // SessionStore 防抖 1s + 余量
+        let snap = await delegate.sessionStore.load()
+        let paths = (snap?.windows ?? [])
+            .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }.map { $0.path }
+        let hit = paths.contains(box.path) || paths.contains(box.standardizedFileURL.path)
+        record(hit, "I-47 导航即落盘：会话记住导航目录（隔离 session 含 \(box.lastPathComponent)=\(hit)）")
+        // 收尾：导航回 home + 清夹具
+        pane.navigate(to: fs.homeDirectoryForCurrentUser)
+        try? await Task.sleep(for: .milliseconds(200))
+        if assertSandboxed(box) { try? fs.removeItem(at: box) }
     }
 
     // MARK: 工具

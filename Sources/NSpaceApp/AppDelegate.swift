@@ -14,20 +14,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let conflictSheet = ConflictSheet()
     private var windowControllers: [MainWindowController] = []
     /// 会话快照唯一 Commit Owner（M11）
-    let sessionStore = SessionStore(
-        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NSpace"))
+    let sessionStore = SessionStore(directory: AppDelegate.supportDirectory)
     /// 使用习惯学习（M28）：全应用打开/进入记账 → 聚焦搜索按 frecency 排序。单一实例，注入到各窗口 coordinator 与搜索面板。
-    let frecencyStore = FrecencyStore(directory: AppDelegate.frecencyDirectory)
+    let frecencyStore = FrecencyStore(directory: AppDelegate.supportDirectory)
 
-    /// frecency 存储目录：UITEST 走隔离临时目录，绝不把测试夹具路径污染进用户真实搜索排序
-    /// （测试沙箱铁律，同 I-46 windowFrame 隔离）。产品走 Application Support。
-    static var frecencyDirectory: URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// 应用支持目录：UITEST 走隔离临时目录，绝不把测试夹具路径/记账污染进用户真实会话与搜索排序
+    /// （测试沙箱铁律，同 I-46 windowFrame 隔离；I-47 后 sessionStore 亦经此，因导航即落盘会写 session）。
+    /// 产品走 Application Support/NSpace。
+    static var supportDirectory: URL {
+        let real = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NSpace")
         return ProcessInfo.processInfo.environment["NSPACE_UITEST"] != nil
-            ? FileManager.default.temporaryDirectory.appendingPathComponent("nspace-uitest-frecency")
-            : support
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("nspace-uitest-support")
+            : real
     }
     /// 恢复完成前的状态变化不落盘（防启动过程把半成品覆盖上次会话）
     private var sessionReady = false
