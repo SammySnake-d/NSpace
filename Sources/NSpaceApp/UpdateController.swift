@@ -18,20 +18,25 @@ final class UpdateController {
 
     private var feedURL: URL? { URL(string: Preferences.updateFeedURL) }
 
-    // MARK: 自动检查（启动后台，20 小时节流，失败静默）
+    // MARK: 自动检查（启动后台，1 小时节流，失败静默且不阻塞下次重试）
 
-    /// autoCheckUpdates 开且距 lastUpdateCheck > 20 小时 → 异步检查；失败静默，不打扰。
+    /// autoCheckUpdates 开且距 lastUpdateCheck > 1 小时 → 异步检查；失败静默，不打扰。
+    /// I-51：节流原为 20 小时，新版发布后徽章迟迟不亮（用户报"没有更新按钮"）——降到 1 小时更及时；
+    /// 且失败（断网/GitHub 限流）不再更新 lastUpdateCheck，下次启动可立即重试（限流一小时自愈）。
     func autoCheckIfDue() {
         guard Preferences.autoCheckUpdates else { return }
-        let now = Date().timeIntervalSince1970
-        let elapsed = now - Preferences.lastUpdateCheck
-        guard elapsed > 20 * 3600 else { return }
+        let elapsed = Date().timeIntervalSince1970 - Preferences.lastUpdateCheck
+        guard elapsed > 3600 else { return }
         guard let url = feedURL else { return }
         Task { [weak self] in
             guard let self else { return }
-            let info = try? await self.engine.check(feedURL: url, currentVersion: AppVersion.shortVersion)
-            Preferences.lastUpdateCheck = Date().timeIntervalSince1970
-            if let info { self.markAvailable(info) }
+            do {
+                let info = try await self.engine.check(feedURL: url, currentVersion: AppVersion.shortVersion)
+                Preferences.lastUpdateCheck = Date().timeIntervalSince1970   // 仅成功才记时间
+                if let info { self.markAvailable(info) }
+            } catch {
+                // 失败静默：不弹提示、也不更新 lastUpdateCheck（下次启动可再试）
+            }
         }
     }
 
