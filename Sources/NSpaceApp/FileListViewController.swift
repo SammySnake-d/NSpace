@@ -892,6 +892,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let d = tableView.sortDescriptors.first, let key = d.key,
               let sortKey = SortSpec.Key(rawValue: key) else { return }
         model.sort = SortSpec(key: sortKey, ascending: d.ascending, foldersFirst: model.sort.foldersFirst)
+        // I-50：改排序即落盘（否则排序只在干净退出才保存，非干净退出重启回退到旧排序）——同 I-47 导航即落盘
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {

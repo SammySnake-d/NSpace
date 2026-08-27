@@ -180,6 +180,8 @@ require_pass "M28 智能排序关：回退到达序"
 require_pass "M28/I-47 UITEST 存储隔离（frecency/session 写临时目录不碰用户真实数据）"
 # I-47 重启回 home：导航即落盘（非干净退出也不丢），否则位置只在干净退出才保存
 require_pass "I-47 导航即落盘：会话记住导航目录"
+# I-50 排序不持久化：改排序即落盘（非干净退出也不丢）
+require_pass "I-50 改排序即落盘：会话记住排序列/方向"
 # I-44 第三方"打开文件位置"真定位选中（select 参数此前被丢弃）：接通 + 列表 + 图标视图模式感知
 require_pass "I-44 openWindow(selecting:) 真定位选中目标文件"
 require_pass "I-44 列表视图 reveal 真定位选中目标文件"

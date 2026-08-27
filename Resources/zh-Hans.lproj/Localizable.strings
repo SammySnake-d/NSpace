@@ -203,7 +203,7 @@
 "settings.defaultView" = "新标签默认视图";
 "settings.terminal" = "默认终端程序";
 "settings.showHidden" = "新标签默认显示隐藏文件";
-"settings.foldersFirst" = "排序时文件夹置顶";
+"settings.foldersFirst" = "按名称排序时文件夹置顶";
 "settings.applyNote" = "以上默认值对新窗口/新标签生效；已打开的窗格不受影响。";
 "settings.shortcutHint" = "点击按钮后按下新组合键；Esc 取消，⌫ 清除该快捷键。即时生效。";
 "settings.pressKey" = "按下快捷键…";

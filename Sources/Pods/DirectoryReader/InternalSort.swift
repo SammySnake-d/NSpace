@@ -6,7 +6,9 @@ import NSpaceContracts
 
 func sortItems(_ items: inout [FileItem], by order: SortSpec) {
     items.sort { a, b in
-        if order.foldersFirst {
+        // Finder 式：文件夹置顶仅在「按名称」排时生效；按时间/大小/种类排时一律纯按该列混排
+        // （文件夹与文件交错）——用户点名"选按时间就该纯按时间"（I-50）。
+        if order.foldersFirst && order.key == .name {
             let aDir = a.isDirectory && !a.isPackage
             let bDir = b.isDirectory && !b.isPackage
             if aDir != bDir { return aDir }

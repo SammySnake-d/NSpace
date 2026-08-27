@@ -1496,6 +1496,19 @@ enum UISelfTest {
             .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }.map { $0.path }
         let hit = paths.contains(box.path) || paths.contains(box.standardizedFileURL.path)
         record(hit, "I-47 导航即落盘：会话记住导航目录（隔离 session 含 \(box.lastPathComponent)=\(hit)）")
+
+        // I-50：改排序即落盘（点列头改排序此前不触发保存，非干净退出重启回退旧排序）
+        pane.setViewMode(.list)
+        try? await Task.sleep(for: .milliseconds(150))
+        pane.activeTab.listVC.tableView.sortDescriptors = [NSSortDescriptor(key: "size", ascending: false)]
+        try? await Task.sleep(for: .milliseconds(1400))
+        let snap2 = await delegate.sessionStore.load()
+        let boxTab = (snap2?.windows ?? [])
+            .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }
+            .first { $0.path == box.path || $0.path == box.standardizedFileURL.path }
+        let sortSaved = boxTab?.sortKey == "size" && boxTab?.sortAscending == false
+        record(sortSaved, "I-50 改排序即落盘：会话记住排序列/方向（得 \(boxTab?.sortKey ?? "nil")/\(boxTab.map { String($0.sortAscending) } ?? "nil")，期望 size/false）")
+
         // 收尾：导航回 home + 清夹具
         pane.navigate(to: fs.homeDirectoryForCurrentUser)
         try? await Task.sleep(for: .milliseconds(200))

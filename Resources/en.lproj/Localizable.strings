@@ -203,7 +203,7 @@
 "settings.defaultView" = "Default View";
 "settings.terminal" = "Terminal App";
 "settings.showHidden" = "Show hidden files by default";
-"settings.foldersFirst" = "Folders on top";
+"settings.foldersFirst" = "Keep folders on top (name sort only)";
 "settings.applyNote" = "Defaults apply to new windows/tabs.";
 "settings.shortcutHint" = "Click, then press keys. Esc cancels, ⌫ clears.";
 "settings.pressKey" = "Press shortcut…";

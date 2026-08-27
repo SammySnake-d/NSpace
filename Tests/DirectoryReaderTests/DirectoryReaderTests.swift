@@ -105,4 +105,28 @@ import NSpaceContracts
         sortItems(&items, by: SortSpec(key: .kind, ascending: false, foldersFirst: false))
         #expect(items.map(\.name) == ["a", "b", "c"])
     }
+
+    /// I-50 Finder 式：文件夹置顶只在按名称排时生效；按时间排时文件夹纯按时间混排（不上浮）。
+    @Test func foldersFirstOnlyAppliesToNameSort() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        func node(_ n: String, dir: Bool, m: TimeInterval) -> FileItem {
+            FileItem(url: URL(fileURLWithPath: "/tmp/\(n)"), name: n, isDirectory: dir,
+                     isPackage: false, isSymlink: false, isHidden: false, size: dir ? nil : 1,
+                     modified: t0.addingTimeInterval(m), created: t0, added: t0, contentTypeID: nil)
+        }
+        // 老文件夹 + 新文件
+        var items = [node("newfile.txt", dir: false, m: 100), node("oldfolder", dir: true, m: 10)]
+
+        // 按名称 + 置顶 → 文件夹在前（newfile 名字在后但文件夹上浮）
+        sortItems(&items, by: SortSpec(key: .name, ascending: true, foldersFirst: true))
+        #expect(items.first?.name == "oldfolder")
+
+        // 按修改日期降序 + 置顶 → 纯按时间：新文件在前，老文件夹在后（文件夹不再上浮）
+        sortItems(&items, by: SortSpec(key: .dateModified, ascending: false, foldersFirst: true))
+        #expect(items.map(\.name) == ["newfile.txt", "oldfolder"])
+
+        // 按修改日期升序 + 置顶 → 老文件夹在前（因它更老，非因置顶）
+        sortItems(&items, by: SortSpec(key: .dateModified, ascending: true, foldersFirst: true))
+        #expect(items.map(\.name) == ["oldfolder", "newfile.txt"])
+    }
 }
