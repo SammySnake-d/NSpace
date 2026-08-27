@@ -157,5 +157,8 @@ require_pass "M26v2 图标视图折叠首组"
 require_pass "M26v2 图标视图仅显示此组+药丸，显示全部还原"
 require_pass "M26v2 图标视图选中按 URL 跨 rebuild 保持"
 
+# 窗口尺寸持久化根因（用户报告"更新后尺寸回默认"）：自管恢复权威、不与 macOS 原生恢复竞争
+require_pass "窗口尺寸自管恢复：isRestorable=false（不与 macOS 原生恢复竞争）"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

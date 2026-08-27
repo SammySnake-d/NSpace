@@ -290,6 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             done.signal()
         }
         _ = done.wait(timeout: .now() + 1)
+        // 强制刷偏好落盘：更新流程 openApplication+terminate 会尽快杀本进程，
+        // 保证窗口尺寸/侧栏宽/列显隐等最后写入在被杀前已持久（cfprefsd 未及异步落盘的兜底）
+        UserDefaults.standard.synchronize()
     }
 }
 

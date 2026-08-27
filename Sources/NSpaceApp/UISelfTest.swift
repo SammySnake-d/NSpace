@@ -73,6 +73,10 @@ enum UISelfTest {
 
             capture(window, "00-baseline")
             let baseline = window.frame
+            // 窗口尺寸持久化根因锁（用户报告"更新后尺寸回默认"）：关闭 macOS 原生窗口恢复，
+            // 仅自管 windowFrame 键权威——跨版本更新不与被系统作废的 savedState 竞争
+            record(window.isRestorable == false,
+                   "窗口尺寸自管恢复：isRestorable=false（不与 macOS 原生恢复竞争）")
             // 抓现行：任何窗口尺寸变化记录调用栈（定位"视图切换改窗口尺寸"的真凶）
             var resizeLogs: [String] = []
             let obs = NotificationCenter.default.addObserver(

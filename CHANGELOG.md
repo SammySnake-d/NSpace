@@ -2,6 +2,16 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.18.1] - 2026-08-27
+
+### 修复
+- **版本更新后窗口尺寸/设置回默认**（用户报告）：根因是窗口 `isRestorable` 默认为 true，macOS 原生窗口状态恢复与本应用自管的 `windowFrame` 恢复并存；而系统的 savedState 在二进制/签名变更（即版本更新）时被作废，与自管恢复竞争，导致更新后尺寸回默认——这正是"普通重启正常、版本更新才复位"的分水岭。改为 `isRestorable = false`，自管 `windowFrame` 键成为唯一权威，跨版本更新确定性保留尺寸
+- 关窗前补落一次最终 frame（更新触发的 terminate 可能不走 didEndLiveResize，防最后一次尺寸丢失）；`applicationWillTerminate` 末尾 `UserDefaults.synchronize()` 强制偏好落盘，防更新流程尽快杀进程时最后写入未持久
+- 影响面：窗口尺寸/位置、侧栏宽度、列显隐、布局/视图默认值、快捷键、书签、会话——一切基于 UserDefaults/Application Support 的设置本就存在 `~/Library` 内、更新不覆盖；本次消除唯一会被系统恢复干扰的窗口几何项
+
+### 验证
+- 帧持久化端到端（独立进程 SETFRAME→EXPECTFRAME 900×520 恢复）+ isRestorable=false 断言 + 实测写入 1333×733 经"更新式重启"精确恢复；ui-smoke 127 全绿
+
 ## [0.18.0] - 2026-08-27
 
 ### 新增

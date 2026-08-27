@@ -55,6 +55,10 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.toolbar = nil
+        // 窗口尺寸/位置由自管 windowFrame 键单一权威恢复（见下方 setFrame）。关闭 macOS 原生窗口状态恢复：
+        // 其 savedState 在二进制/签名变更（=版本更新）时被系统作废，与自管恢复竞争会导致"更新后尺寸回默认"
+        // （用户报告根因）。isRestorable=false 后仅自管恢复生效，跨版本更新确定性保留尺寸。
+        window.isRestorable = false
         super.init(window: window)
         // AppKit 经典坑:控制器默认级联窗口会屏蔽 setFrameAutosaveName 的恢复——必须显式关闭
         shouldCascadeWindows = false
@@ -145,6 +149,10 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowFrameChanged(_:)),
             name: NSWindow.didMoveNotification, object: window)
+        // 关窗前落一次最终 frame（更新触发的 terminate/关窗可能未走 didEndLiveResize——防最后一次尺寸丢失）
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowFrameChanged(_:)),
+            name: NSWindow.willCloseNotification, object: window)
 
         sidebar.onNavigate = { [weak self] url in self?.grid.activePane.navigate(to: url) }
         grid.onActiveLocationChange = { [weak self] url in self?.updateTitle(for: url) }
