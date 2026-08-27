@@ -186,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // 复用已有窗口的活动窗格：新建窗格标签定位（文件则显露选中）
                 let pane = wc.grid.activePane
                 pane.openNewTab(at: directory)
-                if let selecting { pane.activeTab.listVC.prepareReveal(selecting, rename: false) }
+                if let selecting { pane.reveal(selecting) }
                 wc.window?.makeKeyAndOrderFront(nil)
             } else if isDir.boolValue {
                 openWindow(at: url)

@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.18.4] - 2026-08-27
+
+### 修复
+- **第三方"打开文件位置"不定位选中文件（I-44，用户报告 Antigravity IDE）**：从 Antigravity 等 App 点"在 Finder 中显示/打开文件位置"，NSpace 接管后只跳到父目录、不选中目标文件。诊断：`openFileURLs` 审计面包屑证实 reveal 请求确已到达（含真实文件路径），故非事件未处理——根因是 `MainWindowController(initialDirectory:select:)` 的 `select` 参数**整段被丢弃、从未应用**。另发现两处 reveal（外部打开的活动窗格分支、搜索结果"在 NSpace 中定位"）硬编码走列表视图，图标/分栏视图下同样不选中。修复：PaneViewController 暴露视图模式感知的 `reveal(_:)`（列表/图标用 pending-reveal、分栏用 desiredSelection，均能扛异步读目录竞态），窗口初始化接通 `select` + 三处 reveal 统一改走该入口
+- **重新 build 后窗口尺寸回默认（I-46，用户报告；I-41 之外的独立根因）**：根因是 `scripts/ui-smoke.sh` 的 UITEST 帧持久化场景把测试尺寸（900×520）写进了**产品同一个** `windowFrame` 真实偏好键——每次跑冒烟（含每次 build 后验证）都覆盖掉用户真实窗口尺寸，违反测试沙箱铁律。修复：UITEST 下帧持久化切到隔离键 `windowFrame.uitest`，产品 `windowFrame` 永不被测试触碰；冒烟收尾自动清理隔离键；已手工清除既有污染值（曾被覆盖为 900×520），下次启动回默认尺寸、之后任意调整即永久记忆
+
+### 说明（诚实边界）
+- **Quick Look 收起动效偏慢（I-45，用户报告）暂列待确认**：QLPreviewPanel 的开合缩放动画时长由 macOS 内建控制，无公开 API 可编程加速；三视图对**可见行**均返回正确的图标锚点（非退化 `.zero`），故可见文件本就是干净的短缩放，速度是系统常量。唯一 App 侧可改的是文件滚出可见区后收起时锚点落到屏幕外导致的"慢滑"退化。待确认卡顿属于哪种场景后再定向处理，不以私有 API 硬改系统动画
+
+### 测试
+- ui-smoke 131 → 136：I-44（openWindow(selecting:) 视图模式无关选中 + 列表/图标各自真选中目标 URL ×3 + 沙箱守卫 ×1）、I-46（UITEST 帧键隔离断言 ×1）；帧持久化 SETFRAME/EXPECTFRAME 端到端在隔离键下仍全绿；实测冒烟后产品 `windowFrame` 键冻结未被改动；15 单测套件全过
+
 ## [0.18.3] - 2026-08-27
 
 ### 新增（M29 人性化时间显示，用户点名 + 截图）

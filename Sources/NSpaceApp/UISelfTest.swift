@@ -1051,6 +1051,13 @@ enum UISelfTest {
             // ── 场景 M29：相对时间纯逻辑（6 桶 keyTitle 落位 + 日期列本年隐年/非本年显年）──────
             runRelativeTimeUnit()
 
+            // ── 场景 I-46：帧持久化键在 UITEST 下隔离，绝不污染用户真实 windowFrame ──────────
+            record(MainWindowController.frameDefaultsKey == "windowFrame.uitest",
+                   "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）")
+
+            // ── 场景 I-44：第三方"打开文件位置"→ openWindow(selecting:) 真定位选中（列表+图标）──
+            await runRevealSelectScenario(delegate: delegate)
+
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
@@ -1335,6 +1342,62 @@ enum UISelfTest {
         let otherYearHasYear = otherYear.contains("2025")   // 非本年显年份
         record(todayOK && ystOK && thisYearNoYear && otherYearHasYear,
                "M29 日期列本年隐年份/非本年显年份（今\(today) 昨\(yst) 本年\(thisYear) 往年\(otherYear)）")
+    }
+
+    /// I-44：第三方"打开文件位置"（Antigravity 等经 activateFileViewerSelectingURLs → openFileURLs →
+    /// openWindow(selecting:)）此前 select 参数被整段丢弃，只到父目录不选中文件。验证：
+    /// ① openWindow(selecting:) 列表视图真选中目标；② pane.reveal 在图标视图（非 listVC）也真选中。
+    /// 沙箱铁律：只动自建 nspace-uitest-reveal-* 夹具。
+    private static func runRevealSelectScenario(delegate: AppDelegate) async {
+        let fs = FileManager.default
+        let token = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory
+            .appendingPathComponent("nspace-uitest-reveal-\(token)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        var files: [URL] = []
+        for i in 0..<4 {
+            let f = box.appendingPathComponent("reveal-\(token)-\(i).txt")
+            try? Data("x".utf8).write(to: f)
+            files.append(f)
+        }
+        let target = files[2]
+        record(files.allSatisfy { assertSandboxed($0) }, "沙箱守卫[I-44]: reveal 夹具 4 文件在自建夹具内")
+
+        // ① 模拟第三方"打开文件位置"默认落点（externalOpenTarget=newTab → openWindow(selecting:)）。
+        // select 参数此前被整段丢弃——此处验证它真被接通并在默认视图落选中（视图模式无关，不受用户默认视图影响）
+        let wc = delegate.openWindow(at: box, selecting: target)
+        let pane = wc.grid.activePane
+        _ = await pollFS { pane.activeTab.model.items.count == 4 }
+        _ = await pollFS { pane.currentSelectionCount == 1 }
+        record(pane.currentSelectionCount == 1,
+               "I-44 openWindow(selecting:) 真定位选中目标文件（select 参数不再被丢弃，选中数=\(pane.currentSelectionCount)）")
+        if let w = wc.window { capture(w, "32-reveal") }
+
+        // ② 列表视图 reveal 分派：navigate 触发异步载入 + pending 选中落位
+        pane.setViewMode(.list)
+        try? await Task.sleep(for: .milliseconds(200))
+        pane.navigate(to: box)
+        pane.reveal(target)
+        _ = await pollFS { pane.activeTab.listVC.selectedURLs.count == 1 }
+        let selList = pane.activeTab.listVC.selectedURLs.map(\.standardizedFileURL)
+        record(selList == [target.standardizedFileURL],
+               "I-44 列表视图 reveal 真定位选中目标文件（\(selList.map(\.lastPathComponent))）")
+
+        // ③ 图标视图 reveal（走 iconVC 分支，非硬编码 listVC）：同 navigate+pending 落位
+        pane.setViewMode(.icons)
+        try? await Task.sleep(for: .milliseconds(250))
+        pane.navigate(to: box)
+        pane.reveal(target)
+        _ = await pollFS { (pane.activeTab.iconVC?.selectedURLs.count ?? 0) == 1 }
+        let selIcon = (pane.activeTab.iconVC?.selectedURLs ?? []).map(\.standardizedFileURL)
+        record(selIcon == [target.standardizedFileURL],
+               "I-44 图标视图 reveal 真定位选中目标文件（视图模式感知，非硬编码 listVC）（\(selIcon.map(\.lastPathComponent))）")
+
+        // 收尾：关测试窗 + 清夹具
+        wc.window?.orderOut(nil)
+        wc.window?.close()
+        try? await Task.sleep(for: .milliseconds(150))
+        if assertSandboxed(box) { try? fs.removeItem(at: box) }
     }
 
     // MARK: 工具

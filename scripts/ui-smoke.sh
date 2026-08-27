@@ -168,5 +168,14 @@ require_pass "I-42 达结果上限显示「仅显示前 N 条」截断提示"
 require_pass "M29 相对分桶 6 桶 keyTitle 落位正确"
 require_pass "M29 日期列本年隐年份/非本年显年份"
 
+# I-46 窗口尺寸被测试污染根因：UITEST 帧键隔离（不写产品 windowFrame）
+require_pass "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）"
+# I-44 第三方"打开文件位置"真定位选中（select 参数此前被丢弃）：接通 + 列表 + 图标视图模式感知
+require_pass "I-44 openWindow(selecting:) 真定位选中目标文件"
+require_pass "I-44 列表视图 reveal 真定位选中目标文件"
+require_pass "I-44 图标视图 reveal 真定位选中目标文件（视图模式感知，非硬编码 listVC）"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
+# 测试沙箱铁律收尾（I-46）：清理 UITEST 隔离帧键，绝不留测试残留在用户偏好域
+defaults delete com.nspace.NSpace "windowFrame.uitest" 2>/dev/null || true
 exit $CODE

@@ -122,7 +122,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         // 自管 frame 持久化恢复——必须在 contentViewController 赋值【之后】：
         // 该赋值会把窗口压回内容适配尺寸(600×400 钳制)，先恢复会被盖掉
         // （用户"尺寸没有持久化"的完整根因；弃 autosave 因其携带系统平铺 tilingState）
-        if let saved = UserDefaults.standard.string(forKey: "windowFrame") {
+        if let saved = UserDefaults.standard.string(forKey: Self.frameDefaultsKey) {
             let r = NSRectFromString(saved)
             if r.width >= 600, r.height >= 400 { window.setFrame(r, display: false) }
         }
@@ -165,6 +165,9 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         workspaces = WorkspaceManager(initial: grid.sessionWindow())
         updateTitle(for: initialDirectory)
         refreshWorkspaceTabs()
+        // I-44：openWindow(selecting:) 传入的待选中项——视图模式感知定位（原 select 参数被整段丢弃，
+        // 导致 Antigravity 等第三方"打开文件位置"只到父目录不选中文件）。pending 机制扛首次异步读目录竞态。
+        if let select { grid.activePane.reveal(select) }
         // 新窗口同步当前已知的更新态（更新在别窗被发现后再开的窗口也带"↑"）
         deck.versionBadge.setUpdateAvailable(UpdateController.shared.available != nil,
                                              latestVersion: UpdateController.shared.available?.version)
@@ -198,7 +201,14 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     /// frame 持久化落盘（拖拽结束/移动/关窗时调；全屏态不写）
     func persistFrameNow() {
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
-        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "windowFrame")
+        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.frameDefaultsKey)
+    }
+
+    /// 帧持久化键：UITEST 走隔离键 `windowFrame.uitest`，绝不污染用户真实 `windowFrame`。
+    /// 测试沙箱铁律（I-46 用户报告"重新 build 后尺寸回默认"根因=冒烟 SETFRAME 写了产品同键，
+    /// 每次跑冒烟都把真实窗口尺寸覆盖为测试值 900×520）。
+    static var frameDefaultsKey: String {
+        ProcessInfo.processInfo.environment["NSPACE_UITEST"] != nil ? "windowFrame.uitest" : "windowFrame"
     }
 
     @objc private func splitDidResize(_ note: Notification) {
@@ -459,7 +469,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
             pane.navigate(to: url)
         } else {
             pane.navigate(to: url.deletingLastPathComponent())
-            pane.activeTab.listVC.prepareReveal(url, rename: false)
+            pane.reveal(url)
         }
         window?.makeKeyAndOrderFront(nil)
     }

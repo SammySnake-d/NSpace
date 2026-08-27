@@ -632,6 +632,10 @@ final class PaneViewController: NSViewController {
         }
     }
 
+    /// 视图模式感知的对外定位入口（外部 reveal / open-in-NSpace / 搜索定位 / 打开新窗选中 共用）：
+    /// 先设目录再调本方法即可——各视图的 pending 机制会在异步读目录完成后落选中（I-44）。
+    func reveal(_ url: URL) { revealAfterLoad(url) }
+
     /// 导航历史（长按历史菜单用）：最近的在前
     var backHistory: [URL] { activeTab.browser.backHistory }
     var forwardHistory: [URL] { activeTab.browser.forwardHistory }
