@@ -848,11 +848,11 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
             ?? TextCellView(identifier: .init("textCell"))
         switch colID {
         case "dateModified":
-            cell.configure(item.modified.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left, monospacedDigits: true)
+            cell.configure(item.modified.map { Formatters.relativeDate($0) } ?? "—", alignment: .left, monospacedDigits: true)
         case "created":
-            cell.configure(item.created.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left, monospacedDigits: true)
+            cell.configure(item.created.map { Formatters.relativeDate($0) } ?? "—", alignment: .left, monospacedDigits: true)
         case "added":
-            cell.configure(item.added.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left, monospacedDigits: true)
+            cell.configure(item.added.map { Formatters.relativeDate($0) } ?? "—", alignment: .left, monospacedDigits: true)
         case "size":
             // 文件用快照字节数；目录快照为 nil → 已回填的 FolderSize 结果，否则占位"—"
             if let bytes = item.size ?? sizeOverlay[item.url] {

@@ -122,7 +122,7 @@ require_pass "I-37 可见末段 toolTip==完整名"
 require_pass "I-37 窄窗格仍不溢出"
 # M26 列表「年/月」分组（验真实效果：组头/折叠/过滤/跨排序选中/开关）
 require_pass "沙箱守卫[m26]: 分组夹具 6 文件在自建夹具内"
-require_pass "M26 分组组头数==3 标题含年月各组2项"
+require_pass "M26 分组组头数==3 相对桶标题正确各组2项"
 require_pass "M26 折叠首组项消失其他不动"
 require_pass "M26 仅显示此组表仅剩该组+药丸可见，显示全部还原"
 require_pass "M26 跨组重排序后选中按 URL 仍在"
@@ -152,7 +152,7 @@ require_pass "M27 文件冲突「合并」禁用（仅文件夹可合并，诚�
 
 # I-34 大小列单行不折行 + M26 v2 图标视图分组（section/折叠/过滤/选中跨 rebuild）
 require_pass "I-34 大小列单行不折行（usesSingleLineMode + 头部截断）"
-require_pass "M26v2 图标视图分组 section==3 标题含年月"
+require_pass "M26v2 图标视图分组 section==3 相对桶标题正确"
 require_pass "M26v2 图标视图折叠首组"
 require_pass "M26v2 图标视图仅显示此组+药丸，显示全部还原"
 require_pass "M26v2 图标视图选中按 URL 跨 rebuild 保持"
@@ -163,6 +163,10 @@ require_pass "窗口尺寸自管恢复：isRestorable=false（不与 macOS 原�
 # I-42 全局搜索卡死根因：大结果集流式累积 O(n) 不卡 + 达上限截断提示（引擎侧上限见 SearchEngineTests）
 require_pass "I-42 大结果流式累积 O(n) 不卡"
 require_pass "I-42 达结果上限显示「仅显示前 N 条」截断提示"
+
+# M29 人性化时间：相对分桶（今天/昨天/本周/本月/今年更早/往年）+ 日期列本年隐年份
+require_pass "M29 相对分桶 6 桶 keyTitle 落位正确"
+require_pass "M29 日期列本年隐年份/非本年显年份"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

@@ -9,11 +9,41 @@ enum Formatters {
     /// 列表/单元格字号（外观设置项；读 Preferences.listFontSize）——变更后经列重建路径重刷
     static var listFontSize: CGFloat { CGFloat(Preferences.listFontSize) }
 
-    static let date: DateFormatter = {
+    /// 相对时间显示（M29）：今天/昨天 →「今天 22:57」；本年 → 省年份「8月24日 22:57」；
+    /// 仅非本年 → 带年份「2025年8月24日 22:57」。`now` 可注入以便确定性测试。
+    /// 参照 Finder：列表列与「显示简介」均用相对格式，本年不赘述年份（用户点名 2026-08-27）。
+    static func relativeDate(_ date: Date, now: Date = Date()) -> String {
+        let cal = Calendar.current
+        if cal.isDate(date, inSameDayAs: now) {
+            return L10n.t("date.today") + " " + timeOnly.string(from: date)
+        }
+        if let yst = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: yst) {
+            return L10n.t("date.yesterday") + " " + timeOnly.string(from: date)
+        }
+        if cal.isDate(date, equalTo: now, toGranularity: .year) {
+            return sameYearDateTime.string(from: date)
+        }
+        return otherYearDateTime.string(from: date)
+    }
+
+    /// 仅时间「22:57」——今天/昨天前缀后拼接（`j` 依 locale 定 12/24 时制）
+    private static let timeOnly: DateFormatter = {
         let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        f.doesRelativeDateFormatting = true
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return f
+    }()
+
+    /// 本年日期「8月24日 22:57」（en:「Aug 24, 10:57 PM」）——无年份
+    private static let sameYearDateTime: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMdjmm")
+        return f
+    }()
+
+    /// 非本年日期「2025年8月24日 22:57」——带年份
+    private static let otherYearDateTime: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("yMMMdjmm")
         return f
     }()
 

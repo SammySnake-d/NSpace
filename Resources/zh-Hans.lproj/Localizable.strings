@@ -22,6 +22,14 @@
 "menu.toggleGrouping" = "使用分组";
 "group.noDate" = "无日期";
 "group.count" = "%d 项";
+"group.today" = "今天";
+"group.yesterday" = "昨天";
+"group.thisWeek" = "本周";
+"group.thisMonth" = "本月";
+"group.earlierThisYear" = "今年更早";
+"group.year" = "%d年";
+"date.today" = "今天";
+"date.yesterday" = "昨天";
 "group.filter.only" = "仅显示此组";
 "group.filter.all" = "显示全部组";
 "group.filter.pill" = "仅显示：%@";

@@ -1048,6 +1048,9 @@ enum UISelfTest {
             // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
             await runGroupingScenario(wc: wc, window: window)
 
+            // ── 场景 M29：相对时间纯逻辑（6 桶 keyTitle 落位 + 日期列本年隐年/非本年显年）──────
+            runRelativeTimeUnit()
+
             // 场景5：聚焦搜索面板开合不崩 + I-19 隐藏文件开关可见性核实（截面板自身）
             Self.extraDump = resizeLogs
             wc.showSearchGlobal(nil)
@@ -1134,12 +1137,21 @@ enum UISelfTest {
         let token = String(UUID().uuidString.prefix(8))
         let box = fs.temporaryDirectory
             .appendingPathComponent("nspace-uitest-m26-\(token)", isDirectory: true)
-        // 三个不同年月，各 2 文件（共 6）：2024-01 / 2024-03 / 2024-08
-        let months = [(2024, 1), (2024, 3), (2024, 8)]
+        // M29 相对分桶：注入固定时钟 now=2026-06-17 12:00，夹具落在 3 个不同相对桶（各 2 文件，共 6）——
+        // 往年(2025-05-10) / 本月更早(2026-06-02) / 今天(2026-06-17)。今天/昨天/周/月/年判定全经 nowProvider
+        // （见 FileGrouping），故与真实系统时钟无关、确定性可断言。
+        let fixedNow = cal.date(from: DateComponents(year: 2026, month: 6, day: 17, hour: 12))!
+        let priorNowProvider = FileGrouping.nowProvider
+        FileGrouping.nowProvider = { fixedNow }
+        // 升序排序后组序 = [往年, 本月, 今天]
+        let bucketDates: [Date] = [
+            cal.date(from: DateComponents(year: 2025, month: 5, day: 10, hour: 9))!,   // g5-2025
+            cal.date(from: DateComponents(year: 2026, month: 6, day: 2, hour: 9))!,     // g3-month
+            cal.date(from: DateComponents(year: 2026, month: 6, day: 17, hour: 9))!,    // g0-today
+        ]
         try? fs.createDirectory(at: box, withIntermediateDirectories: true)
         var created: [URL] = []
-        for (mi, (y, m)) in months.enumerated() {
-            guard let date = cal.date(from: DateComponents(year: y, month: m, day: 15, hour: 12)) else { continue }
+        for (mi, date) in bucketDates.enumerated() {
             for k in 0..<2 {
                 let f = box.appendingPathComponent("m26-\(token)-\(mi)-\(k).txt")
                 try? Data("x".utf8).write(to: f)
@@ -1166,13 +1178,18 @@ enum UISelfTest {
         _ = await pollFS { listVC.uiTestGroupHeaderCount == 3 }
         try? await Task.sleep(for: .milliseconds(200))
 
-        // ① 组头行数==3 且标题含年月、各组项数正确
+        // ① 组头行数==3 且标题为相对桶（往年/本月/今天）、各组项数正确
         let groups = listVC.uiTestGroups
         let headerCount = listVC.uiTestGroupHeaderCount
-        let titlesOK = groups.allSatisfy { $0.title.contains("2024") }
+        let expectTitles = [
+            String(format: L10n.t("group.year"), 2025),
+            L10n.t("group.thisMonth"),
+            L10n.t("group.today"),
+        ]
+        let titlesOK = groups.map(\.title) == expectTitles
         let countsOK = groups.map(\.count) == [2, 2, 2]
         record(headerCount == 3 && titlesOK && countsOK && listVC.uiTestItemRowCount == 6,
-               "M26 分组组头数==3 标题含年月各组2项（头\(headerCount) 标题\(groups.map(\.title)) 项数\(groups.map(\.count))）")
+               "M26 分组组头数==3 相对桶标题正确各组2项（头\(headerCount) 标题\(groups.map(\.title)) 期望\(expectTitles) 项数\(groups.map(\.count))）")
         capture(window, "31-grouping")
 
         // ② 折叠首组 → 该组项从表消失、其他组不动
@@ -1221,8 +1238,8 @@ enum UISelfTest {
         if let iconVC = pane.activeTab.iconVC {
             _ = await pollFS { iconVC.uiTestSectionCount == 3 }
             let iTitles = iconVC.uiTestGroupTitles
-            record(iconVC.uiTestSectionCount == 3 && iTitles.allSatisfy { $0.contains("2024") },
-                   "M26v2 图标视图分组 section==3 标题含年月（\(iTitles)）")
+            record(iconVC.uiTestSectionCount == 3 && Set(iTitles) == Set(expectTitles),
+                   "M26v2 图标视图分组 section==3 相对桶标题正确（\(iTitles)）")
             capture(window, "31d-icon-grouping")
             iconVC.uiTestToggleFirstGroup()
             try? await Task.sleep(for: .milliseconds(200))
@@ -1248,7 +1265,7 @@ enum UISelfTest {
             record(iSelBefore == [ivictim] && iconVC.selectedURLs == [ivictim],
                    "M26v2 图标视图选中按 URL 跨 rebuild 保持")
         } else {
-            record(false, "M26v2 图标视图分组 section==3 标题含年月")
+            record(false, "M26v2 图标视图分组 section==3 相对桶标题正确")
             record(false, "M26v2 图标视图折叠首组")
             record(false, "M26v2 图标视图仅显示此组+药丸，显示全部还原")
             record(false, "M26v2 图标视图选中按 URL 跨 rebuild 保持")
@@ -1263,8 +1280,9 @@ enum UISelfTest {
         record(listVC.uiTestGroupHeaderCount == 0 && listVC.uiTestRowCount == 6 && !listVC.uiTestGroupingActive,
                "M26 关闭分组组头数==0 恢复单线（头\(listVC.uiTestGroupHeaderCount) 行\(listVC.uiTestRowCount)）")
 
-        // 收尾：恢复偏好/排序、清夹具
+        // 收尾：恢复偏好/排序/时钟、清夹具
         Preferences.listGrouping = hadGrouping
+        FileGrouping.nowProvider = priorNowProvider
         NotificationCenter.default.post(name: .nspaceGroupingChanged, object: nil)
         listVC.tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         listVC.select(urls: [])
@@ -1272,6 +1290,51 @@ enum UISelfTest {
         try? await Task.sleep(for: .milliseconds(200))
         if assertSandboxed(box) { try? fs.removeItem(at: box) }
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// M29 相对时间纯逻辑：固定时钟 now=2026-06-17 下 6 桶 keyTitle 落位 + 日期列相对格式
+    /// （今天/昨天带前缀、本年隐年份、仅非本年显年份）。纯函数确定性验证，不碰文件系统/UI。
+    private static func runRelativeTimeUnit() {
+        let cal = Calendar.current
+        guard let now = cal.date(from: DateComponents(year: 2026, month: 6, day: 17, hour: 12)) else {
+            record(false, "M29 相对分桶 6 桶 keyTitle 落位正确"); record(false, "M29 日期列本年隐年份/非本年显年份"); return
+        }
+        let prior = FileGrouping.nowProvider
+        FileGrouping.nowProvider = { now }
+        defer { FileGrouping.nowProvider = prior }
+
+        func date(_ y: Int, _ m: Int, _ d: Int) -> Date {
+            cal.date(from: DateComponents(year: y, month: m, day: d, hour: 9))!
+        }
+        func item(_ dt: Date) -> FileItem {
+            FileItem(url: URL(fileURLWithPath: "/tmp/nspace-m29-\(dt.timeIntervalSinceReferenceDate)"),
+                     name: "x", isDirectory: false, isPackage: false, isSymlink: false,
+                     isHidden: false, size: 0, modified: dt, created: dt, added: dt, contentTypeID: nil)
+        }
+        // 6 桶：今天/昨天/本周/本月更早/今年更早/往年
+        let cases: [(Date, String)] = [
+            (date(2026, 6, 17), "g0-today"),        // 同日
+            (date(2026, 6, 16), "g1-yesterday"),    // now-1d
+            (date(2026, 6, 15), "g2-week"),         // 同周非今昨（周一/二/三同周，跨 locale 稳）
+            (date(2026, 6, 2),  "g3-month"),        // 同月非本周
+            (date(2026, 2, 10), "g4-year-earlier"), // 同年非本月
+            (date(2025, 5, 10), "g5-2025"),         // 往年按年
+        ]
+        let keys = cases.map { FileGrouping.keyTitle(for: item($0.0), key: .dateModified).key }
+        let expected = cases.map { $0.1 }
+        record(keys == expected, "M29 相对分桶 6 桶 keyTitle 落位正确（得\(keys) 期望\(expected)）")
+
+        // 日期列相对格式（Formatters.relativeDate，now 显式注入）
+        let today = Formatters.relativeDate(date(2026, 6, 17), now: now)
+        let yst = Formatters.relativeDate(date(2026, 6, 16), now: now)
+        let thisYear = Formatters.relativeDate(date(2026, 2, 10), now: now)   // 本年 → 不含 "2026"
+        let otherYear = Formatters.relativeDate(date(2025, 5, 10), now: now)  // 往年 → 含 "2025"
+        let todayOK = today.hasPrefix(L10n.t("date.today"))
+        let ystOK = yst.hasPrefix(L10n.t("date.yesterday"))
+        let thisYearNoYear = !thisYear.contains("2026")     // 本年隐年份（用户点名核心）
+        let otherYearHasYear = otherYear.contains("2025")   // 非本年显年份
+        record(todayOK && ystOK && thisYearNoYear && otherYearHasYear,
+               "M29 日期列本年隐年份/非本年显年份（今\(today) 昨\(yst) 本年\(thisYear) 往年\(otherYear)）")
     }
 
     // MARK: 工具

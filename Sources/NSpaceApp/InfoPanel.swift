@@ -36,8 +36,8 @@ enum InfoPanel {
         let sizeStr = isDir
             ? "—"
             : (vals?.fileSize).map { Formatters.size.string(fromByteCount: Int64($0)) } ?? "—"
-        let created = vals?.creationDate.map { Formatters.date.string(from: $0) } ?? "—"
-        let modified = vals?.contentModificationDate.map { Formatters.date.string(from: $0) } ?? "—"
+        let created = vals?.creationDate.map { Formatters.relativeDate($0) } ?? "—"
+        let modified = vals?.contentModificationDate.map { Formatters.relativeDate($0) } ?? "—"
 
         let iconView = NSImageView()
         iconView.image = NSWorkspace.shared.icon(forFile: url.path)

@@ -758,7 +758,7 @@ final class PreviewColumnView: NSView {
             lines.append(Formatters.size.string(fromByteCount: size))
         }
         if let modified = item.modified {
-            lines.append(Formatters.date.string(from: modified))
+            lines.append(Formatters.relativeDate(modified))
         }
         infoLabel.stringValue = lines.joined(separator: "\n")
         // QLThumbnail 大图异步升级（失败保持类型图标——BG-7 装饰失败不伤主链）

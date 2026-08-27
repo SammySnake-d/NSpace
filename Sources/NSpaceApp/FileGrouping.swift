@@ -24,21 +24,41 @@ enum FileGrouping {
         }
     }
 
-    /// 「YYYY年M月」标题格式器（本地化：zh→2026年8月 / en→August 2026）
-    private static let titleFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("yMMMM")
-        return f
-    }()
+    /// 当前时刻注入点（M29）：产品用真实 Date；测试注入固定时钟以确定性验证相对桶落位。
+    /// 与 [[Formatters.relativeDate]] 的 now 同源语义（此处集中一处，避免各视图各取 Date）。
+    static var nowProvider: () -> Date = { Date() }
 
-    /// 组键（稳定，跨语言不变，用于折叠/过滤记账）+ 组标题（本地化显示）
+    /// 「往年」标题格式器（本地化：zh→2025年 / en→2025）——仅非本年分桶用
+    private static func yearTitle(_ year: Int) -> String {
+        String(format: L10n.t("group.year"), year)
+    }
+
+    /// 组键（稳定，跨语言不变，用于折叠/过滤记账）+ 组标题（本地化显示）。
+    /// 相对分桶（M29，用户点名）：今天/昨天/本周/本月/今年更早/往年(YYYY年)——由近及远，
+    /// 键前缀 g0..g5 保证「往年」多年份按年细分且组序天然随排序方向（items 已按日期排序）。
     static func keyTitle(for item: FileItem, key: SortSpec.Key) -> (key: String, title: String) {
         guard let date = date(for: item, key: key) else {
             return ("__nodate__", L10n.t("group.noDate"))
         }
-        let comps = Calendar.current.dateComponents([.year, .month], from: date)
-        let stableKey = String(format: "%04d-%02d", comps.year ?? 0, comps.month ?? 0)
-        return (stableKey, titleFormatter.string(from: date))
+        let cal = Calendar.current
+        let now = nowProvider()
+        if cal.isDate(date, inSameDayAs: now) {
+            return ("g0-today", L10n.t("group.today"))
+        }
+        if let yst = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: yst) {
+            return ("g1-yesterday", L10n.t("group.yesterday"))
+        }
+        if cal.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
+            return ("g2-week", L10n.t("group.thisWeek"))
+        }
+        if cal.isDate(date, equalTo: now, toGranularity: .month) {
+            return ("g3-month", L10n.t("group.thisMonth"))
+        }
+        if cal.isDate(date, equalTo: now, toGranularity: .year) {
+            return ("g4-year-earlier", L10n.t("group.earlierThisYear"))
+        }
+        let year = cal.component(.year, from: date)
+        return (String(format: "g5-%04d", year), yearTitle(year))
     }
 
     struct Group: Equatable {

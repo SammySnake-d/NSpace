@@ -165,7 +165,7 @@ private final class ConflictSheetController: NSObject {
         let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isDirectoryKey])
         let sizeStr: String = (vals?.isDirectory == true)
             ? "—" : (vals?.fileSize).map { Formatters.size.string(fromByteCount: Int64($0)) } ?? "—"
-        let dateStr = vals?.contentModificationDate.map { Formatters.date.string(from: $0) } ?? "—"
+        let dateStr = vals?.contentModificationDate.map { Formatters.relativeDate($0) } ?? "—"
         label.stringValue = "\(title)   \(dateStr) · \(sizeStr)"
     }
 

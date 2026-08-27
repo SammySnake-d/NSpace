@@ -710,7 +710,7 @@ extension SearchPanelController: NSTableViewDataSource, NSTableViewDelegate {
             cell.textField?.lineBreakMode = .byTruncatingTail   // 复用格重置（可能上轮是路径列）
             cell.toolTip = nil
         case "dateModified":
-            cell.configure(hit.modified.map { Formatters.date.string(from: $0) } ?? "—", alignment: .left)
+            cell.configure(hit.modified.map { Formatters.relativeDate($0) } ?? "—", alignment: .left)
             cell.textField?.lineBreakMode = .byTruncatingTail
             cell.toolTip = nil
         default:
