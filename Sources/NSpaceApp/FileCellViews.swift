@@ -35,6 +35,21 @@ final class FocusReportingTableView: NSTableView {
         super.draggingEnded(sender)
     }
 
+    /// I-43：本次 super.mouseDown 期间是否发起了拖拽（由 delegate 的 pasteboardWriterForRow 置位）——
+    /// 用于区分"纯单击已选中行"(需抢先收敛) 与"拖拽多选"(选中保持不动)。
+    var dragInitiated = false
+
+    /// I-43 决策谓词（纯函数，可确定性单测）：是否需要在 super.mouseDown 后抢先把选中收敛为单选。
+    /// 仅「无修饰键 + 单击(非双击) + 当前多选 + 点在已选中行」时为真——此即 AppKit 会等双击间隔的场景。
+    static func shouldPreemptCollapse(clickedRow: Int, modifiers: NSEvent.ModifierFlags,
+                                      clickCount: Int, selectedCount: Int, rowIsSelected: Bool) -> Bool {
+        clickedRow >= 0
+            && modifiers.intersection([.command, .shift, .option, .control]).isEmpty
+            && clickCount == 1
+            && selectedCount > 1
+            && rowIsSelected
+    }
+
     override func mouseDown(with event: NSEvent) {
         onInteract?()
         // 组头行：单击切折叠（不落入 super 的选中/双击链）
@@ -42,6 +57,21 @@ final class FocusReportingTableView: NSTableView {
         let row = self.row(at: point)
         if row >= 0, isGroupRowProvider?(row) == true {
             onGroupRowClick?(row)
+            return
+        }
+        // I-43：纯单击「已选中的多选行」时，AppKit 会等双击间隔(~0.5s NSEvent.doubleClickInterval)才把
+        // 选中收敛为单选（为区分双击打开）——造成"点选区内卡 0.5-1s、点选区外即时"（真机插桩实测 0.672s）。
+        // 让 super 正常处理（拖拽/双击语义不受影响），若期间未发起拖拽（pasteboardWriterForRow 未被调）则
+        // super 返回后立即抢先收敛为单选，消除等待（实测降至 0.160s）。抢先目标行与 AppKit 延迟收敛目标一致。
+        if Self.shouldPreemptCollapse(clickedRow: row, modifiers: event.modifierFlags,
+                                      clickCount: event.clickCount,
+                                      selectedCount: selectedRowIndexes.count,
+                                      rowIsSelected: selectedRowIndexes.contains(row)) {
+            dragInitiated = false
+            super.mouseDown(with: event)
+            if !dragInitiated {
+                selectRowIndexes([row], byExtendingSelection: false)
+            }
             return
         }
         super.mouseDown(with: event)

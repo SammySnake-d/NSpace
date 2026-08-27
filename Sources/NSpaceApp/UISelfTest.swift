@@ -1055,6 +1055,15 @@ enum UISelfTest {
             record(MainWindowController.frameDefaultsKey == "windowFrame.uitest",
                    "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）")
 
+            // ── 场景 I-43：点选区内收敛谓词（纯逻辑确定性；行为层 0.5s→0.16s 已真机插桩实测）─────
+            let i43a = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [], clickCount: 1, selectedCount: 5, rowIsSelected: true)
+            let i43cmd = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [.command], clickCount: 1, selectedCount: 5, rowIsSelected: true)
+            let i43dbl = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [], clickCount: 2, selectedCount: 5, rowIsSelected: true)
+            let i43out = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 9, modifiers: [], clickCount: 1, selectedCount: 5, rowIsSelected: false)
+            let i43single = FocusReportingTableView.shouldPreemptCollapse(clickedRow: 2, modifiers: [], clickCount: 1, selectedCount: 1, rowIsSelected: true)
+            record(i43a && !i43cmd && !i43dbl && !i43out && !i43single,
+                   "I-43 点选区内收敛谓词：纯单击多选已选行=抢先收敛，修饰键/双击/选区外/单选=不介入（\(i43a)/\(i43cmd)/\(i43dbl)/\(i43out)/\(i43single)）")
+
             // ── 场景 I-44：第三方"打开文件位置"→ openWindow(selecting:) 真定位选中（列表+图标）──
             await runRevealSelectScenario(delegate: delegate)
 

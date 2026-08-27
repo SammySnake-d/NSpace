@@ -903,6 +903,8 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
     // MARK: 拖拽源（可拖到 Finder/其他 App/另一窗格/侧边栏书签/暂存架）
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        // I-43：AppKit 起拖时才调本方法——置位供 mouseDown 区分"拖拽"与"纯单击已选中行"
+        (tableView as? FocusReportingTableView)?.dragInitiated = true
         guard let item = item(atRow: row) else { return nil }   // 组头行不可拖
         return item.url as NSURL
     }
