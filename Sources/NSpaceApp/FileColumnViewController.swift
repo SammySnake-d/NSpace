@@ -428,9 +428,13 @@ final class FileColumnViewController: NSViewController {
 
     // MARK: Quick Look（空格开关；数据源=焦点列选中集）
 
+    /// I-45：收起走淡出而非"缩到图标"（同列表视图，sourceFrame 收起态返回 .zero）
+    private var quickLookDismissing = false
+
     @objc func toggleQuickLook(_ sender: Any?) {
         guard let panel = QLPreviewPanel.shared() else { return }
         if panel.isVisible {
+            quickLookDismissing = true
             panel.orderOut(nil)
         } else if !selectedItems.isEmpty {
             panel.makeKeyAndOrderFront(nil)
@@ -440,6 +444,7 @@ final class FileColumnViewController: NSViewController {
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        quickLookDismissing = false
         panel.dataSource = self
         panel.delegate = self
         panel.reloadData()
@@ -493,6 +498,7 @@ extension FileColumnViewController: @preconcurrency QLPreviewPanelDataSource, @p
 
     /// 缩放动画起点=焦点列该行图标位置
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
+        if quickLookDismissing { return .zero }
         guard let url = (item as? NSURL) as URL?,
               columns.indices.contains(focusedColumnIndex),
               let window = view.window else { return .zero }

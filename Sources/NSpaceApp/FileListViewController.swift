@@ -709,9 +709,14 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     // MARK: Quick Look（空格开关；方向键经 selectionDidChange 连续预览）
 
+    /// I-45：收起走淡出而非"缩到图标"（用户嫌缩放突兀）——收起前置位，sourceFrame 返回 .zero
+    /// 令 QL 用淡出（直接消失）；开启时复位以保留从图标放大的进入手感。QL 关闭时会重查 sourceFrame。
+    private var quickLookDismissing = false
+
     @objc func toggleQuickLook(_ sender: Any?) {
         guard let panel = QLPreviewPanel.shared() else { return }
         if panel.isVisible {
+            quickLookDismissing = true
             panel.orderOut(nil)
         } else if !selectedItems.isEmpty {
             panel.makeKeyAndOrderFront(nil)
@@ -721,6 +726,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        quickLookDismissing = false
         panel.dataSource = self
         panel.delegate = self
         panel.reloadData()
@@ -734,6 +740,15 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     @objc func showPackageContents(_ sender: Any?) {
         guard let pkg = selectedItems.first(where: { $0.isPackage }) else { return }
         onNavigate?(pkg.url)
+    }
+
+    /// UITEST 专用（I-45）：验证 QL 收起态 sourceFrame 退化为 .zero（→ 淡出/直接消失），
+    /// 开启态为行内图标矩形（→ 从图标放大）。QL 面板动画本身无法无头断言，此处只验分支逻辑。
+    func uiTestQLSourceFrame(dismissing: Bool, for url: URL) -> NSRect {
+        quickLookDismissing = dismissing
+        let r = previewPanel(nil, sourceFrameOnScreenFor: url as NSURL)
+        quickLookDismissing = false
+        return r
     }
 }
 
@@ -988,8 +1003,9 @@ extension FileListViewController: @preconcurrency QLPreviewPanelDataSource, @pre
         return true
     }
 
-    /// 缩放动画起点=行内图标位置（Finder 手感）
+    /// 缩放动画起点=行内图标位置（Finder 手感）；收起时返回 .zero → QL 淡出（I-45 不再缩到图标）
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
+        if quickLookDismissing { return .zero }
         guard let url = (item as? NSURL) as URL?,
               let row = row(forURL: url),
               let window = view.window else { return .zero }

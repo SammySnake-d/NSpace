@@ -1383,6 +1383,13 @@ enum UISelfTest {
         record(selList == [target.standardizedFileURL],
                "I-44 列表视图 reveal 真定位选中目标文件（\(selList.map(\.lastPathComponent))）")
 
+        // I-45：QL 收起走淡出（sourceFrame 收起态=.zero，QL 不再"缩到图标"）、开启态=行内图标矩形（保留放大）
+        let lvc = pane.activeTab.listVC
+        let qlFade = lvc.uiTestQLSourceFrame(dismissing: true, for: target)
+        let qlZoom = lvc.uiTestQLSourceFrame(dismissing: false, for: target)
+        record(qlFade == .zero && qlZoom != .zero,
+               "I-45 QL 收起 sourceFrame 淡出(.zero)、开启为图标矩形缩放（收起\(NSStringFromRect(qlFade)) 开启\(NSStringFromRect(qlZoom))）")
+
         // ③ 图标视图 reveal（走 iconVC 分支，非硬编码 listVC）：同 navigate+pending 落位
         pane.setViewMode(.icons)
         try? await Task.sleep(for: .milliseconds(250))

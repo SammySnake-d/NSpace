@@ -174,6 +174,8 @@ require_pass "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 win
 require_pass "I-44 openWindow(selecting:) 真定位选中目标文件"
 require_pass "I-44 列表视图 reveal 真定位选中目标文件"
 require_pass "I-44 图标视图 reveal 真定位选中目标文件（视图模式感知，非硬编码 listVC）"
+# I-45 Quick Look 收起淡出（不再缩到图标点）：收起态 sourceFrame=.zero，开启态=图标矩形
+require_pass "I-45 QL 收起 sourceFrame 淡出(.zero)、开启为图标矩形缩放"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46）：清理 UITEST 隔离帧键，绝不留测试残留在用户偏好域

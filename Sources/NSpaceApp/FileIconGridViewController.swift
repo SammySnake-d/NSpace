@@ -640,9 +640,13 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
 
     // MARK: Quick Look（空格开关；与列表同款响应链面板控制）
 
+    /// I-45：收起走淡出而非"缩到图标"（同列表视图，sourceFrame 收起态返回 .zero）
+    private var quickLookDismissing = false
+
     @objc func toggleQuickLook(_ sender: Any?) {
         guard let panel = QLPreviewPanel.shared() else { return }
         if panel.isVisible {
+            quickLookDismissing = true
             panel.orderOut(nil)
         } else if !selectedItems.isEmpty {
             panel.makeKeyAndOrderFront(nil)
@@ -652,6 +656,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        quickLookDismissing = false
         panel.dataSource = self
         panel.delegate = self
         panel.reloadData()
@@ -832,6 +837,7 @@ extension FileIconGridViewController: @preconcurrency QLPreviewPanelDataSource, 
 
     /// 缩放动画起点=条目图标区
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
+        if quickLookDismissing { return .zero }
         guard let url = (item as? NSURL) as URL?,
               let idx = model.items.firstIndex(where: { $0.url == url }),
               let ip = indexPath(forModelIndex: idx),
