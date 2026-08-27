@@ -20,6 +20,8 @@ final class SearchSession: NSObject, @unchecked Sendable {
     private var pendingChannels = 0
     private var flushScheduled = false
     private var finished = false
+    /// 已保留（去重后）命中数——达 SearchLimits.maxResults 即停两通道，杜绝主线程读全量卡死
+    private var keptCount = 0
     /// Spotlight 增量读游标（gathering progress 只读新到达段）
     private var spotlightReadIndex = 0
 
@@ -114,7 +116,9 @@ final class SearchSession: NSObject, @unchecked Sendable {
         query.disableUpdates()
         let count = query.resultCount
         var hits: [SearchHit] = []
-        while spotlightReadIndex < count {
+        // 硬上限：本次 drain 最多再读 (maxResults - keptCount) 条，绝不在主线程读全量十万级结果
+        let readBudget = max(0, SearchLimits.maxResults - keptCount)
+        while spotlightReadIndex < count, hits.count < readBudget {
             if let item = query.result(at: spotlightReadIndex) as? NSMetadataItem,
                let hit = Self.hit(from: item) {
                 hits.append(hit)
@@ -214,6 +218,13 @@ final class SearchSession: NSObject, @unchecked Sendable {
         guard !finished, !hits.isEmpty else { return }
         for hit in hits where seenPaths.insert(hit.url.path).inserted {
             buffer.append(hit)
+            keptCount += 1
+        }
+        // 达结果硬上限：立刻 flush 并停两通道（NSMetadataQuery.stop + 扫描 Task 取消），CPU 立即回落
+        if keptCount >= SearchLimits.maxResults {
+            flushNow()
+            teardown()
+            return
         }
         if buffer.count >= 50 {
             flushNow()

@@ -160,5 +160,9 @@ require_pass "M26v2 图标视图选中按 URL 跨 rebuild 保持"
 # 窗口尺寸持久化根因（用户报告"更新后尺寸回默认"）：自管恢复权威、不与 macOS 原生恢复竞争
 require_pass "窗口尺寸自管恢复：isRestorable=false（不与 macOS 原生恢复竞争）"
 
+# I-42 全局搜索卡死根因：大结果集流式累积 O(n) 不卡 + 达上限截断提示（引擎侧上限见 SearchEngineTests）
+require_pass "I-42 大结果流式累积 O(n) 不卡"
+require_pass "I-42 达结果上限显示「仅显示前 N 条」截断提示"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 exit $CODE

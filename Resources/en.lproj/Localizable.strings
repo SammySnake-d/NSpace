@@ -157,6 +157,7 @@
 "search.includeHidden" = "Include Hidden Files";
 "search.hiddenTooltip" = "Find hidden files by name, even ones Spotlight never indexes";
 "search.empty" = "No Results";
+"search.truncated" = "Too many results — showing first %d · refine your query or narrow scope";
 "search.kind.all" = "All";
 "search.kind.folder" = "Folders";
 "search.kind.image" = "Images";

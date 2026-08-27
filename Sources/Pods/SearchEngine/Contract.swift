@@ -3,6 +3,13 @@ import NSpaceContracts
 
 // SearchEngine 胶囊唯一对外契约面（Axiom 3）：聚焦搜索的请求/命中词汇表
 
+public enum SearchLimits {
+    /// 单次搜索的结果硬上限：全局 Spotlight（NSMetadataQueryLocalComputerScope）常见词能命中十万级，
+    /// 无上限地在主线程读全部 result(at:) + 铺进 NSTableView 会直接卡死、CPU 暴涨。达上限即停两通道。
+    /// UI 据此显示"仅显示前 N 条，请细化关键词"。2000 足够定位单文件，且主线程成本恒有界。
+    public static let maxResults = 2000
+}
+
 public struct SearchRequest: Sendable {
     public enum Scope: Sendable {
         case global

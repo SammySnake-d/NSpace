@@ -733,6 +733,25 @@ enum UISelfTest {
                                        size: 1, modified: nil, contentTypeID: nil)])
             record(sp.uiTestResultPaths.last?.hasSuffix("/nspace-uitest-outside.txt") == true,
                    "I-40 根外命中沉底为最后一行")
+            // I-42 卡死回归：大结果集流式累积必须 O(n) 且不卡（旧 `hits+visible` 每批全量重拼=O(n²)→卡死）。
+            // 灌 maxResults 条（分 50/批模拟流），限时完成 + 达上限显示截断提示。
+            sp.uiTestReset(root: nil)
+            let big = SearchLimits.maxResults
+            let t0 = Date()
+            var fed = 0
+            while fed < big {
+                let n = min(50, big - fed)
+                sp.uiTestAppend((0..<n).map { j in
+                    SearchHit(url: URL(fileURLWithPath: "/tmp/nspace-i42/\(fed + j).txt"),
+                              name: "\(fed + j).txt", isDirectory: false, size: 1, modified: nil, contentTypeID: nil)
+                })
+                fed += n
+            }
+            let elapsed = Date().timeIntervalSince(t0)
+            record(elapsed < 3.0 && sp.uiTestResultCount == big,
+                   "I-42 大结果流式累积 O(n) 不卡（灌 \(big) 条耗时 \(String(format: "%.2f", elapsed))s < 3s）")
+            record(sp.uiTestTruncationVisible, "I-42 达结果上限显示「仅显示前 N 条」截断提示")
+            sp.uiTestReset(root: nil)
             // 实景截图：路径列 + 根近排序 + 选中保持（人眼终审用）
             if let spWin = NSApp.windows.first(where: { w in
                 w.isVisible && !(w.windowController is MainWindowController) &&

@@ -2,6 +2,14 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.18.2] - 2026-08-27
+
+### 修复
+- **全局搜索卡死 / CPU 暴涨（I-42，用户报告）**：根因两处叠加——① 引擎对 `NSMetadataQueryLocalComputerScope` 无结果上限，常见词命中十万级时在主线程 `drainSpotlight` 一次性读全部 `result(at:)` + 铺进表格 → 卡死；② 面板 I-38/I-40 改动把每批结果 `hits + visible` 全量重拼数组（O(n²) 主线程开销）。修复：引擎加硬上限 `SearchLimits.maxResults=2000`（`drainSpotlight` 读预算封顶 + 达上限停两通道，CPU 立即回落）；面板改为原地追加（全局 O(1) 摊销）/线性归并（局部），达上限显示「仅显示前 N 条，请细化关键词」提示
+
+### 验证
+- SearchEngineTests 新增 cap 用例（通道B 造 maxResults+200 文件断言流产出 ≤ 上限）；ui-smoke +2（灌 2000 条 O(n) 限时不卡 + 截断提示可见），127→129 全绿；15 单测套件全过
+
 ## [0.18.1] - 2026-08-27
 
 ### 修复

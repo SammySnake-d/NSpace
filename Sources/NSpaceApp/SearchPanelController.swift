@@ -88,6 +88,8 @@ final class SearchPanelController: NSObject {
     private let kindPopup = NSPopUpButton()
     private let tableView = SearchResultTableView()
     private let emptyLabel = NSTextField(labelWithString: L10n.t("search.empty"))
+    /// 结果达上限提示（"仅显示前 N 条，请细化关键词"）——引擎在此上限停两通道，杜绝卡死
+    private let truncationLabel = NSTextField(labelWithString: "")
 
     private let engine = SearchEngine()
     /// 全量命中（流式累积）与过滤后展示集
@@ -219,23 +221,41 @@ final class SearchPanelController: NSObject {
         let filter = selectedKindFilter
         let visible = filter == .all ? batch : batch.filter { filter.matches($0) }
         guard !visible.isEmpty else { return }
-        // 全局：到达顺序直追加；局部：新批排好序后与已序结果线性归并
-        // （每命中深度只算一次并缓存——不做全量重排，避免流式大结果 O(n²) 主线程开销）
-        setHits(searchRoot == nil ? hits + visible
-                                  : merged(hits, visible.sorted(by: inRankOrder)))
+        // 选中记忆（I-38）：变更前按 URL 记住当前选中
+        let selectedURL = tableView.selectedRow >= 0 && tableView.selectedRow < hits.count
+            ? hits[tableView.selectedRow].url : nil
+        // 全局：到达序原地追加（O(1) 摊销）；局部：新批排序后与已序结果线性归并。
+        // 关键修复：绝不用 `hits + visible` 每批全量重拼数组（O(n²) 主线程开销 → 大结果卡死）。
+        if searchRoot == nil {
+            hits.append(contentsOf: visible)
+        } else {
+            hits = merged(hits, visible.sorted(by: inRankOrder))
+        }
+        tableView.reloadData()
+        restoreSelection(selectedURL)
+        updateTruncationHint()
     }
 
-    /// I-38：结果集更新唯一入口——重载前按 URL 记忆选中、重载后还原并保持可见
-    /// （流式批次此前每批 reloadData 直接清掉用户刚点的选中）
+    /// I-38：重载后按 URL 还原选中并保持可见（流式批次此前每批 reloadData 直接清掉用户选中）
+    private func restoreSelection(_ url: URL?) {
+        guard let url, let row = hits.firstIndex(where: { $0.url == url }) else { return }
+        tableView.selectRowIndexes([row], byExtendingSelection: false)
+        tableView.scrollRowToVisible(row)
+    }
+
+    /// 结果集整体替换（kindChanged / 测试探针用）——保持选中
     private func setHits(_ newHits: [SearchHit]) {
         let selectedURL = tableView.selectedRow >= 0 && tableView.selectedRow < hits.count
             ? hits[tableView.selectedRow].url : nil
         hits = newHits
         tableView.reloadData()
-        guard let url = selectedURL,
-              let row = hits.firstIndex(where: { $0.url == url }) else { return }
-        tableView.selectRowIndexes([row], byExtendingSelection: false)
-        tableView.scrollRowToVisible(row)
+        restoreSelection(selectedURL)
+        updateTruncationHint()
+    }
+
+    /// 达结果硬上限时提示"仅显示前 N 条，请细化关键词"（引擎已在此上限停两通道，CPU 恒有界）
+    private func updateTruncationHint() {
+        truncationLabel.isHidden = allHits.count < SearchLimits.maxResults
     }
 
     // MARK: I-40 局部排序（离根近者优先：根直接子级最先、逐层下推，同层按路径字典序）
@@ -470,6 +490,8 @@ final class SearchPanelController: NSObject {
             ? hits[tableView.selectedRow].url.path : nil
     }
     var uiTestResultPaths: [String] { hits.map(\.url.path) }
+    var uiTestTruncationVisible: Bool { !truncationLabel.isHidden }
+    var uiTestResultCount: Int { hits.count }
     /// 首行路径列单元格实渲染文本（真实效果断言：路径真的显示了，不是 tooltip）
     var uiTestFirstRowPathCellText: String? {
         guard !hits.isEmpty,
@@ -566,12 +588,20 @@ final class SearchPanelController: NSObject {
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
 
+        truncationLabel.stringValue = L10n.f("search.truncated", SearchLimits.maxResults)
+        truncationLabel.font = .systemFont(ofSize: 11)
+        truncationLabel.textColor = .secondaryLabelColor
+        truncationLabel.alignment = .center
+        truncationLabel.isHidden = true
+        truncationLabel.wantsLayer = true
+        truncationLabel.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor
+
         let sep1 = NSBox(); sep1.boxType = .separator
         let sep2 = NSBox(); sep2.boxType = .separator
 
         for sub in [icon, field, spinner, scopePopup, sep1,
                     nameCheck, contentCheck, hiddenCheck, kindPopup, sep2,
-                    scroll, emptyLabel] {
+                    scroll, emptyLabel, truncationLabel] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(sub)
         }
@@ -611,6 +641,11 @@ final class SearchPanelController: NSObject {
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             emptyLabel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            // 上限提示：贴结果区底部整条（细条 overlay，不挤占列表布局）
+            truncationLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            truncationLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            truncationLabel.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            truncationLabel.heightAnchor.constraint(equalToConstant: 20),
         ])
         panel.contentView = root
     }

@@ -114,4 +114,22 @@ import SearchEngine
         _ = hits  // 结果内容不作断言（依赖 Spotlight 索引状态）
         #expect(Bool(true))
     }
+
+    @Test func resultsAreCappedAtMaxResults() async throws {
+        // 卡死根因回归：命中数超上限时引擎必须封顶停通道（否则主线程读全量 → 卡死/CPU 暴涨）。
+        // 用通道B 递归扫描构造 maxResults+200 个匹配文件，断言流总产出 ≤ 上限。
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nspace-search-cap-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let n = SearchLimits.maxResults + 200
+        for i in 0..<n {
+            try Data("x".utf8).write(to: dir.appendingPathComponent("capneedle-\(i).txt"))
+        }
+        let hits = await collect(SearchRequest(query: "capneedle", scope: .directory(dir),
+                                               searchNames: true, searchContents: false,
+                                               includeHidden: true), timeout: 10)
+        #expect(hits.count <= SearchLimits.maxResults)
+        #expect(hits.count >= SearchLimits.maxResults - 50)   // 确实逼近上限（证明扫到了大量、且封顶）
+    }
 }

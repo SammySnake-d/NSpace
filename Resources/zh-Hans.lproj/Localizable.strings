@@ -157,6 +157,7 @@
 "search.includeHidden" = "包含隐藏文件";
 "search.hiddenTooltip" = "连 Spotlight 不索引的隐藏文件也能按名搜到";
 "search.empty" = "未找到";
+"search.truncated" = "结果过多，仅显示前 %d 条 · 请细化关键词或缩小范围";
 "search.kind.all" = "全部";
 "search.kind.folder" = "文件夹";
 "search.kind.image" = "图片";
