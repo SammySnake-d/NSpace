@@ -186,6 +186,7 @@ final class FileColumnViewController: NSViewController {
         guard let leaf = columns.last else { return }
         leaf.desiredSelection = Set(urls)
         leaf.applyDesiredSelectionIfLoaded()
+        view.window?.makeFirstResponder(leaf.tableView)   // I-48：聚焦叶列，选中显蓝色强调（非 first responder 时未强调灰几乎不可见）
     }
 
     private func rebuild(root: URL) {

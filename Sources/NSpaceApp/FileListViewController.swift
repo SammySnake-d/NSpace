@@ -277,7 +277,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             filterPill.isHidden = true
             return
         }
-        let groups = FileGrouping.buckets(model.items, key: model.sort.key)
+        let groups = FileGrouping.buckets(model.items, key: model.sort.key, ascending: model.sort.ascending)
         var titles: [String: String] = [:]
         for g in groups { titles[g.key] = g.title }
         // 过滤态失效自愈：被过滤组已不存在（换目录/排序键）→ 清过滤
@@ -497,6 +497,9 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         pendingReveal = nil
         tableView.selectRowIndexes([row], byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
+        // I-48：定位后聚焦表格，令选中显示蓝色强调高亮——否则表格非 first responder 时选中只显示
+        // 未强调灰（深色模式下几乎不可见），用户报"打开了但没蓝色选中"（浏览器/外部 reveal 落新窗时尤甚）。
+        if !pending.rename { view.window?.makeFirstResponder(tableView) }
         if pending.rename { beginRename(row: row) }
     }
 

@@ -68,17 +68,38 @@ enum FileGrouping {
         let indices: [Int]
     }
 
-    /// 已按 sort 排序的 items → 有序分组：组顺序=组在项序列中首次出现的顺序（排序方向天然决定组序），
-    /// 组内保持项的相对顺序。纯函数，可黑盒单测。
-    static func buckets(_ items: [FileItem], key: SortSpec.Key) -> [Group] {
-        var order: [String] = []
+    /// 相对桶的"新近度"秩（越新越小）：今天0<昨天1<本周2<本月3<今年更早4<往年(按年，新年份更小)<无日期。
+    /// 组顺序据此排（I-49）——不再靠"首次出现"，因「文件夹置顶」使 items=[文件夹段][文件段] 非全局单调，
+    /// 会把只含文件的桶（如"今天"仅一个文件）挤到文件夹建立的桶序之后。
+    static func recencyRank(ofKey key: String) -> Int {
+        switch key {
+        case "g0-today": return 0
+        case "g1-yesterday": return 1
+        case "g2-week": return 2
+        case "g3-month": return 3
+        case "g4-year-earlier": return 4
+        case "__nodate__": return Int.max
+        default:
+            if key.hasPrefix("g5-"), let y = Int(key.dropFirst(3)) { return 5 + (9999 - y) }
+            return Int.max - 1
+        }
+    }
+
+    /// 已按 sort 排序的 items → 有序分组：**组顺序按相对时间新近度**（direction-aware，不受 foldersFirst 打乱），
+    /// 组内保持项的相对顺序（含文件夹置顶）。纯函数，可黑盒单测。
+    /// 日期降序（newest first）→ 组按 rank 升序（今天在最前）；日期升序 → rank 降序（今天在最后）。
+    static func buckets(_ items: [FileItem], key: SortSpec.Key, ascending: Bool) -> [Group] {
         var indexBuckets: [String: [Int]] = [:]
         var titles: [String: String] = [:]
         for (i, item) in items.enumerated() {
             let (gk, gt) = keyTitle(for: item, key: key)
-            if indexBuckets[gk] == nil { indexBuckets[gk] = []; order.append(gk); titles[gk] = gt }
+            if indexBuckets[gk] == nil { indexBuckets[gk] = []; titles[gk] = gt }
             indexBuckets[gk]?.append(i)
         }
-        return order.map { Group(key: $0, title: titles[$0] ?? $0, indices: indexBuckets[$0] ?? []) }
+        let orderedKeys = indexBuckets.keys.sorted {
+            let ra = recencyRank(ofKey: $0), rb = recencyRank(ofKey: $1)
+            return ascending ? ra > rb : ra < rb
+        }
+        return orderedKeys.map { Group(key: $0, title: titles[$0] ?? $0, indices: indexBuckets[$0] ?? []) }
     }
 }

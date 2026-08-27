@@ -1362,6 +1362,19 @@ enum UISelfTest {
         let otherYearHasYear = otherYear.contains("2025")   // 非本年显年份
         record(todayOK && ystOK && thisYearNoYear && otherYearHasYear,
                "M29 日期列本年隐年份/非本年显年份（今\(today) 昨\(yst) 本年\(thisYear) 往年\(otherYear)）")
+
+        // I-49：foldersFirst 打乱首次出现顺序时，组仍按相对时间新近排（今天最新→最前）。
+        // 模拟 items=[文件夹段 desc][文件段 desc]：文件夹落在昨天/本周，文件落在今天——旧"首次出现"逻辑会把
+        // 只含文件的"今天"桶挤到文件夹建立的桶序之后（用户报"今天在最底下"）。新逻辑按 recencyRank 排，今天最前。
+        func dirItem(_ dt: Date) -> FileItem {
+            FileItem(url: URL(fileURLWithPath: "/tmp/nspace-i49-\(dt.timeIntervalSinceReferenceDate)"),
+                     name: "d", isDirectory: true, isPackage: false, isSymlink: false,
+                     isHidden: false, size: nil, modified: dt, created: dt, added: dt, contentTypeID: nil)
+        }
+        let scrambled = [dirItem(date(2026, 6, 16)), dirItem(date(2026, 6, 15)), item(date(2026, 6, 17))]
+        let gsDesc = FileGrouping.buckets(scrambled, key: .dateModified, ascending: false).map(\.key)
+        record(gsDesc.first == "g0-today",
+               "I-49 foldersFirst 下组仍按新近排：今天(仅文件)在最前不被文件夹桶挤到末尾（得 \(gsDesc)）")
     }
 
     /// I-44：第三方"打开文件位置"（Antigravity 等经 activateFileViewerSelectingURLs → openFileURLs →
@@ -1402,6 +1415,11 @@ enum UISelfTest {
         let selList = pane.activeTab.listVC.selectedURLs.map(\.standardizedFileURL)
         record(selList == [target.standardizedFileURL],
                "I-44 列表视图 reveal 真定位选中目标文件（\(selList.map(\.lastPathComponent))）")
+
+        // I-48：reveal 定位后表格成为 first responder → 选中显蓝色强调（否则未强调灰几乎不可见，用户报"没蓝色选中"）
+        let fr = wc.window?.firstResponder
+        record(fr === pane.activeTab.listVC.tableView,
+               "I-48 reveal 后表格获焦（选中显蓝色强调，非未强调灰）（firstResponder=\(type(of: fr as Any))）")
 
         // I-45：QL 收起走淡出（sourceFrame 收起态=.zero，QL 不再"缩到图标"）、开启态=行内图标矩形（保留放大）
         let lvc = pane.activeTab.listVC

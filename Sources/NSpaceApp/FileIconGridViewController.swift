@@ -377,7 +377,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     /// 依当前 model.items（reader 已排序）重建 section 序列 + 刷过滤药丸。
     private func rebuildSections() {
         if groupingActive {
-            var gs = FileGrouping.buckets(model.items, key: model.sort.key)
+            var gs = FileGrouping.buckets(model.items, key: model.sort.key, ascending: model.sort.ascending)
             if let only = groupFilterKey, !gs.contains(where: { $0.key == only }) { groupFilterKey = nil }
             if let only = groupFilterKey { gs = gs.filter { $0.key == only } }
             sections = gs
@@ -561,6 +561,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         collectionView.deselectAll(nil)
         collectionView.selectItems(at: [ip], scrollPosition: .nearestHorizontalEdge)
         selectionURLCache = [pending.url]   // I-32：程序化选中同步缓存真源
+        view.window?.makeFirstResponder(collectionView)   // I-48：聚焦网格，选中显蓝色强调（否则未强调灰几乎不可见）
         onSelectionChange?()
     }
 

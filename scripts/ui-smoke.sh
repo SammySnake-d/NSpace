@@ -167,6 +167,8 @@ require_pass "I-42 达结果上限显示「仅显示前 N 条」截断提示"
 # M29 人性化时间：相对分桶（今天/昨天/本周/本月/今年更早/往年）+ 日期列本年隐年份
 require_pass "M29 相对分桶 6 桶 keyTitle 落位正确"
 require_pass "M29 日期列本年隐年份/非本年显年份"
+# I-49 组排序错乱（今天被挤到最底）：foldersFirst 下组仍按相对时间新近排
+require_pass "I-49 foldersFirst 下组仍按新近排：今天(仅文件)在最前不被文件夹桶挤到末尾"
 
 # I-46 窗口尺寸被测试污染根因：UITEST 帧键隔离（不写产品 windowFrame）
 require_pass "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）"
@@ -182,6 +184,8 @@ require_pass "I-47 导航即落盘：会话记住导航目录"
 require_pass "I-44 openWindow(selecting:) 真定位选中目标文件"
 require_pass "I-44 列表视图 reveal 真定位选中目标文件"
 require_pass "I-44 图标视图 reveal 真定位选中目标文件（视图模式感知，非硬编码 listVC）"
+# I-48 reveal 定位后选中无蓝色高亮：定位后表格获焦（选中显强调蓝）
+require_pass "I-48 reveal 后表格获焦（选中显蓝色强调，非未强调灰）"
 # I-45 Quick Look 收起淡出（不再缩到图标点）：收起态 sourceFrame=.zero，开启态=图标矩形
 require_pass "I-45 QL 收起 sourceFrame 淡出(.zero)、开启为图标矩形缩放"
 
