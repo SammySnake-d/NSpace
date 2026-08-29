@@ -74,6 +74,21 @@ displaying ──Enter/菜单──▶ editing(快照旧名) ──提交──�
                                 │ Esc ──▶ displaying(旧名)          └─FS 失败──▶ 原子回滚旧名 + 原位错误横幅
 ```
 
+## 状态转移矩阵 (Transition Matrix)
+
+操作 Run 状态机（3.1）的表格化真值——(当前态 × 事件 → 次态)；`—` 表示非法转移（忽略）。终态不可再转移。
+
+| 当前态 \ 事件 | scan开始 | 发现冲突 | 无冲突 | 用户裁决 | 全部完成 | 节点抛错 | 取消 |
+|---|---|---|---|---|---|---|---|
+| pending | scanning | — | — | — | — | — | cancelled |
+| scanning | — | awaitingConflict | running | — | — | failed | cancelled |
+| awaitingConflict | — | — | — | running | — | failed | cancelled |
+| running | — | — | — | — | completed | failed | cancelled |
+| completed / failed / cancelled（终态） | — | — | — | — | — | — | — |
+
+- 目录浏览（3.2）：`idle→loading(gen=N)→loaded`；旧代际 snapshot(gen<N) 到达即丢弃；`loaded→suspended`（标签隐藏）→按 mtime 决定回 `loading` 或 `loaded`。
+- 行内重命名（3.3）：`displaying→editing→renaming→displaying`；FS 失败原子回滚旧名。
+
 ## 四、数据契约 (Data Contracts)
 
 全部为 Sendable 值类型；胶囊 public 面只含契约类型与协议（Contract.swift）。
@@ -111,7 +126,20 @@ enum ConflictDecision: Sendable { case replace, skip, keepBoth, mergeFolders }
 enum ErrorClass: Sendable { case logic /*内部逻辑错,禁重试*/, transient /*系统抖动,可重试*/, external /*权限/卷不可用,提示用户*/ }
 ```
 
-存储契约：`~/Library/Application Support/NSpace/{bookmarks,stash,session}.json`，Codable + 临时文件原子替换；stash 项存 URL bookmark `Data`（抗改名）；session 结构 = 窗口→frame/布局→窗格→标签→(路径/视图模式/排序/选中集)。
+存储契约：`~/Library/Application Support/NSpace/{bookmarks,stash,session,frecency}.json`，Codable + 临时文件原子替换；stash 项存 URL bookmark `Data`（抗改名）；session 结构 = 窗口→frame/布局→窗格→标签→(路径/视图模式/排序/选中集)；frecency 结构 = path→(count/lastAccess)。
+
+## 前置条件 (Preconditions)
+
+操作提交前必须成立的守卫（不满足即拒绝并原位反馈，绝不产生半成品或误伤）：
+
+| 操作 | 前置条件 | 不满足时 |
+| --- | --- | --- |
+| 复制/移动（Transfer） | 源存在且可读；目标目录可写；自源冲突（destination==source，inode 判定）时替换/合并安全收敛为改名 | 拒绝并进度行标红；自源绝不删源 |
+| 移到废纸篓 / 重命名（LocalOps） | 目标在可变夹具内、非只读卷；新名非空且同目录无未决撞名 | 原子回滚旧名 + 原位错误横幅 |
+| 分组（FileGrouping） | 偏好开启 且 排序键为日期类（修改/创建/添加） | 不分组，单线列表 |
+| 外部打开落点复用（openFileURLs） | `externalOpenTarget != "newWindow"` 且存在活动主窗口 | 回落开新窗口 |
+| 会话/frecency 落盘 | 恢复完成（sessionReady）后的状态变化才落盘 | 恢复期变化被 guard 挡下，不自我覆盖 |
+| 测试可变操作（UISelfTest） | 目标路径经 assertSandboxed 在自建临时夹具内；session/frecency/windowFrame 走 UITEST 隔离键/目录 | 机械拒绝，绝不碰用户真实文件/偏好 |
 
 ## 五、容错矩阵 (Fault-Tolerance Matrix)
 

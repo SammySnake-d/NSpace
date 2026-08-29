@@ -271,9 +271,9 @@
 "settings.behavior.tabLimit.note" = "When the limit is exceeded, a new pane tab replaces the oldest one.";
 "settings.behavior.openSection" = "Open Mode";
 "settings.behavior.openTarget" = "Open External Folders To";
-"settings.behavior.openTarget.newTab" = "New Tab";
-"settings.behavior.openTarget.activePane" = "Active Pane";
-"settings.behavior.openTarget.note" = "Where folders opened via `open` or other apps land. “Active Pane” reuses the current window, adding a pane tab there instead of opening a new window each time.";
+"settings.behavior.openTarget.newTab" = "New Tab (existing window)";
+"settings.behavior.openTarget.newWindow" = "New Window";
+"settings.behavior.openTarget.note" = "Where folders land when opened via `open`, or when a browser / other app reveals a file. Default “New Tab (existing window)” reuses the current window — adds a pane tab and selects the item — instead of spawning a new window each time. “New Window” opens a fresh window every time.";
 "settings.tab.permissions" = "Permissions";
 "settings.perm.fdaTitle" = "Full Disk Access";
 "settings.perm.granted" = "Full Disk Access granted ✓";

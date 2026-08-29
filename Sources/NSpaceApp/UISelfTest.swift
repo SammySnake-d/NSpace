@@ -1123,6 +1123,12 @@ enum UISelfTest {
             window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .milliseconds(200))
 
+            // ── 场景 I-52：外部/浏览器 reveal 落点可配（默认现有窗口新标签，不弹新窗）──────────────
+            // 放在搜索之后（会开关窗口，须让搜索场景先在干净窗口态跑）；自身清理回进入前状态供场景6。
+            await runExternalOpenTargetScenario(delegate: delegate)
+            window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(200))
+
             // 场景6（I-21）：⌘W 分层关闭 + MRU 回退 + 关最后窗口后可重开
             // 6a 分层：设置窗为 key 时 closeTopmost 只关设置窗，不动工作区
             SettingsWindowController.shared.showWindow(nil)
@@ -1511,6 +1517,45 @@ enum UISelfTest {
 
         // 收尾：导航回 home + 清夹具
         pane.navigate(to: fs.homeDirectoryForCurrentUser)
+        try? await Task.sleep(for: .milliseconds(200))
+        if assertSandboxed(box) { try? fs.removeItem(at: box) }
+    }
+
+    /// I-52：外部/浏览器 reveal 落点可配——默认「现有窗口新标签」复用当前窗口开新标签（不弹新窗，
+    /// 修用户报的"每次开新窗口"）；「新窗口」才每次弹新窗。经真实 application(_:open:) → openFileURLs 链验证。
+    private static func runExternalOpenTargetScenario(delegate: AppDelegate) async {
+        let fs = FileManager.default
+        let token = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory.appendingPathComponent("nspace-uitest-extopen-\(token)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        record(assertSandboxed(box), "沙箱守卫[I-52]: 外部打开夹具在自建夹具内")
+        func mainWins() -> Int { NSApp.windows.filter { $0.windowController is MainWindowController && $0.isVisible }.count }
+        guard let wc = NSApp.windows.compactMap({ $0.windowController as? MainWindowController }).first,
+              let hostWindow = wc.window else {
+            record(false, "I-52 外部打开默认新标签：复用现有窗口不弹新窗"); return
+        }
+        let prev = Preferences.externalOpenTarget
+
+        // 默认「现有窗口新标签」：窗口数不变、活动窗格标签 +1
+        Preferences.externalOpenTarget = "newTab"
+        let w0 = mainWins(); let t0 = wc.grid.activePane.tabs.count
+        delegate.application(NSApp, open: [box])
+        _ = await pollFS { wc.grid.activePane.tabs.count == t0 + 1 }
+        record(mainWins() == w0 && wc.grid.activePane.tabs.count == t0 + 1,
+               "I-52 外部打开默认「新标签」：复用现有窗口不弹新窗（窗口 \(w0)→\(mainWins())，标签 \(t0)→\(wc.grid.activePane.tabs.count)）")
+
+        // 「新窗口」：窗口数 +1
+        Preferences.externalOpenTarget = "newWindow"
+        let w1 = mainWins()
+        delegate.application(NSApp, open: [box])
+        _ = await pollFS { mainWins() == w1 + 1 }
+        record(mainWins() == w1 + 1, "I-52 外部打开「新窗口」：弹新窗（窗口 \(w1)→\(mainWins())）")
+
+        // 收尾：复原偏好 + 关掉多开的窗口（保留宿主窗）+ 关掉本场景加的标签（回进入前态）+ 清夹具
+        Preferences.externalOpenTarget = prev
+        for w in NSApp.windows where (w.windowController is MainWindowController) && w !== hostWindow { w.close() }
+        while wc.grid.activePane.tabs.count > t0 { wc.grid.activePane.closeTab(at: wc.grid.activePane.tabs.count - 1) }
+        hostWindow.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .milliseconds(200))
         if assertSandboxed(box) { try? fs.removeItem(at: box) }
     }

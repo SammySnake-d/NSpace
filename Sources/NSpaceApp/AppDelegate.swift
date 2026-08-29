@@ -196,12 +196,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
             let directory = isDir.boolValue ? url : url.deletingLastPathComponent()
             let selecting: URL? = isDir.boolValue ? nil : url
-            if Preferences.externalOpenTarget == "activePane", let wc = activeMainWindowController() {
-                // 复用已有窗口的活动窗格：新建窗格标签定位（文件则显露选中）
+            if Preferences.externalOpenTarget != "newWindow", let wc = activeMainWindowController() {
+                // 现有窗口新标签（默认，用户点名）：复用活动窗口的活动窗格，新建窗格标签定位（文件则显露选中）。
+                // 非 "newWindow"（含默认 newTab 与旧值 activePane）皆复用；无现有窗口时自然落到下方开新窗。
                 let pane = wc.grid.activePane
                 pane.openNewTab(at: directory)
                 if let selecting { pane.reveal(selecting) }
                 wc.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate()
             } else if isDir.boolValue {
                 openWindow(at: url)
             } else {

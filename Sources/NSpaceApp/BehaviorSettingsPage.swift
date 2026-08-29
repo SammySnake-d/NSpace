@@ -12,7 +12,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
     private let dragValues = ["auto", "copy", "move"]
     private let sortKeyValues = ["name", "dateModified", "size", "kind", "created", "added"]
     private let tabLimitValues = [0, 5, 10, 20]
-    private let openTargetValues = ["newTab", "activePane"]
+    private let openTargetValues = ["newTab", "newWindow"]
 
     func makeView() -> NSView {
         let enterRow = radioRow("settings.behavior.enter",
@@ -62,7 +62,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
         // 打开模式小节（对应 QSpace"打开到"）
         let openHeader = sectionHeader("settings.behavior.openSection")
         let openRow = popupRow("settings.behavior.openTarget",
-            optionKeys: ["settings.behavior.openTarget.newTab", "settings.behavior.openTarget.activePane"],
+            optionKeys: ["settings.behavior.openTarget.newTab", "settings.behavior.openTarget.newWindow"],
             selectedTag: openTargetValues.firstIndex(of: Preferences.externalOpenTarget) ?? 0,
             action: #selector(openTargetChanged(_:)))
         let openNote = note("settings.behavior.openTarget.note")

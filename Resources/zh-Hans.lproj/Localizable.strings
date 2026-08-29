@@ -271,9 +271,9 @@
 "settings.behavior.tabLimit.note" = "超过上限时，新建窗格标签会覆盖最老的那个。";
 "settings.behavior.openSection" = "打开模式";
 "settings.behavior.openTarget" = "外部打开目录到";
-"settings.behavior.openTarget.newTab" = "新标签页";
-"settings.behavior.openTarget.activePane" = "活动窗格";
-"settings.behavior.openTarget.note" = "从终端 open、其他 App 打开文件夹时的落点。选“活动窗格”会复用当前窗口，在活动窗格新建窗格标签定位，而不是每次开新窗。";
+"settings.behavior.openTarget.newTab" = "现有窗口新标签页";
+"settings.behavior.openTarget.newWindow" = "新窗口";
+"settings.behavior.openTarget.note" = "从终端 open、浏览器/其他 App「打开文件位置」定位文件夹时的落点。默认「现有窗口新标签页」——复用当前窗口、在活动窗格新建标签定位并选中，而不是每次开新窗口。选「新窗口」则每次弹新窗。";
 "settings.tab.permissions" = "权限";
 "settings.perm.fdaTitle" = "完全磁盘访问";
 "settings.perm.granted" = "已授予完全磁盘访问 ✓";

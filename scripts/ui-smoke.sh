@@ -182,6 +182,9 @@ require_pass "M28/I-47 UITEST 存储隔离（frecency/session 写临时目录不
 require_pass "I-47 导航即落盘：会话记住导航目录"
 # I-50 排序不持久化：改排序即落盘（非干净退出也不丢）
 require_pass "I-50 改排序即落盘：会话记住排序列/方向"
+# I-52 外部/浏览器 reveal 落点可配：默认现有窗口新标签(不弹新窗)/新窗口
+require_pass "I-52 外部打开默认「新标签」：复用现有窗口不弹新窗"
+require_pass "I-52 外部打开「新窗口」：弹新窗"
 # I-44 第三方"打开文件位置"真定位选中（select 参数此前被丢弃）：接通 + 列表 + 图标视图模式感知
 require_pass "I-44 openWindow(selecting:) 真定位选中目标文件"
 require_pass "I-44 列表视图 reveal 真定位选中目标文件"
