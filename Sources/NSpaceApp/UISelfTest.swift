@@ -1452,6 +1452,20 @@ enum UISelfTest {
                 if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
                 window.makeFirstResponder(dpane.focusTarget)
                 try? await Task.sleep(for: .milliseconds(120))
+
+                // (e) 同一目录的不同写法不得重复压进后退栈：URL 原样比时 `/a/b` 与 `/a/b/`、
+                // 含 `..` 的形式都不相等，于是同一个目录被压进历史，用户按 ⌘[ 看起来"原地不动"。
+                // 地址栏粘贴带尾斜杠的路径正是最容易撞上的入口。
+                let home = fs.homeDirectoryForCurrentUser
+                dpane.navigate(to: home)
+                _ = await pollFS { samePath(dpane.uiTestCurrentURL, home) }
+                let backBefore = dpane.backHistory.count
+                dpane.navigate(to: URL(fileURLWithPath: home.path + "/"))
+                dpane.navigate(to: URL(fileURLWithPath: home.path + "/Downloads/.."))
+                try? await Task.sleep(for: .milliseconds(200))
+                record(dpane.backHistory.count == backBefore
+                         && samePath(dpane.uiTestCurrentURL, home),
+                       "I-57 同一目录的不同写法不重复压后退栈（后退历史 \(backBefore)→\(dpane.backHistory.count)）")
             }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。

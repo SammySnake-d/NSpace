@@ -39,7 +39,12 @@ final class BrowserState {
 
     /// 新导航：清空前进栈（浏览器语义）
     func navigate(to url: URL) {
-        guard url != current else { return }
+        // 同一目录的不同写法不得重复压进后退栈：`/a/b` 与 `/a/b/`、含 `.`/`..` 的形式
+        // URL 原样比一律不相等（absoluteString 不同），于是同一个目录被压进历史，
+        // 用户按 ⌘[ 看起来"原地不动"。地址栏粘贴带尾斜杠的路径是最容易撞上的入口。
+        // 只做 standardizedFileURL（纯字符串）比较、**不**解析符号链接——那要 stat，
+        // 失效的网络卷上会把导航热路径拖住（同 PathEditorField 把解析挪到后台的理由）。
+        guard url.standardizedFileURL.path != current.standardizedFileURL.path else { return }
         backStack.append(current)
         forwardStack.removeAll()
         current = url
