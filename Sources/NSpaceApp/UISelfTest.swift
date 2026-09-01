@@ -1322,6 +1322,41 @@ enum UISelfTest {
                                "I-55 补全候选 head 对不上时全裁(原始 \(rawForTilde) 条→0)、对得上时返回末段(\(safe.count) 条，拼出 \((assembled as NSString).lastPathComponent) 存在=\(assembledOK))")
                     }
 
+                    // ⑦ 抖动动画基准点必须取 layer.position.x。AppKit 图层背衬视图 anchorPoint=(0,0)，
+                    // layer.position 等于 frame 原点而非中心——按 frame.midX 做基准会让地址栏先"瞬移"
+                    // 到自身半宽处再弹回，看起来像整条控件抽风，而不是一次抖动示意。
+                    dpane.uiTestBeginPathEditing(seed: "/definitely/not/exists/\(UUID().uuidString)")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressReturn(in: editor, window: window)
+                    _ = await pollFS { !editor.uiTestShakeValues.isEmpty }
+                    let shakeVals = editor.uiTestShakeValues
+                    let baseX = editor.layer?.position.x ?? -999
+                    record(!shakeVals.isEmpty
+                             && abs((shakeVals.first ?? -999) - baseX) < 0.5
+                             && abs(baseX - editor.frame.midX) > 1,
+                           "I-55 抖动以 layer.position.x 为基准（首帧 \(Int(shakeVals.first ?? -1)) ≈ position.x \(Int(baseX))，对照 frame.midX=\(Int(editor.frame.midX))）")
+
+                    // ⑧ 分栏模式下粘贴文件路径同样要选中。列链是异步重建的，若某一列还装着上一个
+                    // 目录的陈旧内容，旧实现会当场把待选中清空 → 正确内容载入后再也不会选中（静默丢失）。
+                    if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                    dpane.setViewMode(.columns)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    dpane.navigate(to: box)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+                    dpane.uiTestBeginPathEditing(seed: target.path)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressReturn(in: editor, window: window)
+                    var colOK = false
+                    for _ in 0..<25 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if let sel = dpane.activeTab.columnVC?.selectedURLs,
+                           sel.contains(where: { samePath($0, target) }) { colOK = true; break }
+                    }
+                    record(colOK,
+                           "I-55 分栏模式粘贴文件路径也能选中（陈旧列不吞掉待选中，选中数=\(dpane.activeTab.columnVC?.selectedURLs.count ?? -1)）")
+                    dpane.setViewMode(.list)
+                    try? await Task.sleep(for: .milliseconds(200))
+
                     if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
                     // 复原：本场景为定位隐藏文件打开过"显示隐藏"，别把状态漏给后续场景
                     if dpane.uiTestIncludeHidden != hiddenWas { dpane.uiTestSetIncludeHidden(hiddenWas) }
@@ -1956,24 +1991,37 @@ enum UISelfTest {
         }
         let pane = wc.grid.activePane
         pane.navigate(to: box)   // → onActiveLocationChange → noteStateChanged（UITEST 下 sessionReady=true）
-        try? await Task.sleep(for: .milliseconds(1400))   // SessionStore 防抖 1s + 余量
-        let snap = await delegate.sessionStore.load()
-        let paths = (snap?.windows ?? [])
-            .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }.map { $0.path }
-        let hit = paths.contains(box.path) || paths.contains(box.standardizedFileURL.path)
+        // 轮询而非固定 sleep：SessionStore 防抖 1s，原本的 1400ms 只剩 400ms 余量——
+        // 套件变长或机器变忙就假失败（1/6 实测复现）。轮询在常见情况下还更快。
+        var hit = false
+        for _ in 0..<40 {
+            try? await Task.sleep(for: .milliseconds(100))
+            let snap = await delegate.sessionStore.load()
+            let paths = (snap?.windows ?? [])
+                .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }.map { $0.path }
+            if paths.contains(box.path) || paths.contains(box.standardizedFileURL.path) { hit = true; break }
+        }
         record(hit, "I-47 导航即落盘：会话记住导航目录（隔离 session 含 \(box.lastPathComponent)=\(hit)）")
 
         // I-50：改排序即落盘（点列头改排序此前不触发保存，非干净退出重启回退旧排序）
         pane.setViewMode(.list)
         try? await Task.sleep(for: .milliseconds(150))
         pane.activeTab.listVC.tableView.sortDescriptors = [NSSortDescriptor(key: "size", ascending: false)]
-        try? await Task.sleep(for: .milliseconds(1400))
-        let snap2 = await delegate.sessionStore.load()
-        let boxTab = (snap2?.windows ?? [])
-            .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }
-            .first { $0.path == box.path || $0.path == box.standardizedFileURL.path }
-        let sortSaved = boxTab?.sortKey == "size" && boxTab?.sortAscending == false
-        record(sortSaved, "I-50 改排序即落盘：会话记住排序列/方向（得 \(boxTab?.sortKey ?? "nil")/\(boxTab.map { String($0.sortAscending) } ?? "nil")，期望 size/false）")
+        // 同上：轮询到落盘，不拿固定 sleep 赌防抖窗口
+        var lastKey: String?
+        var lastAsc: Bool?
+        var sortSaved = false
+        for _ in 0..<40 {
+            try? await Task.sleep(for: .milliseconds(100))
+            let snap2 = await delegate.sessionStore.load()
+            let tab = (snap2?.windows ?? [])
+                .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }
+                .first { $0.path == box.path || $0.path == box.standardizedFileURL.path }
+            lastKey = tab?.sortKey
+            lastAsc = tab?.sortAscending
+            if lastKey == "size" && lastAsc == false { sortSaved = true; break }
+        }
+        record(sortSaved, "I-50 改排序即落盘：会话记住排序列/方向（得 \(lastKey ?? "nil")/\(lastAsc.map { String($0) } ?? "nil")，期望 size/false）")
 
         // 收尾：导航回 home + 清夹具
         pane.navigate(to: fs.homeDirectoryForCurrentUser)

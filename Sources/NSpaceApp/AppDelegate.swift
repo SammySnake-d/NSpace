@@ -216,6 +216,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func activeMainWindowController() -> MainWindowController? {
         if let key = NSApp.keyWindow?.windowController as? MainWindowController { return key }
         if let main = NSApp.mainWindow?.windowController as? MainWindowController { return main }
+        // 兜底取**最前**的可见主窗（orderedWindows 是前→后序），而不是"最后创建的那一个"——
+        // 后者在用户关掉新窗或多窗切换之后会指向背后、甚至已不可见的窗口，外部打开就落到看不见的地方。
+        if let front = NSApp.orderedWindows.first(where: {
+            $0.isVisible && $0.windowController is MainWindowController
+        })?.windowController as? MainWindowController {
+            return front
+        }
         return windowControllers.last { $0.window != nil }
     }
 

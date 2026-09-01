@@ -343,10 +343,14 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
                 self.currentEditor()?.selectAll(nil)
                 return
             }
-            // 整个 App 失活（⌘Tab 切走 / ⌘H 隐藏 / ⌘M 最小化）不等于"用户放弃编辑"。照常复位会把
-            // 已经打了一半、或粘好还没回车的路径连同编辑态一起丢掉。Safari/Chrome 切回来内容都还在，
-            // 这里对齐。用户在**窗内**点别处（App 仍活跃）才是真放弃 —— 那条才是 bug#3 要修的路径。
-            guard NSApp.isActive else { return }
+            // 区分两种"结束编辑"：
+            //  · 焦点落到本窗口里的另一个控件 = 用户在窗内点了别处，是真放弃编辑 → 复位（bug#3 那条路径）
+            //  · 整个 App/窗口失活（⌘Tab 切走 / ⌘H 隐藏 / ⌘M 最小化）：AppKit 会把 firstResponder
+            //    收回窗口本身（不是某个 NSView）。这不算放弃编辑，照常复位会把已经打了一半、
+            //    或粘好还没回车的路径连同编辑态一起丢掉。Safari/Chrome 切回来内容都还在，这里对齐。
+            let responder = self.window?.firstResponder as? NSView
+            let movedWithinWindow = responder != nil && responder !== self && responder?.window === self.window
+            guard NSApp.isActive || movedWithinWindow else { return }
             self.onReset?()
         }
     }
@@ -359,10 +363,21 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
     }
 
     private func shake() {
-        let animation = CAKeyframeAnimation(keyPath: "position.x")
-        animation.values = [0, -6, 6, -4, 4, 0].map { frame.midX + $0 }
-        animation.duration = 0.3
-        layer?.add(animation, forKey: "shake")
         NSSound.beep()
+        guard let layer else { return }
+        // 基准必须取 layer 当前的 position.x，不能用 frame.midX：AppKit 图层背衬视图的
+        // anchorPoint 是 (0,0)，layer.position 等于 frame 原点而非中心——按 midX 做基准会让
+        // 地址栏先"瞬移"到自身半宽处再弹回，看起来像整条控件抽风，而不是抖动示意。
+        let baseX = layer.position.x
+        let animation = CAKeyframeAnimation(keyPath: "position.x")
+        animation.values = [0, -6, 6, -4, 4, 0].map { baseX + $0 }
+        animation.duration = 0.3
+        layer.add(animation, forKey: "shake")
+    }
+
+    /// UISelfTest（I-55）：末次抖动动画的关键帧（验证基准点取的是 layer.position.x 而非 frame.midX）
+    var uiTestShakeValues: [CGFloat] {
+        (layer?.animation(forKey: "shake") as? CAKeyframeAnimation)?
+            .values?.compactMap { ($0 as? NSNumber).map { CGFloat($0.doubleValue) } } ?? []
     }
 }

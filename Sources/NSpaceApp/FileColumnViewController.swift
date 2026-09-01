@@ -656,12 +656,23 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
         guard !items.isEmpty else { return }          // 空列无行可选；desiredSelection 保留待后续载入
         guard !desiredSelection.isEmpty else { return } // 无待恢复选中：不动现状
         var indexes = IndexSet()
-        // 标准化路径比较：外部注入的 URL 可能无尾斜杠、列内条目带尾斜杠（I-39 同病同修）
+        // 标准化路径比较 + 大小写兜底（大小写不敏感卷上用户给的大小写常与盘上不同）——I-39/I-55 同病同修
         let wantedPaths = Set(desiredSelection.map { $0.standardizedFileURL.path })
-        for (i, item) in items.enumerated()
-        where wantedPaths.contains(item.url.standardizedFileURL.path) {
-            indexes.insert(i)
+        for (i, item) in items.enumerated() {
+            let p = item.url.standardizedFileURL.path
+            if wantedPaths.contains(p)
+                || wantedPaths.contains(where: { $0.compare(p, options: .caseInsensitive) == .orderedSame }) {
+                indexes.insert(i)
+            }
         }
+        // 一个都没匹配上时，只有在「本列确实就是这些目标所在的目录」时才认定为"真的不存在"并消费掉。
+        // 否则列里装的还是上一个目录的陈旧内容——照旧清空就把待选中吃掉，正确内容载入后再也不会选中，
+        // 表现为粘贴文件路径后分栏模式什么都没选中（I-55）。
+        let ownsTargets = desiredSelection.allSatisfy {
+            $0.deletingLastPathComponent().standardizedFileURL.path
+                == directory.standardizedFileURL.path
+        }
+        guard !indexes.isEmpty || ownsTargets else { return }
         desiredSelection = []
         // I-32：精确匹配集即恢复；空集（选中项全被删）也显式 select 清空——
         // 不再 `guard !indexes.isEmpty else { return }` 留 reloadData 的按行号残留（删除后选中"漂移"真凶）
