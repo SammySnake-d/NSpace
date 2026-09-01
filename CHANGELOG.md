@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.19.11] - 2026-09-02
+
+### 修复
+- **删空地址栏后去开设置窗/搜索面板/切别的 App，回来仍是空白输入框（I-57）**：窗口失去 key 时 **AppKit 根本不发** `controlTextDidEndEditing`（独立探针实测：`resignKey` 之后 field editor 仍在、`isHidden` 仍是 `false`），失焦复位这条路对它完全无感知。现在补订阅 `NSWindow.didResignKeyNotification`——但**只在文本为空时才收**：⌘L 全选后切到 Finder/终端复制一段路径、再切回来 ⌘V 粘贴，正是本轮要服务的头号用例；无条件复位会把编辑框关掉、焦点交回文件列表，那记 ⌘V 就命中列表的 `pasteItems`，**把一个纯浏览动作升级成往当前目录粘贴文件的写盘操作**。空文本意味着用户没有任何待粘贴内容可丢，收掉是纯收益
+
+### 测试
+- ui-smoke 178 → 181，新增 I-57 三条，均针对审计点名的**断言强度**问题：
+  - 窗口失 key：空地址栏自收 **且** 有内容一律保留（后半条专门守住"未来某次过度修复"会砸掉粘贴用例）
+  - 「面包屑回显」改为**验内容**（面包屑 URL == 当前目录）+ **验 field editor 真释放**。旧断言只验 `!isHidden`，把 `breadcrumb.isHidden = false` 那行删掉照样绿，是假绿灯
+  - **⌘L 走真实响应链**（`tryToPerform(editPath:)`）而非 `uiTestBeginPathEditing` 复制体——菜单绑定 → 响应链 → `editPath` 这条链此前一次都没被执行过
+- I-57(a) 经**撤掉修复反证**确认有牙：无观察者时 `空收=false`，确定性 FAIL
+
 ## [0.19.10] - 2026-09-02
 
 ### 修复

@@ -1404,6 +1404,55 @@ enum UISelfTest {
                 dpane.navigate(to: fs.homeDirectoryForCurrentUser)
                 try? await Task.sleep(for: .milliseconds(150))
             }
+            // ── I-57：窗口失 key 的复位缝 + bug3 断言强度补强 ─────────────────────────
+            // 独立 AppKit 探针实测：窗口 resignKey 时 AppKit **不发** controlTextDidEndEditing
+            //（field editor 仍在、isHidden 仍是 false），失焦复位这条路对它完全无感知。
+            do {
+                let dpane = wc.grid.activePane
+                // (a) 空地址栏必须自收：⌘L → ⌫ 删空 → 开设置窗/⌘F/⌘Tab，回头看不能还是空白输入框
+                dpane.uiTestBeginPathEditing(seed: "")
+                try? await Task.sleep(for: .milliseconds(60))
+                NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+                try? await Task.sleep(for: .milliseconds(180))
+                let emptyCollapsed = !dpane.uiTestIsPathEditing
+                // (b) 有内容一律保留：⌘L → 切去 Finder 复制路径 → 切回来 ⌘V，是 bug2 的头号用例。
+                //     无条件复位会把编辑框关掉、焦点交回文件列表，那记 ⌘V 命中列表的 pasteItems
+                //     变成「往当前目录粘贴文件」——纯浏览动作被升级成写盘操作。
+                dpane.uiTestBeginPathEditing(seed: "/tmp/keep-me-while-away")
+                try? await Task.sleep(for: .milliseconds(60))
+                NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+                try? await Task.sleep(for: .milliseconds(180))
+                let textKept = dpane.uiTestIsPathEditing
+                    && dpane.uiTestPathEditorText == "/tmp/keep-me-while-away"
+                record(emptyCollapsed && textKept,
+                       "I-57 窗口失 key：空地址栏自收、有内容一律保留（空收=\(emptyCollapsed) 留存=\(textKept)「\(dpane.uiTestPathEditorText)」）")
+                dpane.uiTestEndPathEditing()
+                try? await Task.sleep(for: .milliseconds(150))
+
+                // (c)「面包屑回显」要验内容 + field editor 真释放。旧断言只验 !isHidden——
+                //    把 breadcrumb.isHidden = false 那行删掉照样绿，是假绿灯。
+                record(dpane.uiTestBreadcrumbVisible
+                         && samePath(dpane.uiTestBreadcrumbURL, dpane.uiTestCurrentURL)
+                         && !dpane.uiTestPathEditorHasFocus,
+                       "I-57 退出编辑后面包屑真回显当前目录且 field editor 已释放（面包屑=\(dpane.uiTestBreadcrumbURL.lastPathComponent) 当前=\(dpane.uiTestCurrentURL.lastPathComponent) 仍持焦=\(dpane.uiTestPathEditorHasFocus)）")
+
+                // (d) ⌘L 的**真实入口**：I-53 调的 uiTestBeginPathEditing 是 beginPathEditing 的
+                //     复制体，菜单绑定 → 响应链 → editPath 这条路一次都没被执行过。这里走真链路。
+                window.makeFirstResponder(dpane.focusTarget)
+                try? await Task.sleep(for: .milliseconds(150))
+                let editPathDelivered = window.tryToPerform(
+                    #selector(PaneViewController.editPath(_:)), with: nil)
+                try? await Task.sleep(for: .milliseconds(180))
+                let selRange = (dpane.uiTestPathEditor.currentEditor() as? NSTextView)?.selectedRange
+                    ?? NSRange(location: 0, length: 0)
+                let fullLen = (dpane.uiTestPathEditorText as NSString).length
+                record(editPathDelivered && dpane.uiTestIsPathEditing
+                         && selRange.location == 0 && selRange.length == fullLen && fullLen > 0,
+                       "I-57 ⌘L 经真实响应链送达且全选（送达=\(editPathDelivered) 选区 0..<\(selRange.length)/全长 \(fullLen)）")
+                if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                window.makeFirstResponder(dpane.focusTarget)
+                try? await Task.sleep(for: .milliseconds(120))
+            }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。
             // 铁律：只动自建 nspace-uitest-i32-* 夹具（assertSandboxed 守卫）；经 coordinator 走真实

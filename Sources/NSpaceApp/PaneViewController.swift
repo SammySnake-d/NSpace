@@ -107,6 +107,12 @@ final class PaneViewController: NSViewController {
         pathEditor.onInvalid = { [weak self] message in self?.flashPathHint(message) }
         pathEditor.isHidden = true
 
+        // 窗口级 key 迁移不发 didEndEditing（见 windowDidResignKey 注释），只能靠通知补这条缝。
+        // object: nil + 回调内比对 view.window —— 窗格会随布局重建/会话恢复换窗，绑死 object 会失联。
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification, object: nil)
+
         pathHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         pathHint.textColor = .systemRed
         pathHint.alignment = .right
@@ -455,6 +461,15 @@ final class PaneViewController: NSViewController {
     /// UISelfTest（I-55）：设置当前标签的"显示隐藏文件"（场景收尾复原用，不泄漏给后续场景）
     func uiTestSetIncludeHidden(_ on: Bool) { activeTab.model.includeHidden = on }
 
+    /// UISelfTest（I-57）：面包屑当前显示的目录 / 是否可见。
+    /// 「面包屑回显」必须验内容——只验 !isHidden 的断言把 breadcrumb.isHidden=false 删掉照样绿。
+    var uiTestBreadcrumbURL: URL { breadcrumb.url }
+    var uiTestBreadcrumbVisible: Bool { !breadcrumb.isHidden }
+
+    /// UISelfTest（I-57）：地址栏是否仍持有 field editor（退出编辑后必须已释放；
+    /// 「isHidden=true 但 field editor 还在」这个状态是可达的，光验 isHidden 盖不住）
+    var uiTestPathEditorHasFocus: Bool { pathEditor.currentEditor() != nil }
+
     /// UISelfTest（I-32）：刷新状态栏计数并回选中药丸是否可见（删除后选中清空 → 应无"已选"药丸）
     func uiTestRefreshAndSelectionPillVisible() -> Bool {
         updateStatusCounts()
@@ -657,8 +672,7 @@ final class PaneViewController: NSViewController {
     }
 
     /// 无效路径就地反馈：地址栏右端红字，1.5s 后淡出（不弹窗——spec 做工不变量）
-    private func flashPathHint(_ message: String) {
-        pathHintFadeWorkItem?.cancel()
+    private func flashPathHint(_ message: String) {        pathHintFadeWorkItem?.cancel()
         pathHint.stringValue = message
         pathHint.alphaValue = 1
         pathHint.isHidden = false
@@ -683,6 +697,23 @@ final class PaneViewController: NSViewController {
         pathHintFadeWorkItem?.cancel()
         pathHintFadeWorkItem = nil
         pathHint.isHidden = true
+    }
+
+    /// 窗口失去 key（另开设置窗 / ⌘F 搜索面板 / ⌘Tab 切到别的 App）时，**AppKit 不发**
+    /// `controlTextDidEndEditing`——独立探针实测：resignKey 之后 field editor 仍在、
+    /// pathEditor.isHidden 仍是 false。于是失焦复位这条路对它完全无感知，用户把地址栏删空后
+    /// 去开个设置窗，回头看主窗就是一个空白输入框盖在面包屑上。
+    ///
+    /// **只在文本为空时才收**：⌘L 全选后切到 Finder/终端复制一段路径、再切回来 ⌘V 粘贴，
+    /// 正是本轮要服务的头号用例。无条件复位会把编辑框关掉、焦点交回文件列表，那记 ⌘V 就命中
+    /// 列表的 pasteItems，变成「往当前目录粘贴文件」——一个纯浏览动作被升级成写盘操作。
+    /// 空文本意味着用户没有任何待粘贴内容可丢，收掉是纯收益。
+    @objc private func windowDidResignKey(_ note: Notification) {
+        guard isViewLoaded, (note.object as? NSWindow) === view.window,
+              !pathEditor.isHidden,
+              pathEditor.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        endPathEditing(takeFocus: false)   // 窗口正在失去 key，别去抢焦点
     }
 
     /// 粘贴文件路径（.apk 等）或包路径（.app）：进入其父目录并选中该项（Finder 语义）
