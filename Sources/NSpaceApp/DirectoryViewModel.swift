@@ -148,3 +148,26 @@ final class DirectoryViewModel {
         watcher?.stop()
     }
 }
+
+extension DirectoryViewModel {
+    /// 按 URL 找条目下标（列表/图标/分栏三视图定位共用的唯一判据）。
+    /// 先精确比标准化路径（目录条目 URL 带尾斜杠、导航/搜索来源的不带——I-39 同病同修）；
+    /// 找不到再退到**大小写不敏感**比较：APFS/HFS+ 默认大小写不敏感，用户粘贴或第三方传入的
+    /// 路径大小写常与盘上不同——`fileExists` 能过、精确字符串比较却匹配不上，表现为
+    /// 「跳到父目录了却什么都没选中」的静默失败。
+    func itemIndex(forURL url: URL) -> Int? {
+        let target = url.standardizedFileURL.path
+        if let exact = items.firstIndex(where: { $0.url.standardizedFileURL.path == target }) {
+            return exact
+        }
+        return items.firstIndex {
+            $0.url.standardizedFileURL.path.compare(target, options: .caseInsensitive) == .orderedSame
+        }
+    }
+
+    /// 该目录是否就是这个 URL 的父目录（判断"目标目录已经载入完了"，用于作废落空的 pending 定位）
+    func isLoadedDirectory(forParentOf url: URL) -> Bool {
+        directory.standardizedFileURL.path
+            == url.deletingLastPathComponent().standardizedFileURL.path
+    }
+}

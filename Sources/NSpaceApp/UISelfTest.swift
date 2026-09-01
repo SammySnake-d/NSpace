@@ -1185,6 +1185,151 @@ enum UISelfTest {
                 dpane.navigate(to: fs.homeDirectoryForCurrentUser)
                 try? await Task.sleep(for: .milliseconds(150))
             }
+            // ── I-55：地址栏与定位的边界修复（大小写 / 隐藏文件 / pending 作废 / Tab 补全 / 拖放）─────
+            do {
+                let dpane = wc.grid.activePane
+                let editor = dpane.uiTestPathEditor
+                let box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i55-\(UUID().uuidString)", isDirectory: true)
+                let mixed = box.appendingPathComponent("MixedCase", isDirectory: true)
+                let target = mixed.appendingPathComponent("TARGET.txt")
+                let hidden = mixed.appendingPathComponent(".secret.txt")
+                let tabA = box.appendingPathComponent("CompletionShared-Alpha", isDirectory: true)
+                let tabB = box.appendingPathComponent("CompletionShared-Beta", isDirectory: true)
+                for dir in [mixed, tabA, tabB] {
+                    try? fs.createDirectory(at: dir, withIntermediateDirectories: true)
+                }
+                try? Data("x".utf8).write(to: target)
+                try? Data("x".utf8).write(to: hidden)
+                defer { if assertSandboxed(box) { try? fs.removeItem(at: box) } }
+                let g55 = assertSandboxed(box) && assertSandboxed(target)
+                record(g55, "沙箱守卫[I-55]: 边界修复夹具在自建临时目录内")
+                if g55 {
+                    dpane.setViewMode(.list)
+                    dpane.navigate(to: box)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+                    let hiddenWas = dpane.uiTestIncludeHidden
+
+                    // ① 大小写与盘上不一致的路径仍能定位。APFS/HFS+ 默认大小写不敏感：
+                    // fileExists 能过，但定位用的是精确字符串比较 → 跳到父目录却什么都不选中（静默失败）。
+                    let wrongCase = mixed.deletingLastPathComponent()
+                        .appendingPathComponent("mixedcase").appendingPathComponent("target.TXT")
+                    dpane.uiTestBeginPathEditing(seed: wrongCase.path)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressReturn(in: editor, window: window)
+                    var caseOK = false
+                    for _ in 0..<20 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if samePath(dpane.uiTestCurrentURL, mixed),
+                           dpane.activeTab.listVC.selectedURLs.contains(where: { samePath($0, target) }) {
+                            caseOK = true; break
+                        }
+                    }
+                    record(caseOK,
+                           "I-55 大小写与盘上不一致的路径仍能定位选中（选中数=\(dpane.activeTab.listVC.selectedURLs.count)）")
+
+                    // ② 隐藏文件被点名时自动打开"显示隐藏"，否则只跳父目录不选中，用户眼里就是"没反应"
+                    dpane.uiTestBeginPathEditing(seed: hidden.path)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressReturn(in: editor, window: window)
+                    var hiddenOK = false
+                    for _ in 0..<20 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if dpane.uiTestIncludeHidden,
+                           dpane.activeTab.listVC.selectedURLs.contains(where: { samePath($0, hidden) }) {
+                            hiddenOK = true; break
+                        }
+                    }
+                    record(hiddenOK,
+                           "I-55 粘贴隐藏文件路径 → 自动显示隐藏文件并选中（显示隐藏=\(dpane.uiTestIncludeHidden)）")
+
+                    // ③ 落空的 pending 定位必须就地作废，不能留成日后的"幽灵跳选"定时炸弹
+                    let ghost = mixed.appendingPathComponent("never-exists-\(UUID().uuidString).txt")
+                    dpane.navigate(to: mixed)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, mixed) }
+                    dpane.reveal(ghost)
+                    _ = await pollFS { !dpane.activeTab.listVC.uiTestHasPendingReveal }
+                    record(!dpane.activeTab.listVC.uiTestHasPendingReveal,
+                           "I-55 目标目录已载入仍找不到目标 → pending 定位作废（不留幽灵跳选）")
+
+                    // ④ Tab 在路径框里是补全，不是切走焦点（旧行为：移焦 → 失焦复位 → 输入内容一起蒸发）
+                    dpane.navigate(to: box)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+                    let stem = box.appendingPathComponent("CompletionShared-A").path
+                    dpane.uiTestBeginPathEditing(seed: stem)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    if let fe = editor.currentEditor() as? NSTextView,
+                       let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil,
+                               characters: "\t", charactersIgnoringModifiers: "\t",
+                               isARepeat: false, keyCode: 48) {
+                        fe.keyDown(with: ev)
+                    }
+                    try? await Task.sleep(for: .milliseconds(150))
+                    let tabbed = dpane.uiTestPathEditorText
+                    record(dpane.uiTestIsPathEditing && samePath(URL(fileURLWithPath: tabbed), tabA),
+                           "I-55 Tab 补全唯一候选且仍留在输入框（得「\((tabbed as NSString).lastPathComponent)」编辑中=\(dpane.uiTestIsPathEditing)）")
+                    // 多候选时补到最长公共前缀（纯函数，确定性）
+                    let lcp = PathEditorField.longestCommonPrefix([tabA.path + "/", tabB.path + "/"])
+                    record(lcp == box.path + "/CompletionShared-",
+                           "I-55 多候选 Tab 补到最长公共前缀（得「\((lcp as NSString).lastPathComponent)」）")
+
+                    // ⑤ 地址栏接受文件投放（Finder 前往面板与各家浏览器地址栏皆支持）。
+                    // 走私有 NSPasteboard 驱动真实落地逻辑——绝不碰用户真实剪贴板（沿用沙箱铁律）。
+                    record(editor.registeredDraggedTypes.contains(.fileURL),
+                           "I-55 地址栏已注册 fileURL 拖放类型")
+                    let pb = NSPasteboard(name: NSPasteboard.Name("nspace.uitest.i55.\(UUID().uuidString)"))
+                    pb.clearContents()
+                    pb.writeObjects([target as NSURL])
+                    dpane.uiTestBeginPathEditing(seed: "")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    let dropped = editor.acceptDrop(from: pb)
+                    try? await Task.sleep(for: .milliseconds(60))
+                    record(dropped && samePath(URL(fileURLWithPath: dpane.uiTestPathEditorText), target),
+                           "I-55 拖文件到地址栏 → 填成其路径（落地=\(dropped) 得「\((dpane.uiTestPathEditorText as NSString).lastPathComponent)」）")
+                    pb.releaseGlobally()
+
+                    // ⑥ 补全候选与「charRange 之前那段」对不上时必须不给候选（不弹 popup），
+                    // 不能把整条绝对路径丢回去让 AppKit 替换末段——那会拼出 ~/Users/me/ 这种垃圾。
+                    // 典型触发：输入 `~`，候选却是展开后的 /Users/xxx/。
+                    // 先退出编辑态再探：编辑中 stringValue 与 field editor 的同步时机不确定，
+                    // 会让这条断言测的是 AppKit 的同步行为而不是我们的裁剪逻辑。
+                    if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                    try? await Task.sleep(for: .milliseconds(80))
+                    do {
+                        let probe = NSTextView()   // control(_:textView:...) 不读它，仅满足签名
+                        var idx = -1
+                        // 对照组 A（不安全）：head="~" 与候选（展开后的绝对路径）对不上 → 必须一条不给。
+                        // 同时看原始候选数，证明"是被裁掉的"，而不是"本来就没候选"。
+                        editor.stringValue = "~"
+                        let unsafeHead = editor.control(editor, textView: probe, completions: [],
+                                                        forPartialWordRange: NSRange(location: 1, length: 0),
+                                                        indexOfSelectedItem: &idx)
+                        let rawForTilde = editor.uiTestLastCompletionCount
+                        // 对照组 B（安全）：head 是候选的真前缀 → 返回末段，拼回去即正确路径，不该被误杀
+                        let stem = (box.path + "/Completion") as NSString
+                        let headLen = (box.path + "/" as NSString).length
+                        editor.stringValue = stem as String
+                        let safe = editor.control(editor, textView: probe, completions: [],
+                                                  forPartialWordRange: NSRange(location: headLen,
+                                                                               length: stem.length - headLen),
+                                                  indexOfSelectedItem: &idx)
+                        editor.stringValue = ""
+                        let assembled = box.path + "/" + (safe.first ?? "")
+                        let assembledOK = !safe.isEmpty && fs.fileExists(atPath: assembled)
+                        record(unsafeHead.isEmpty && rawForTilde > 0 && assembledOK,
+                               "I-55 补全候选 head 对不上时全裁(原始 \(rawForTilde) 条→0)、对得上时返回末段(\(safe.count) 条，拼出 \((assembled as NSString).lastPathComponent) 存在=\(assembledOK))")
+                    }
+
+                    if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                    // 复原：本场景为定位隐藏文件打开过"显示隐藏"，别把状态漏给后续场景
+                    if dpane.uiTestIncludeHidden != hiddenWas { dpane.uiTestSetIncludeHidden(hiddenWas) }
+                    window.makeFirstResponder(dpane.focusTarget)
+                }
+                dpane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(150))
+            }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。
             // 铁律：只动自建 nspace-uitest-i32-* 夹具（assertSandboxed 守卫）；经 coordinator 走真实
@@ -1928,6 +2073,19 @@ enum UISelfTest {
     private static func samePath(_ a: URL, _ b: URL) -> Bool {
         a.resolvingSymlinksInPath().standardizedFileURL.path
             == b.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    /// 向地址栏 field editor 发一次**真实** Return 键（走 keyDown → 响应链 → doCommandBy
+    /// insertNewline；直调回调是捷径，测不到键路由断裂）
+    private static func pressReturn(in editor: PathEditorField, window: NSWindow) {
+        guard let fe = editor.currentEditor() as? NSTextView,
+              let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                        timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil,
+                                        characters: "\r", charactersIgnoringModifiers: "\r",
+                                        isARepeat: false, keyCode: 36)
+        else { return }
+        fe.keyDown(with: ev)
     }
 
     /// 沙箱守卫（用户铁律 2026-08-26）：任何测试可变文件操作的目标必须在自建临时夹具内

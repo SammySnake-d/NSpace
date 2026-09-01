@@ -28,6 +28,8 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
     private var lastTextLength = 0
     /// I-54 探针：补全实际被触发的次数（验证粘贴不弹补全）
     private(set) var uiTestCompletionTriggerCount = 0
+    /// 提交解析正在后台跑（连按 Enter 不叠加）
+    private var resolving = false
     /// I-30 探针：末次补全候选数
     private(set) var uiTestLastCompletionCount = -1
     /// I-30 探针：末次补全是否在文本变更事务【之外】触发（true=已延迟；同步 bug 时为 false）
@@ -40,6 +42,7 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
         placeholderString = L10n.t("addressbar.placeholder")
         cell?.usesSingleLineMode = true
         cell?.isScrollable = true
+        registerForDraggedTypes([.fileURL])   // 拖文件/文件夹进来即填成路径
     }
 
     @available(*, unavailable)
@@ -118,7 +121,13 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
 
     /// 解析当前输入的落点。纯读盘、无副作用，便于自测直接断言。
     func resolve(_ raw: String) -> Resolution {
-        let list = Self.candidates(raw, base: baseDirectory?())
+        Self.resolve(raw, base: baseDirectory?())
+    }
+
+    /// 与实例状态无关的纯解析（**必须可离开主线程调用**：失效的网络卷 / 自动挂载点上 stat
+    /// 会阻塞几十秒，在主线程做就是整个 App 转菊花）。
+    nonisolated static func resolve(_ raw: String, base: URL?) -> Resolution {
+        let list = candidates(raw, base: base)
         guard !list.isEmpty else { return .empty }
         let fm = FileManager.default
         for path in list {
@@ -127,11 +136,11 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
                 // 断链符号链接：fileExists 会跟随链接因而判假，但这条链接在列表里明明看得见。
                 // attributesOfItem 是 lstat 语义（只看链接本身），据此当文件处理——进父目录选中它。
                 if (try? fm.attributesOfItem(atPath: path)) != nil {
-                    return .file(URL(fileURLWithPath: path))
+                    return .file(caseCanonical(URL(fileURLWithPath: path)))
                 }
                 continue
             }
-            let url = URL(fileURLWithPath: path)
+            let url = caseCanonical(URL(fileURLWithPath: path))
             // .app/.bundle/.rtfd 等包：盘上是目录，但用户当它是"一个东西"——按 Finder 语义选中而非钻进去
             let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
             guard isDir.boolValue, !isPackage else { return .file(url) }
@@ -139,6 +148,17 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
             return .directory(url)
         }
         return .notFound
+    }
+
+    /// 大小写归一。APFS/HFS+ 默认大小写不敏感：用户给的大小写可能与盘上不同，照搬会让面包屑显示
+    /// 错误的名字、也让按名字定位对不上。**只在"仅大小写不同"时才采纳规范路径**——`canonicalPath`
+    /// 同时会解析符号链接（`/tmp` → `/private/tmp`），那会改掉用户看到的路径层级，不是这里想要的。
+    nonisolated static func caseCanonical(_ url: URL) -> URL {
+        guard let canonical = (try? url.resourceValues(forKeys: [.canonicalPathKey]))?.canonicalPath,
+              canonical != url.path,
+              canonical.compare(url.path, options: .caseInsensitive) == .orderedSame
+        else { return url }
+        return URL(fileURLWithPath: canonical)
     }
 
     // MARK: 补全（输入即触发 complete:，防重入）
@@ -192,24 +212,27 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
         // 原样返回的话，采纳任一候选就拼成 /Users/me//Users/me/Downloads/ 这种垃圾，再 Enter 必然 shake。
         // 这里裁成"该填进 charRange 的那一段"，采纳后才是正确路径。全程按 NSString 长度算，中文名不错位。
         let text = stringValue as NSString
-        guard charRange.location != NSNotFound, NSMaxRange(charRange) <= text.length else { return full }
+        guard charRange.location != NSNotFound, NSMaxRange(charRange) <= text.length else { return [] }
         let head = text.substring(to: charRange.location) as NSString
-        return full.map { candidate in
+        return full.compactMap { candidate in
             let ns = candidate as NSString
-            return ns.hasPrefix(head as String) ? ns.substring(from: head.length) : candidate
+            // 候选与「charRange 之前那段」对不上时（例如输入 `~`、候选却是展开后的绝对路径），
+            // 没有任何"替换这一段"的写法能拼出正确路径——干脆不给候选、不弹 popup。
+            // 用户仍可按 Tab 走我们自己实现的补全：那条路径直接整体改写 stringValue，恒正确。
+            guard ns.hasPrefix(head as String) else { return nil }
+            return ns.substring(from: head.length)
         }
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
-            switch resolve(stringValue) {
-            case .empty:                 onCancel?()
-            case .directory(let url):    onCommit?(url)
-            case .file(let url):         onRevealFile?(url)
-            case .unreadable:            reject(L10n.t("addressbar.error.denied"))
-            case .notFound:              reject(L10n.t("addressbar.error.notFound"))
-            }
+            submit()
+            return true
+        case #selector(NSResponder.insertTab(_:)):
+            // Tab 在路径输入框里是「补全」，不是「切走焦点」（Finder ⌘⇧G / 终端 / 浏览器地址栏皆然）。
+            // 旧行为是走 AppKit 默认的移焦：编辑框随即失焦复位，用户打了一半的路径连同编辑态一起蒸发。
+            completeToCommonPrefix()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             onCancel?()
@@ -217,6 +240,84 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
         default:
             return false
         }
+    }
+
+    /// 提交当前输入。解析要读盘，**必须离开主线程**：失效的网络卷 / 自动挂载点上 stat 会阻塞几十秒，
+    /// 在主线程做就是整个 App 转菊花。期间保持编辑态，解析完回主线程落地。
+    private func submit() {
+        guard !resolving else { return }          // 连按 Enter 不叠加解析
+        let raw = stringValue
+        let base = baseDirectory?()
+        resolving = true
+        Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.resolve(raw, base: base)
+            }.value
+            guard let self else { return }
+            self.resolving = false
+            // 解析期间用户可能已经改了内容或关掉了地址栏——结果作废，别把人拽到不相干的地方
+            guard !self.isHidden, self.stringValue == raw else { return }
+            switch result {
+            case .empty:                 self.onCancel?()
+            case .directory(let url):    self.onCommit?(url)
+            case .file(let url):         self.onRevealFile?(url)
+            case .unreadable:            self.reject(L10n.t("addressbar.error.denied"))
+            case .notFound:              self.reject(L10n.t("addressbar.error.notFound"))
+            }
+        }
+    }
+
+    /// Tab 补全：唯一候选直接填入；多个候选补到最长公共前缀；补不动就 beep（有歧义，让用户自己再敲）。
+    private func completeToCommonPrefix() {
+        let candidates = completer.complete(stringValue)
+        guard !candidates.isEmpty else { NSSound.beep(); return }
+        let target = candidates.count == 1 ? candidates[0] : Self.longestCommonPrefix(candidates)
+        let current = stringValue as NSString
+        guard (target as NSString).length > current.length, target.hasPrefix(stringValue) else {
+            NSSound.beep(); return
+        }
+        stringValue = target
+        lastTextLength = (target as NSString).length
+        currentEditor()?.moveToEndOfLine(nil)
+    }
+
+    nonisolated static func longestCommonPrefix(_ items: [String]) -> String {
+        guard var prefix = items.first else { return "" }
+        for item in items.dropFirst() {
+            while !prefix.isEmpty, !item.hasPrefix(prefix) { prefix.removeLast() }
+            if prefix.isEmpty { break }
+        }
+        return prefix
+    }
+
+    // MARK: 拖放（把拖进来的文件/文件夹变成路径——Finder 前往面板与各家浏览器地址栏都支持）
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        droppedURL(from: sender) != nil ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        acceptDrop(from: sender.draggingPasteboard)
+    }
+
+    /// 投放落地（与 NSDraggingInfo 解耦的接缝：自测用私有 NSPasteboard 驱动，绝不碰用户真实剪贴板）
+    @discardableResult
+    func acceptDrop(from pasteboard: NSPasteboard) -> Bool {
+        guard let url = fileURL(on: pasteboard) else { return false }
+        beginEditing(with: url.path)   // 填入并全选：直接回车前往，或继续改
+        return true
+    }
+
+    /// 拖拽载荷里的第一个文件 URL（非文件 URL 一律不接）
+    func droppedURL(from sender: any NSDraggingInfo) -> URL? {
+        fileURL(on: sender.draggingPasteboard)
+    }
+
+    private func fileURL(on pasteboard: NSPasteboard) -> URL? {
+        let objects = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true])
+        return objects?.first as? URL
     }
 
     // MARK: 失焦复位（删除清空、点击他处、切走 App 后，绝不残留空白地址栏）
@@ -242,6 +343,10 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
                 self.currentEditor()?.selectAll(nil)
                 return
             }
+            // 整个 App 失活（⌘Tab 切走 / ⌘H 隐藏 / ⌘M 最小化）不等于"用户放弃编辑"。照常复位会把
+            // 已经打了一半、或粘好还没回车的路径连同编辑态一起丢掉。Safari/Chrome 切回来内容都还在，
+            // 这里对齐。用户在**窗内**点别处（App 仍活跃）才是真放弃 —— 那条才是 bug#3 要修的路径。
+            guard NSApp.isActive else { return }
             self.onReset?()
         }
     }

@@ -322,10 +322,8 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     /// URL → 行号（未载入/在折叠组内 → nil）
     func row(forURL url: URL) -> Int? {
-        // 标准化路径比较：目录条目 URL 带尾斜杠、导航/搜索来源的不带，URL 精确相等会错配（I-39）
-        let p = url.standardizedFileURL.path
-        guard let idx = model.items.firstIndex(where: { $0.url.standardizedFileURL.path == p })
-        else { return nil }
+        // 标准化路径比较 + 大小写兜底，判据统一在 model.itemIndex(forURL:)（I-39/I-55）
+        guard let idx = model.itemIndex(forURL: url) else { return nil }
         return row(forItemIndex: idx)
     }
 
@@ -491,9 +489,19 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
 
+    /// UISelfTest（I-55）：是否还挂着待定位目标——用于验证落空的 pending 会被就地作废，
+    /// 不会留成日后突然"幽灵跳选"并抢键盘焦点的定时炸弹
+    var uiTestHasPendingReveal: Bool { pendingReveal != nil }
+
     private func revealPendingIfPossible() {
-        guard let pending = pendingReveal,
-              let row = row(forURL: pending.url) else { return }
+        guard let pending = pendingReveal else { return }
+        guard let row = row(forURL: pending.url) else {
+            // 目标所在目录已经载入、却仍然找不到目标（被隐藏文件过滤掉 / 已被删除 / 名字对不上）：
+            // 就地作废。否则这条 pending 会一直挂着，等到用户日后任意一次刷新或进入某个恰好
+            // 含同名项的目录时突然"幽灵跳选"，还顺手抢走键盘焦点。
+            if model.isLoadedDirectory(forParentOf: pending.url) { pendingReveal = nil }
+            return
+        }
         pendingReveal = nil
         tableView.selectRowIndexes([row], byExtendingSelection: false)
         tableView.scrollRowToVisible(row)

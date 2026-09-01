@@ -551,12 +551,15 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
 
     private func revealPendingIfPossible() {
-        // 标准化路径比较：目录条目 URL 带尾斜杠、导航/新建来源的不带（I-39 同病同修）
+        // 标准化路径比较 + 大小写兜底，判据统一在 model.itemIndex(forURL:)（I-39/I-55 同病同修）
         guard let pending = pendingReveal else { return }
-        let p = pending.url.standardizedFileURL.path
-        guard let idx = model.items.firstIndex(where: { $0.url.standardizedFileURL.path == p }),
+        guard let idx = model.itemIndex(forURL: pending.url),
               let ip = indexPath(forModelIndex: idx)
-        else { return }
+        else {
+            // 目标目录已载入却找不到目标：作废 pending，否则日后会"幽灵跳选"并抢走键盘焦点
+            if model.isLoadedDirectory(forParentOf: pending.url) { pendingReveal = nil }
+            return
+        }
         pendingReveal = nil
         collectionView.deselectAll(nil)
         collectionView.selectItems(at: [ip], scrollPosition: .nearestHorizontalEdge)

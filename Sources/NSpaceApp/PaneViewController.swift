@@ -98,7 +98,8 @@ final class PaneViewController: NSViewController {
             self?.revealFile(url)
         }
         pathEditor.onCancel = { [weak self] in self?.endPathEditing() }
-        pathEditor.onReset = { [weak self] in self?.endPathEditing() }
+        // 失焦复位：不夺焦（焦点已在用户刚点的地方），只把编辑框收掉让面包屑回显
+        pathEditor.onReset = { [weak self] in self?.endPathEditing(takeFocus: false) }
         // 相对路径（"Downloads"、"./x"）按当前浏览目录解析——进程 CWD 对文件管理器没有意义
         pathEditor.baseDirectory = { [weak self] in
             self?.activeTab.browser.current ?? FileManager.default.homeDirectoryForCurrentUser
@@ -448,6 +449,12 @@ final class PaneViewController: NSViewController {
     /// UISelfTest（I-54）：⌘R 刷新走的真实入口（响应链在地址栏获焦时先到本控制器）
     func uiTestRefresh() { refresh(nil) }
 
+    /// UISelfTest（I-55）：当前标签是否在显示隐藏文件（验证 reveal 隐藏文件时自动打开）
+    var uiTestIncludeHidden: Bool { activeTab.model.includeHidden }
+
+    /// UISelfTest（I-55）：设置当前标签的"显示隐藏文件"（场景收尾复原用，不泄漏给后续场景）
+    func uiTestSetIncludeHidden(_ on: Bool) { activeTab.model.includeHidden = on }
+
     /// UISelfTest（I-32）：刷新状态栏计数并回选中药丸是否可见（删除后选中清空 → 应无"已选"药丸）
     func uiTestRefreshAndSelectionPillVisible() -> Bool {
         updateStatusCounts()
@@ -625,11 +632,13 @@ final class PaneViewController: NSViewController {
         pathEditor.beginEditing(with: activeTab.browser.current.path)
     }
 
-    private func endPathEditing() {
+    private func endPathEditing(takeFocus: Bool = true) {
         pathEditor.isHidden = true
         breadcrumb.isHidden = false
         hidePathHint()
-        view.window?.makeFirstResponder(focusTarget)
+        // 失焦复位这条路上 takeFocus=false：焦点此刻已经在别处（可能是另一个窗格、侧边栏、工具栏），
+        // 再 makeFirstResponder 就是把用户刚点过去的焦点抢回来——用户点隔壁窗格却发现光标跳回这边。
+        if takeFocus { view.window?.makeFirstResponder(focusTarget) }
     }
 
     /// 无效路径就地反馈：地址栏右端红字，1.5s 后淡出（不弹窗——spec 做工不变量）
@@ -659,9 +668,21 @@ final class PaneViewController: NSViewController {
 
     /// 粘贴文件路径（.apk 等）或包路径（.app）：进入其父目录并选中该项（Finder 语义）
     private func revealFile(_ fileURL: URL) {
+        // 目标是隐藏文件、而当前又没在显示隐藏文件：用户是**明确点名**要这个文件的，
+        // 不打开显示就只会跳到父目录、什么都不选中，在用户眼里就是"回车了没反应"。
+        // 为该标签打开显示隐藏（每标签独立，⌘⇧. 随时可关掉），让用户真看得到自己要的东西。
+        if Self.isHiddenItem(fileURL), !activeTab.model.includeHidden {
+            activeTab.model.includeHidden = true
+        }
         let parent = fileURL.deletingLastPathComponent()
         navigate(to: parent)
         revealAfterLoad(fileURL)
+    }
+
+    /// 是否为隐藏项：点开头，或带 macOS 隐藏标志（后者是 UF_HIDDEN，点前缀盖不住）
+    private static func isHiddenItem(_ url: URL) -> Bool {
+        if url.lastPathComponent.hasPrefix(".") { return true }
+        return (try? url.resourceValues(forKeys: [.isHiddenKey]))?.isHidden ?? false
     }
 
     // MARK: 菜单命令（响应链，只在活动窗格生效）
