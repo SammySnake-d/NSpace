@@ -550,6 +550,14 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
 
     func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
 
+    func takePendingReveal() -> (url: URL, rename: Bool)? {
+        defer { pendingReveal = nil }
+        return pendingReveal
+    }
+
+    /// UISelfTest（I-56）：是否还挂着待定位目标（验证切视图模式时 pending 真的被搬过来）
+    var uiTestHasPendingReveal: Bool { pendingReveal != nil }
+
     private func revealPendingIfPossible() {
         // 标准化路径比较 + 大小写兜底，判据统一在 model.itemIndex(forURL:)（I-39/I-55 同病同修）
         guard let pending = pendingReveal else { return }

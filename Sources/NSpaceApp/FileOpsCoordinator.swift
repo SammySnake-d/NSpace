@@ -8,6 +8,9 @@ import Frecency
 @MainActor
 protocol FileRevealTarget: AnyObject {
     func prepareReveal(_ url: URL, rename: Bool)
+    /// 取走并清空待定位目标。切视图模式时用来「搬家」：读盘途中切走，pending 还挂在旧视图上，
+    /// 不搬就永久丢失，而且会在旧视图里留成日后突然"幽灵跳选"并抢焦点的定时炸弹。
+    func takePendingReveal() -> (url: URL, rename: Bool)?
 }
 
 /// UI → 内核桥（每窗口一个）：把用户意图翻译成 OperationSpec 交给 OperationKernel，

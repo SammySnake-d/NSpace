@@ -177,11 +177,15 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
         // I-30：complete(nil) 必须【延迟到下一 runloop】触发，不可在 controlTextDidChange 内同步调用。
         // 同步调用时首次输入的补全 popup 被文本变更事务吞掉（首键无补全，需第二键才浮出）；
         // 异步派发让文本变更先落定，补全 popup 首键即出。
+        // completing 必须在**调度时**置位：读它（上面的 guard）与写它隔着一个 runloop hop，
+        // 同一趟 runloop 里两次文本变更会双双通过 guard，叠开两层补全（嵌套事件循环）。
+        completing = true
         inTextDidChange = true
         defer { inTextDidChange = false }
         DispatchQueue.main.async { [weak self] in
-            guard let self, let editor = self.currentEditor() as? NSTextView else { return }
-            self.completing = true
+            guard let self else { return }
+            defer { self.completing = false }   // 任何提前 return 也要归位，否则标志滞留=补全从此彻底失效
+            guard let editor = self.currentEditor() as? NSTextView else { return }
             // UITEST 无头环境：AppKit 补全 popup 会进入嵌套事件循环且无事件可退（主线程栈实锤
             // NSTextViewCompletionController 挂死、饿死看门狗）。自测只核"事务外触发"契约与候选数
             //（completions 回调仍走），不弹真 popup；产品路径不变。
@@ -194,7 +198,6 @@ final class PathEditorField: NSTextField, NSTextFieldDelegate {
             } else {
                 editor.complete(nil)
             }
-            self.completing = false
         }
     }
 

@@ -189,6 +189,13 @@ final class FileColumnViewController: NSViewController {
         view.window?.makeFirstResponder(leaf.tableView)   // I-48：聚焦叶列，选中显蓝色强调（非 first responder 时未强调灰几乎不可见）
     }
 
+    /// 取走并清空叶列的待定位目标（切视图模式搬家用，语义同 FileRevealTarget.takePendingReveal）
+    func takePendingReveal() -> URL? {
+        guard let leaf = columns.last, let url = leaf.desiredSelection.first else { return nil }
+        leaf.desiredSelection = []
+        return url
+    }
+
     private func rebuild(root: URL) {
         truncateColumns(after: -1)
         removePreview()

@@ -1370,6 +1370,32 @@ enum UISelfTest {
                     wc.grid.apply(layout: layoutWas)
                     try? await Task.sleep(for: .milliseconds(300))
 
+                    // ⑩ 读盘途中切视图模式，待定位目标要搬到新视图。同一趟 runloop 内
+                    // navigate + reveal + 切视图：异步读盘必然还没回来，pending 只能挂在旧视图上，
+                    // 不搬就永久丢失（且在旧视图里留成日后"幽灵跳选"的定时炸弹）。
+                    dpane.setViewMode(.list)
+                    try? await Task.sleep(for: .milliseconds(200))
+                    dpane.navigate(to: box)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+                    dpane.navigate(to: mixed)
+                    dpane.reveal(target)
+                    // 直接断言"转移"这个动作本身：只看最终选中测不出来——选中还能经
+                    // restoreSelection / 共享 model 的多播落上去，会把断言变成没牙的假绿灯。
+                    let listHadPending = dpane.activeTab.listVC.uiTestHasPendingReveal
+                    dpane.setViewMode(.icons)   // 同步调用，中间不 await，读盘不可能已回来
+                    let listStillPending = dpane.activeTab.listVC.uiTestHasPendingReveal
+                    let iconNowPending = dpane.activeTab.iconVC?.uiTestHasPendingReveal ?? false
+                    var carriedOK = false
+                    for _ in 0..<30 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if let sel = dpane.activeTab.iconVC?.selectedURLs,
+                           sel.contains(where: { samePath($0, target) }) { carriedOK = true; break }
+                    }
+                    record(listHadPending && !listStillPending && iconNowPending && carriedOK,
+                           "I-56 读盘途中切视图模式，待定位目标搬到新视图（旧视图 \(listHadPending)→\(listStillPending)，新视图挂上=\(iconNowPending)，最终选中=\(carriedOK)）")
+                    dpane.setViewMode(.list)
+                    try? await Task.sleep(for: .milliseconds(200))
+
                     if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
                     // 复原：本场景为定位隐藏文件打开过"显示隐藏"，别把状态漏给后续场景
                     if dpane.uiTestIncludeHidden != hiddenWas { dpane.uiTestSetIncludeHidden(hiddenWas) }

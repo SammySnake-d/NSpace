@@ -493,11 +493,26 @@ final class PaneViewController: NSViewController {
     func setViewMode(_ mode: PaneViewMode) {
         guard activeTab.viewMode != mode else { return }
         let carried = currentSelectionURLs()
+        // 读盘途中切视图模式：待定位目标还挂在旧视图上，不搬过去就永久丢失，
+        // 而且会在旧视图里留成日后突然"幽灵跳选"并抢焦点的定时炸弹。先取走，挂到新视图上。
+        let carriedReveal = takePendingReveal()
         activeTab.viewMode = mode
         mountActiveTab()
         restoreSelection(carried)
+        if let carriedReveal { revealAfterLoad(carriedReveal.url, rename: carriedReveal.rename) }
         view.window?.makeFirstResponder(focusTarget)
         updateStatusCounts()
+    }
+
+    /// 取走当前视图上的待定位目标（切视图模式搬家用）
+    private func takePendingReveal() -> (url: URL, rename: Bool)? {
+        switch activeTab.viewMode {
+        case .list:  return activeTab.listVC.takePendingReveal()
+        case .icons: return activeTab.iconVC?.takePendingReveal()
+        case .columns:
+            guard let url = activeTab.columnVC?.takePendingReveal() else { return nil }
+            return (url, false)   // 分栏无行内重命名语义
+        }
     }
 
     private func currentSelectionURLs() -> [URL] {
@@ -647,6 +662,10 @@ final class PaneViewController: NSViewController {
         pathHint.stringValue = message
         pathHint.alphaValue = 1
         pathHint.isHidden = false
+        // VoiceOver 播报：否则视障用户只听得到一声 beep，完全不知道错在哪
+        NSAccessibility.post(element: pathHint, notification: .announcementRequested,
+                             userInfo: [.announcement: message,
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
         let fade = DispatchWorkItem { [weak self] in
             guard let self else { return }
             NSAnimationContext.runAnimationGroup { ctx in
@@ -739,10 +758,10 @@ final class PaneViewController: NSViewController {
     }
 
     /// 导航落位后选中指定条目（各视图自带"加载完成再选"机制，避开异步读目录竞态）
-    private func revealAfterLoad(_ url: URL) {
+    private func revealAfterLoad(_ url: URL, rename: Bool = false) {
         switch activeTab.viewMode {
-        case .list: activeTab.listVC.prepareReveal(url, rename: false)
-        case .icons: activeTab.iconVC?.prepareReveal(url, rename: false)
+        case .list: activeTab.listVC.prepareReveal(url, rename: rename)
+        case .icons: activeTab.iconVC?.prepareReveal(url, rename: rename)
         case .columns: activeTab.columnVC?.select(urls: [url])
         }
     }

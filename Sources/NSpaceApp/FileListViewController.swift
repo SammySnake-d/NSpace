@@ -489,6 +489,11 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
 
+    func takePendingReveal() -> (url: URL, rename: Bool)? {
+        defer { pendingReveal = nil }
+        return pendingReveal
+    }
+
     /// UISelfTest（I-55）：是否还挂着待定位目标——用于验证落空的 pending 会被就地作废，
     /// 不会留成日后突然"幽灵跳选"并抢键盘焦点的定时炸弹
     var uiTestHasPendingReveal: Bool { pendingReveal != nil }
