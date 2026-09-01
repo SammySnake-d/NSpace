@@ -52,6 +52,8 @@
 "addressbar.subfolders" = "Subfolders";
 "addressbar.noSubfolders" = "(No Subfolders)";
 "addressbar.collapsedLevels" = "Collapsed Levels";
+"addressbar.error.notFound" = "Path doesn’t exist";
+"addressbar.error.denied" = "No permission to open";
 "menu.newWorkspace" = "New Workspace";
 "menu.closeWorkspace" = "Close Workspace";
 "menu.nextWorkspace" = "Next Workspace";

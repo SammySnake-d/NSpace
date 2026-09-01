@@ -219,6 +219,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return windowControllers.last { $0.window != nil }
     }
 
+    /// 是否还有主窗口存活。**不能用 NSApp.windows 的 isVisible 判断**：unhide 是异步的，
+    /// 刚 NSApp.unhide(nil) 完窗口 isVisible 仍是 false，据此会误判"没有主窗"而多开一个空窗
+    /// （用户按全局热键呼出 NSpace 时冒出多余窗口）。窗口台账在 windowWillClose 里同步维护，可信。
+    var hasLiveMainWindow: Bool { windowControllers.contains { $0.window != nil } }
+
+    /// 最前的主窗口（全局热键呼出用）。不用 NSApp.windows.first —— 已 close() 但尚未析构的窗口
+    /// 仍留在里面，makeKeyAndOrderFront 会把它"复活"成用户以为早就关掉的僵尸窗。
+    var frontmostMainWindow: NSWindow? {
+        if let key = NSApp.keyWindow, key.windowController is MainWindowController { return key }
+        if let main = NSApp.mainWindow, main.windowController is MainWindowController { return main }
+        return windowControllers.last { $0.window != nil }?.window
+    }
+
     @discardableResult
     func openWindow(at directory: URL, selecting: URL? = nil, orderFront: Bool = true) -> MainWindowController {
         let wc = MainWindowController(kernel: kernel, frecencyStore: frecencyStore,

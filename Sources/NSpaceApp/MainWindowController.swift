@@ -308,6 +308,21 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         }
     }
 
+    // MARK: 响应链兜底（地址栏 field editor 获焦时，动作走不到窗格/内容 VC——这里是链的收口）
+
+    /// ⌘R 刷新。地址栏在编辑态时 firstResponder 是 NSTextField 的 field editor，实测该段链既到不了
+    /// 三个内容 VC（菜单项挂的 #selector(FileListViewController.refresh(_:))），也到不了 PaneViewController，
+    /// 于是 ⌘R 成了死键——用户报的"删空地址栏后不管我刷新还是退回上级都不恢复"，刷新这一条就卡在这里。
+    /// NSWindow 的 nextResponder 即窗口控制器，这里必然收得到，转交给活动窗格即可。
+    @objc func refresh(_ sender: Any?) {
+        grid.activePane.refresh(sender)
+    }
+
+    /// ⌘L 前往路径。同上：侧边栏/地址栏持有焦点时链上没有 PaneViewController，⌘L 会静默失效。
+    @objc func editPath(_ sender: Any?) {
+        grid.activePane.editPath(sender)
+    }
+
     // MARK: 工作区标签（M17：自管 WorkspaceManager；⌘T/⌘W/循环 + 标签条钮都走这里）
 
     /// 切换前把 grid 实时快照回灌活动槽（否则切走的工作区丢失未落盘编辑）

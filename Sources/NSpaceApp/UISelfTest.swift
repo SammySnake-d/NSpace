@@ -870,6 +870,321 @@ enum UISelfTest {
                 window.makeFirstResponder(nil)
                 try? await Task.sleep(for: .milliseconds(100))
             }
+            // ── I-53：地址栏三连 bug 修复回归（用户 2026-08-31 报告）─────────────────
+            // bug1: ⌘L 呼出后文本未全选（旧=moveToEndOfLine）→ 输入/粘贴追加而非替换
+            // bug2: 粘贴文件路径（.apk 等）Enter 只抖动不跳转；应导航父目录+选中该文件
+            // bug3: 编辑框失焦不复位——删除清空/点击他处后地址栏永远空白
+            do {
+                let dpane = wc.grid.activePane
+                let editor = dpane.uiTestPathEditor
+                let i53box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i53-\(UUID().uuidString)", isDirectory: true)
+                let i53file = i53box.appendingPathComponent("app-release.apk")
+                try? fs.createDirectory(at: i53box, withIntermediateDirectories: true)
+                try? Data("PK".utf8).write(to: i53file)
+                defer { try? fs.removeItem(at: i53box) }
+                let g53 = assertSandboxed(i53box) && assertSandboxed(i53file)
+                record(g53, "沙箱守卫[I-53]: 地址栏回归夹具在自建临时目录内")
+                if g53 {
+                    func pressEnter() {
+                        guard let fe = editor.currentEditor() as? NSTextView,
+                              let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                      timestamp: ProcessInfo.processInfo.systemUptime,
+                                      windowNumber: window.windowNumber, context: nil,
+                                      characters: "\r", charactersIgnoringModifiers: "\r",
+                                      isARepeat: false, keyCode: 36) else { return }
+                        fe.keyDown(with: ev)
+                    }
+                    // bug1: ⌘L 全选
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: "/tmp/some/path")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    let selRange = (editor.currentEditor() as? NSTextView)?.selectedRange ?? NSRange(location: 0, length: 0)
+                    let fullLen = editor.stringValue.count
+                    record(selRange.location == 0 && selRange.length == fullLen && fullLen > 0,
+                           "I-53 ⌘L 呼出后地址栏文本全选（选区 0..<\(selRange.length) 全长 \(fullLen)）")
+                    dpane.uiTestEndPathEditing()
+                    try? await Task.sleep(for: .milliseconds(100))
+                    // bug2a: Enter 文件夹路径 → 导航
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: i53box.path)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressEnter()
+                    try? await Task.sleep(for: .milliseconds(300))
+                    record(samePath(dpane.uiTestCurrentURL, i53box),
+                           "I-53 Enter 文件夹路径 → 导航到该文件夹（实得 \(dpane.uiTestCurrentURL.lastPathComponent)）")
+                    record(!dpane.uiTestIsPathEditing, "I-53 文件夹导航后编辑框已退出（面包屑回显）")
+                    // bug2b: Enter 文件路径（.apk）→ 导航父目录并选中该文件
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: i53file.path)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressEnter()
+                    var revealOK = false
+                    for _ in 0..<15 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if samePath(dpane.uiTestCurrentURL, i53box),
+                           dpane.activeTab.listVC.selectedURLs.contains(where: { samePath($0, i53file) }) {
+                            revealOK = true; break
+                        }
+                    }
+                    record(revealOK,
+                           "I-53 Enter 文件路径（.apk）→ 导航父目录并选中该文件（dir=\(samePath(dpane.uiTestCurrentURL, i53box)) sel=\(dpane.activeTab.listVC.selectedURLs.count)）")
+                    record(!dpane.uiTestIsPathEditing, "I-53 文件 reveal 后编辑框已退出（面包屑回显）")
+                    // bug2c: 不存在路径 → 不跳转
+                    let beforeInvalid = dpane.uiTestCurrentURL
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: "/definitely/not/exists/\(UUID().uuidString)")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    pressEnter()
+                    try? await Task.sleep(for: .milliseconds(200))
+                    record(samePath(dpane.uiTestCurrentURL, beforeInvalid),
+                           "I-53 Enter 不存在路径 → 不跳转（仍在原目录）")
+                    // bug3: 清空地址栏失焦 → 编辑框退出，面包屑回显
+                    dpane.uiTestBeginPathEditing(seed: "")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    dpane.uiTestBlurPathEditor()
+                    try? await Task.sleep(for: .milliseconds(200))
+                    record(!dpane.uiTestIsPathEditing,
+                           "I-53 清空地址栏后失焦 → 编辑框退出，面包屑回显当前路径")
+                    // bug3b: 编辑中（删空）触发导航（退回上级/刷新，不经失焦）→ 编辑框仍须退出、面包屑回显。
+                    // 用户报"退回上级再重进也不恢复"——这条路径不失焦，只靠失焦复位覆盖不到，须由导航强制收编辑态。
+                    dpane.navigate(to: i53box)
+                    try? await Task.sleep(for: .milliseconds(200))
+                    dpane.uiTestBeginPathEditing(seed: "")   // 进编辑并删空
+                    try? await Task.sleep(for: .milliseconds(30))
+                    dpane.goUpFolder(nil)                     // 编辑中退回上级（键盘/菜单路径，不失焦）
+                    try? await Task.sleep(for: .milliseconds(250))
+                    record(!dpane.uiTestIsPathEditing && samePath(dpane.uiTestCurrentURL, i53box.deletingLastPathComponent()),
+                           "I-53 编辑中退回上级 → 编辑框退出+面包屑回显新目录（editing=\(dpane.uiTestIsPathEditing)）")
+                    if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                // 卫生：夹具即将删除，别把窗格留在已删目录里污染后续场景
+                dpane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            // ── I-54：地址栏路径解析矩阵——剪贴板真实形态 × 目标类型（纯解析层，零时序依赖）────────
+            // 用户报"有时候粘贴文件夹也无法跳转，很奇怪"：不是玄学。旧实现只
+            // trimmingCharacters(in: .whitespaces)（**该字符集不含 \n**）+ expandingTildeInPath，
+            // 于是"尾随换行 / file:// URL / percent 编码 / 成对引号 / 反斜杠转义"这五类真实剪贴板
+            // 形态统统落进 shake 分支——粘同一个文件夹，从 Finder 复制的能跳、从终端复制的不能跳。
+            // 这里直接断言 resolve()：端到端导航跑 26 条既慢又测不到解析层，纯函数断言才盯得住真因。
+            do {
+                let dpane = wc.grid.activePane
+                let editor = dpane.uiTestPathEditor
+                let box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i54-\(UUID().uuidString)", isDirectory: true)
+                let folder = box.appendingPathComponent("My Folder", isDirectory: true)
+                let cnFolder = box.appendingPathComponent("中文 目录", isDirectory: true)
+                let quoteDir = box.appendingPathComponent("weird'quote", isDirectory: true)
+                let slashDir = box.appendingPathComponent("back\\slash", isDirectory: true)
+                let pkgDir = box.appendingPathComponent("Test.app", isDirectory: true)
+                let apk = folder.appendingPathComponent("app-release.apk")
+                let linkDir = box.appendingPathComponent("linkdir")
+                let linkFile = box.appendingPathComponent("linkfile")
+                for dir in [folder, cnFolder, quoteDir, slashDir, pkgDir] {
+                    try? fs.createDirectory(at: dir, withIntermediateDirectories: true)
+                }
+                try? Data("PK".utf8).write(to: apk)
+                try? fs.createSymbolicLink(at: linkDir, withDestinationURL: folder)
+                try? fs.createSymbolicLink(at: linkFile, withDestinationURL: apk)
+                defer { if assertSandboxed(box) { try? fs.removeItem(at: box) } }
+                let g54 = assertSandboxed(box) && assertSandboxed(apk)
+                record(g54, "沙箱守卫[I-54]: 路径解析矩阵夹具在自建临时目录内")
+                if g54 {
+                    // 相对路径用例要拿"当前浏览目录"当基准，先把窗格开到夹具里
+                    dpane.navigate(to: box)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+
+                    func norm(_ url: URL) -> String {
+                        url.resolvingSymlinksInPath().standardizedFileURL.path
+                    }
+                    func describe(_ r: PathEditorField.Resolution) -> String {
+                        switch r {
+                        case .directory(let u): return "DIR:\(norm(u))"
+                        case .file(let u):      return "FILE:\(norm(u))"
+                        case .unreadable:       return "DENIED"
+                        case .notFound:         return "NONE"
+                        case .empty:            return "EMPTY"
+                        }
+                    }
+                    func dirOf(_ u: URL) -> String { "DIR:\(norm(u))" }
+                    func fileOf(_ u: URL) -> String { "FILE:\(norm(u))" }
+                    func pct(_ p: String) -> String {
+                        p.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? p
+                    }
+
+                    // 维度：剪贴板形态 × 目标类型 × 特殊名字 × 负例
+                    let matrix: [(String, String, String)] = [
+                        // ① 形态 × 文件夹
+                        ("plain 目录",         folder.path,                    dirOf(folder)),
+                        ("尾随换行",           folder.path + "\n",             dirOf(folder)),
+                        ("尾随 CRLF",          folder.path + "\r\n",           dirOf(folder)),
+                        ("前后空格",           "  " + folder.path + "  ",      dirOf(folder)),
+                        ("尾随斜杠",           folder.path + "/",              dirOf(folder)),
+                        ("file:// 未编码",     "file://" + folder.path,        dirOf(folder)),
+                        ("file:// percent",    "file://" + pct(folder.path),   dirOf(folder)),
+                        ("双引号包裹",         "\"" + folder.path + "\"",      dirOf(folder)),
+                        ("单引号包裹",         "'" + folder.path + "'",        dirOf(folder)),
+                        ("反斜杠转义空格",     folder.path.replacingOccurrences(of: " ", with: "\\ "), dirOf(folder)),
+                        ("中文目录",           cnFolder.path,                  dirOf(cnFolder)),
+                        ("中文 file:// 编码",  "file://" + pct(cnFolder.path), dirOf(cnFolder)),
+                        ("相对路径",           "My Folder",                    dirOf(folder)),
+                        ("./ 相对",            "./My Folder",                  dirOf(folder)),
+                        ("~ 家目录",           "~",                            dirOf(fs.homeDirectoryForCurrentUser)),
+                        ("根目录",             "/",                            "DIR:/"),
+                        // ② 形态 × 文件（用户点名的 .apk）
+                        ("apk 文件",           apk.path,                       fileOf(apk)),
+                        ("apk 尾随换行",       apk.path + "\n",                fileOf(apk)),
+                        ("apk file:// 编码",   "file://" + pct(apk.path),      fileOf(apk)),
+                        // ③ 目标类型：包按 Finder 语义当文件（选中而非钻进去）、符号链接跟随
+                        (".app 包当文件处理",  pkgDir.path,                    fileOf(pkgDir)),
+                        ("符号链接→目录",      linkDir.path,                   dirOf(folder)),
+                        ("符号链接→文件",      linkFile.path,                  fileOf(apk)),
+                        // ④ 名字里真含特殊字符不被"聪明"解析误伤（靠原样候选排最前保证）
+                        ("名字真含单引号",     quoteDir.path,                  dirOf(quoteDir)),
+                        ("名字真含反斜杠",     slashDir.path,                  dirOf(slashDir)),
+                        // ⑤ 负例
+                        ("不存在的路径",       box.appendingPathComponent("nope-\(UUID().uuidString)").path, "NONE"),
+                        ("纯空白",             "   \n  ",                      "EMPTY"),
+                    ]
+                    var bad: [String] = []
+                    for (label, input, expect) in matrix {
+                        let got = describe(editor.resolve(input))
+                        if got != expect { bad.append("\(label)→\(got)≠\(expect)") }
+                    }
+                    record(bad.isEmpty,
+                           "I-54 路径解析矩阵 \(matrix.count - bad.count)/\(matrix.count) 通过"
+                           + (bad.isEmpty ? "" : "；失败：\(bad.joined(separator: " | "))"))
+
+                    // ⑥ 端到端：⌘L 全选后"粘贴"须整段替换而非追加。
+                    // 不碰 NSPasteboard.general——那是用户真实剪贴板，测试无权污染（沿用沙箱铁律）；
+                    // insertText(替换选区) 正是 ⌘V 在全选态下走的同一条 field editor 路径。
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: "/some/old/path/that/must/be/replaced")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    if let fe = editor.currentEditor() as? NSTextView {
+                        fe.insertText(apk.path, replacementRange: fe.selectedRange)
+                    }
+                    try? await Task.sleep(for: .milliseconds(30))
+                    record(dpane.uiTestPathEditorText == apk.path,
+                           "I-54 ⌘L 全选后粘贴整段替换（非追加）（得「\(dpane.uiTestPathEditorText)」）")
+
+                    // ⑦ 端到端：无效路径 Enter → 不跳转 + 内联红字提示（不弹窗）
+                    let beforeInvalid = dpane.uiTestCurrentURL
+                    dpane.uiTestBeginPathEditing(seed: "/definitely/not/exists/\(UUID().uuidString)")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    if let fe = editor.currentEditor() as? NSTextView,
+                       let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil,
+                               characters: "\r", charactersIgnoringModifiers: "\r",
+                               isARepeat: false, keyCode: 36) {
+                        fe.keyDown(with: ev)
+                    }
+                    try? await Task.sleep(for: .milliseconds(150))
+                    record(samePath(dpane.uiTestCurrentURL, beforeInvalid)
+                             && dpane.uiTestPathHintVisible
+                             && dpane.uiTestIsPathEditing,
+                           "I-54 无效路径 → 不跳转 + 内联提示 + 留在输入框可就地改（未跳转=\(samePath(dpane.uiTestCurrentURL, beforeInvalid)) 提示=\(dpane.uiTestPathHintVisible)「\(dpane.uiTestPathHintText)」 仍在编辑=\(dpane.uiTestIsPathEditing)）")
+
+                    // ⑧ 用户点名的第三条路径：删空地址栏后按 ⌘R 刷新 —— 编辑框须退出、面包屑回显。
+                    // 刷新既不失焦也不导航，前两条复位路径都盖不到。这里走 sendAction 的**真实响应链**
+                    // （而非直调探针）：菜单项挂的是 #selector(FileListViewController.refresh(_:))，
+                    // 地址栏持有焦点时链上根本到不了那三个内容 VC，必须由 PaneViewController 同名实现接住。
+                    dpane.uiTestBeginPathEditing(seed: "")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    // tryToPerform 直接走本窗口的响应链（从 firstResponder 起），
+                    // 避开 NSApp.sendAction 依赖 keyWindow 在无头环境可能为 nil 的干扰
+                    let refreshDelivered = window.tryToPerform(
+                        #selector(FileListViewController.refresh(_:)), with: nil)
+                    try? await Task.sleep(for: .milliseconds(200))
+                    record(refreshDelivered && !dpane.uiTestIsPathEditing,
+                           "I-54 删空地址栏后 ⌘R 刷新 → 菜单动作经响应链送达且编辑框退出（送达=\(refreshDelivered) 仍在编辑=\(dpane.uiTestIsPathEditing)）")
+
+                    // ⑨ 粘贴「就在当前目录里」的文件：revealFile 会 navigate 到同一个目录，
+                    // 若那条路径被当成"目录没变"短路掉，pending 选中就永远落不了地（选中数 0）。
+                    dpane.setViewMode(.list)
+                    dpane.navigate(to: folder)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, folder) }
+                    dpane.activeTab.listVC.tableView.deselectAll(nil)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: apk.path)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    if let fe = editor.currentEditor() as? NSTextView,
+                       let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil,
+                               characters: "\r", charactersIgnoringModifiers: "\r",
+                               isARepeat: false, keyCode: 36) {
+                        fe.keyDown(with: ev)
+                    }
+                    var sameDirOK = false
+                    for _ in 0..<15 {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        if samePath(dpane.uiTestCurrentURL, folder),
+                           dpane.activeTab.listVC.selectedURLs.contains(where: { samePath($0, apk) }) {
+                            sameDirOK = true; break
+                        }
+                    }
+                    record(sameDirOK,
+                           "I-54 粘贴当前目录内的文件 → 原地选中（不因'目录没变'丢掉 pending 选中，选中数=\(dpane.activeTab.listVC.selectedURLs.count)）")
+
+                    // ⑩ 粘贴不弹补全 popup。这是 bug2 的第二个真因：popup 会接管事件循环并吃掉紧随其后的
+                    // 那次 Enter（去采纳候选而非导航）。PathCompleter 只列目录——粘文件夹路径必有候选必弹，
+                    // 粘 .apk 没候选不弹，正对上用户说的"有时候"。手敲字符仍须照常补全（I-30 契约）。
+                    if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                    dpane.navigate(to: box)
+                    _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+                    window.makeFirstResponder(dpane.focusTarget)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    dpane.uiTestBeginPathEditing(seed: "")
+                    try? await Task.sleep(for: .milliseconds(30))
+                    let trigBefore = editor.uiTestCompletionTriggerCount
+                    if let fe = editor.currentEditor() as? NSTextView {
+                        fe.insertText(folder.path, replacementRange: fe.selectedRange)   // 模拟 ⌘V
+                    }
+                    try? await Task.sleep(for: .milliseconds(150))
+                    let afterPaste = editor.uiTestCompletionTriggerCount
+                    if let fe = editor.currentEditor() as? NSTextView {
+                        let end = (editor.stringValue as NSString).length
+                        fe.insertText("/", replacementRange: NSRange(location: end, length: 0))  // 手敲一个字符
+                    }
+                    try? await Task.sleep(for: .milliseconds(180))
+                    let afterType = editor.uiTestCompletionTriggerCount
+                    record(afterPaste == trigBefore && afterType > afterPaste,
+                           "I-54 粘贴不弹补全(否则 popup 吞掉 Enter)、手敲仍补全（粘贴 \(trigBefore)→\(afterPaste)，敲键 →\(afterType)）")
+
+                    // ⑪ 补全候选必须是"填进 charRange 的那一段"。PathComplete 契约返回整条绝对路径，
+                    // AppKit 只替换末段词——原样返回则采纳任一候选就拼成 /a/b//a/b/c/，再 Enter 必 shake。
+                    if let fe = editor.currentEditor() as? NSTextView {
+                        let probe = box.path + "/My" as NSString
+                        editor.stringValue = probe as String
+                        let lastSlash = probe.range(of: "/", options: .backwards).location
+                        let partial = NSRange(location: lastSlash + 1, length: probe.length - lastSlash - 1)
+                        var idx = -1
+                        let cands = editor.control(editor, textView: fe, completions: [],
+                                                   forPartialWordRange: partial, indexOfSelectedItem: &idx)
+                        let segments = !cands.isEmpty && cands.allSatisfy { !$0.hasPrefix("/") }
+                        let assembled = probe.substring(to: partial.location) + (cands.first ?? "")
+                        let assembledExists = fs.fileExists(atPath: (assembled as NSString).standardizingPath)
+                        record(segments && assembledExists,
+                               "I-54 补全候选是末段而非整条绝对路径（候选=\(cands.first ?? "无") 采纳后拼出=\(((assembled as NSString).lastPathComponent)) 存在=\(assembledExists)）")
+                    }
+
+                    if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
+                    window.makeFirstResponder(dpane.focusTarget)
+                }
+                // 卫生：夹具即将删除，窗格先撤回家目录
+                dpane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(150))
+            }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。
             // 铁律：只动自建 nspace-uitest-i32-* 夹具（assertSandboxed 守卫）；经 coordinator 走真实
@@ -1535,6 +1850,12 @@ enum UISelfTest {
             record(false, "I-52 外部打开默认新标签：复用现有窗口不弹新窗"); return
         }
         let prev = Preferences.externalOpenTarget
+
+        // 前置settle：外部打开路由到【key 窗】——先令宿主窗夺 key 并等前序场景遗留窗关净，
+        // 否则断言查的是 first 窗、开的却落在残留 key 窗上，造成"标签未+1"的时序假失败（I-53 加时暴露）。
+        hostWindow.makeKeyAndOrderFront(nil)
+        _ = await pollFS { mainWins() == 1 }
+        try? await Task.sleep(for: .milliseconds(100))
 
         // 默认「现有窗口新标签」：窗口数不变、活动窗格标签 +1
         Preferences.externalOpenTarget = "newTab"

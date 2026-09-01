@@ -64,13 +64,14 @@ enum GlobalHotkey {
         } else {
             NSApp.unhide(nil)
             NSApp.activate()
-            let hasMain = NSApp.windows.contains { $0.isVisible && $0.windowController is MainWindowController }
-            if !hasMain {
-                (NSApp.delegate as? AppDelegate)?
-                    .openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            // unhide 是异步的：此刻问 NSApp.windows 的 isVisible 一律还是 false，据此判断"有没有主窗"
+            // 会误判成没有 → 每次热键呼出都多开一个空窗（慢机器上必现）。改问 AppDelegate 的窗口台账，
+            // 它在 windowWillClose 里同步维护，是唯一同步可信的答案。
+            let delegate = NSApp.delegate as? AppDelegate
+            if delegate?.hasLiveMainWindow == true {
+                delegate?.frontmostMainWindow?.makeKeyAndOrderFront(nil)
             } else {
-                NSApp.windows.first { $0.windowController is MainWindowController }?
-                    .makeKeyAndOrderFront(nil)
+                delegate?.openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
             }
         }
     }

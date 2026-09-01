@@ -61,6 +61,9 @@ final class PaneViewController: NSViewController {
     private let breadcrumb = BreadcrumbBar()
     private let pathEditor = PathEditorField()
     private let addressArea = AddressBarBacking()
+    /// 地址栏内联错误提示（路径不存在/无权限）：红字贴右端、1.5s 后淡出——不弹窗（spec 做工不变量）
+    private let pathHint = NSTextField(labelWithString: "")
+    private var pathHintFadeWorkItem: DispatchWorkItem?
     private let contentContainer = NSView()
     private let statusBar = StatusBarView()
     private(set) var isActivePane = false
@@ -90,8 +93,26 @@ final class PaneViewController: NSViewController {
             self?.endPathEditing()
             self?.navigate(to: url)
         }
+        pathEditor.onRevealFile = { [weak self] url in
+            self?.endPathEditing()
+            self?.revealFile(url)
+        }
         pathEditor.onCancel = { [weak self] in self?.endPathEditing() }
+        pathEditor.onReset = { [weak self] in self?.endPathEditing() }
+        // 相对路径（"Downloads"、"./x"）按当前浏览目录解析——进程 CWD 对文件管理器没有意义
+        pathEditor.baseDirectory = { [weak self] in
+            self?.activeTab.browser.current ?? FileManager.default.homeDirectoryForCurrentUser
+        }
+        pathEditor.onInvalid = { [weak self] message in self?.flashPathHint(message) }
         pathEditor.isHidden = true
+
+        pathHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        pathHint.textColor = .systemRed
+        pathHint.alignment = .right
+        pathHint.lineBreakMode = .byTruncatingHead
+        pathHint.drawsBackground = true                 // 盖住底下的路径文本，短提示才读得清
+        pathHint.backgroundColor = .controlBackgroundColor
+        pathHint.isHidden = true
 
         for sub in [breadcrumb, pathEditor] {
             sub.translatesAutoresizingMaskIntoConstraints = false
@@ -103,6 +124,15 @@ final class PaneViewController: NSViewController {
                 sub.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor, constant: -4),
             ])
         }
+
+        // 内联错误提示浮在地址栏右端（最后添加=盖在编辑框之上），不改行高、不挤压面包屑
+        pathHint.translatesAutoresizingMaskIntoConstraints = false
+        addressArea.addSubview(pathHint)
+        NSLayoutConstraint.activate([
+            pathHint.centerYAnchor.constraint(equalTo: addressArea.centerYAnchor),
+            pathHint.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor, constant: -8),
+            pathHint.leadingAnchor.constraint(greaterThanOrEqualTo: addressArea.leadingAnchor, constant: 8),
+        ])
 
         let separator = NSBox()
         separator.boxType = .separator
@@ -322,6 +352,14 @@ final class PaneViewController: NSViewController {
     }
 
     private func refreshChrome() {
+        // 任何导航/标签切换都退出地址栏编辑态：面包屑随即回显当前目录。
+        // 修用户报的"刷新/退回上级再重进地址栏不恢复、删空后一直空白"——这些路径不经失焦，
+        // 仅靠 controlTextDidEndEditing 的失焦复位覆盖不到，必须在位置同步处强制收编辑态。
+        // isViewLoaded 守卫不可省：endPathEditing 会摸 self.view，而 refreshChrome 会在
+        // 视图尚未装载时被 applyLocation 调到（新窗口 initialDirectory / 外部打开 reveal 都走这条），
+        // 此时 pathEditor.isHidden 还是 NSView 默认的 false，会误判成"正在编辑"并把 loadView 提前逼出来，
+        // 扰乱新窗口的建窗与焦点时序（I-52 外部打开落错窗即由此确定性复现）。同 restore(from:) 的既有守卫。
+        if isViewLoaded, !pathEditor.isHidden { endPathEditing() }
         tabBar.update(titles: tabs.map { displayName($0.browser.current) }, active: activeTabIndex)
         breadcrumb.setURL(activeTab.browser.current)
         onLocationChange?(activeTab.browser.current)
@@ -388,6 +426,27 @@ final class PaneViewController: NSViewController {
 
     /// UISelfTest（I-30 编排收尾）：退出路径编辑恢复面包屑（场景不得把编辑态泄漏给后续截图）
     func uiTestEndPathEditing() { endPathEditing() }
+
+    /// UISelfTest（I-53）：当前是否处于路径编辑态（失焦复位断言用）
+    var uiTestIsPathEditing: Bool { !pathEditor.isHidden }
+
+    /// UISelfTest（I-53）：模拟「点击他处失焦」——直接转移 firstResponder（不经 onCancel）
+    func uiTestBlurPathEditor() {
+        view.window?.makeFirstResponder(focusTarget)
+    }
+
+    /// UISelfTest（I-53）：当前目录（地址栏应反映的）
+    var uiTestCurrentURL: URL { activeTab.browser.current }
+
+    /// UISelfTest（I-53）：地址栏编辑器的当前文本
+    var uiTestPathEditorText: String { pathEditor.stringValue }
+
+    /// UISelfTest（I-54）：内联错误提示是否正在显示 / 显示的文字
+    var uiTestPathHintVisible: Bool { !pathHint.isHidden && pathHint.alphaValue > 0 }
+    var uiTestPathHintText: String { pathHint.stringValue }
+
+    /// UISelfTest（I-54）：⌘R 刷新走的真实入口（响应链在地址栏获焦时先到本控制器）
+    func uiTestRefresh() { refresh(nil) }
 
     /// UISelfTest（I-32）：刷新状态栏计数并回选中药丸是否可见（删除后选中清空 → 应无"已选"药丸）
     func uiTestRefreshAndSelectionPillVisible() -> Bool {
@@ -562,13 +621,47 @@ final class PaneViewController: NSViewController {
         onRequestFocus?()
         pathEditor.isHidden = false
         breadcrumb.isHidden = true
+        hidePathHint()
         pathEditor.beginEditing(with: activeTab.browser.current.path)
     }
 
     private func endPathEditing() {
         pathEditor.isHidden = true
         breadcrumb.isHidden = false
+        hidePathHint()
         view.window?.makeFirstResponder(focusTarget)
+    }
+
+    /// 无效路径就地反馈：地址栏右端红字，1.5s 后淡出（不弹窗——spec 做工不变量）
+    private func flashPathHint(_ message: String) {
+        pathHintFadeWorkItem?.cancel()
+        pathHint.stringValue = message
+        pathHint.alphaValue = 1
+        pathHint.isHidden = false
+        let fade = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                self.pathHint.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                self?.pathHint.isHidden = true
+            }
+        }
+        pathHintFadeWorkItem = fade
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: fade)
+    }
+
+    private func hidePathHint() {
+        pathHintFadeWorkItem?.cancel()
+        pathHintFadeWorkItem = nil
+        pathHint.isHidden = true
+    }
+
+    /// 粘贴文件路径（.apk 等）或包路径（.app）：进入其父目录并选中该项（Finder 语义）
+    private func revealFile(_ fileURL: URL) {
+        let parent = fileURL.deletingLastPathComponent()
+        navigate(to: parent)
+        revealAfterLoad(fileURL)
     }
 
     // MARK: 菜单命令（响应链，只在活动窗格生效）
@@ -652,6 +745,14 @@ final class PaneViewController: NSViewController {
 
     @objc func editPath(_ sender: Any?) {
         beginPathEditing()
+    }
+
+    /// ⌘R 刷新：地址栏获焦时响应链先到本控制器（内容区获焦时由各视图 VC 自己的 refresh 处理）。
+    /// 用户报"删空地址栏后刷新也不恢复"——刷新既不经失焦、也不经导航，两条既有复位路径都盖不到，
+    /// 必须在这里显式收编辑态，否则空白编辑框会一直盖在面包屑上。
+    @objc func refresh(_ sender: Any?) {
+        if isViewLoaded, !pathEditor.isHidden { endPathEditing() }
+        reloadActiveList()
     }
 
     @objc func goHome(_ sender: Any?) {
