@@ -1357,6 +1357,19 @@ enum UISelfTest {
                     dpane.setViewMode(.list)
                     try? await Task.sleep(for: .milliseconds(200))
 
+                    // ⑨ 编辑地址栏时切窗格布局：重建视图层级会把挂在被移除视图上的 firstResponder
+                    // 打回窗口本身（不是任何 NSView）→ 键盘从此全哑，用户得先随便点一下才恢复。
+                    let layoutWas = wc.grid.layout
+                    dpane.uiTestBeginPathEditing(seed: "/tmp")
+                    try? await Task.sleep(for: .milliseconds(50))
+                    wc.grid.apply(layout: .dualH)
+                    try? await Task.sleep(for: .milliseconds(350))
+                    let frAfter = window.firstResponder
+                    record(frAfter is NSView,
+                           "I-56 编辑地址栏时切布局：焦点仍在某个控件上而非掉回窗口（键盘不哑，实得 \(frAfter.map { String(describing: type(of: $0)) } ?? "nil")）")
+                    wc.grid.apply(layout: layoutWas)
+                    try? await Task.sleep(for: .milliseconds(300))
+
                     if dpane.uiTestIsPathEditing { dpane.uiTestEndPathEditing() }
                     // 复原：本场景为定位隐藏文件打开过"显示隐藏"，别把状态漏给后续场景
                     if dpane.uiTestIncludeHidden != hiddenWas { dpane.uiTestSetIncludeHidden(hiddenWas) }

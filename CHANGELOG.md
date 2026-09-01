@@ -2,6 +2,14 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.19.9] - 2026-09-02
+
+### 修复
+- **编辑地址栏时切窗格布局会让键盘全哑（I-56）**：`rebuildGrid()` 会 `removeFromSuperview` 掉旧的视图层级，挂在被移除视图上的 firstResponder 被 AppKit 打回**窗口本身**（不是任何 NSView）——此后键盘完全无响应，用户得先随便点一下才恢复。地址栏正在编辑时（firstResponder 是 field editor）最容易撞上。现在重建后显式把焦点收口到活动窗格
+
+### 测试
+- ui-smoke 176 → 177：新增 I-56。该断言经**撤掉修复反证**确认有牙——无修复时实得窗口本身而非 NSView，确定性 FAIL
+
 ## [0.19.8] - 2026-09-02
 
 ### 修复

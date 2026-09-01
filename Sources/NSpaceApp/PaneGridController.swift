@@ -90,6 +90,10 @@ final class PaneGridController: NSViewController {
         }
         if activePaneIndex >= layout.paneCount { setActivePane(0) }
         rebuildGrid()
+        // rebuildGrid 会 removeFromSuperview 掉旧层级：挂在被移除视图上的 firstResponder 会被
+        // AppKit 打回窗口本身（不是任何 NSView）——从此键盘全哑，用户得先随便点一下才恢复。
+        // 地址栏正在编辑时（firstResponder 是 field editor）最容易撞上。重建后显式把焦点收口。
+        view.window?.makeFirstResponder(activePane.focusTarget)
     }
 
     private func ensurePanes(count: Int) {
