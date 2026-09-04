@@ -2,6 +2,11 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.19.13] - 2026-09-04
+
+### 清理
+- **删除永败死代码 `FinderIntegration.requestDefaultFolderHandler`**：macOS 把 `public.folder` 锁死给 Finder，`setDefaultApplication(toOpen: .folder)` 恒返回 `paramErr(-50)`（实测连已公证的第三方 App——VS Code——也设不了，且换普通类型 `public.plain-text` 立刻能弹确认框，坐实是 `public.folder` 这一项被系统专门封禁）。该方法零调用者、只会失败，删除；设置页早在 I-25 就已改为诚实状态陈述而非永败按钮，无 UI 变化
+
 ## [0.19.12] - 2026-09-02
 
 ### 修复

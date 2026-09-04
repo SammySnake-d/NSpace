@@ -7,22 +7,16 @@ import UniformTypeIdentifiers
 /// 打开文件夹的路径（open 命令、第三方 App 的"打开文件夹"）。
 @MainActor
 enum FinderIntegration {
-    /// 当前 public.folder 的默认处理程序是否已是本 App
+    /// 当前 public.folder 的默认处理程序是否已是本 App（设置页据此照实显示状态；
+    /// 万一未来某个系统版本解锁 public.folder，状态会自动变绿）。
     static var isDefaultFolderHandler: Bool {
         guard let handler = NSWorkspace.shared.urlForApplication(toOpen: .folder) else { return false }
         return handler.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
     }
 
-    /// 申请成为默认文件夹处理程序（系统会弹确认对话框）。
-    /// I-15：每次重构建 ad-hoc 重签会让 LaunchServices 记录失效（报"未能打开该文件"）——
-    /// 申请前先强制重新注册当前 bundle。
-    static func requestDefaultFolderHandler(completion: @escaping @MainActor (Error?) -> Void) {
-        LSRegisterURL(Bundle.main.bundleURL as CFURL, true)
-        NSWorkspace.shared.setDefaultApplication(
-            at: Bundle.main.bundleURL, toOpen: .folder) { error in
-            Task { @MainActor in completion(error) }
-        }
-    }
+    // 注：曾有 requestDefaultFolderHandler 申请成为默认文件夹程序，但 macOS 把 public.folder
+    // 锁死给 Finder——setDefaultApplication(toOpen: .folder) 恒返回 paramErr(-50)，实测连已公证的
+    // 第三方 App 也设不了。故该方法是永败死代码，已删；设置页(I-25)改为诚实状态陈述而非永败按钮。
 
     /// 打开系统设置的完全磁盘访问面板（TCC 引导）。
     /// 先跑一次只读探测：访问受保护目录的尝试会让 TCC 自动把 NSpace 挂进 FDA 列表
