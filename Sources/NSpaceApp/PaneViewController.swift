@@ -461,6 +461,26 @@ final class PaneViewController: NSViewController {
     /// UISelfTest（I-55）：设置当前标签的"显示隐藏文件"（场景收尾复原用，不泄漏给后续场景）
     func uiTestSetIncludeHidden(_ on: Bool) { activeTab.model.includeHidden = on }
 
+    /// UISelfTest（I-58）：列头排序指示器当前显示的 (键, 升序)。
+    /// 「排序状态丢失」的真相是指示器没跟上 model.sort——数据排对了、箭头停在"名称"上，
+    /// 所以必须把指示器和模型分开断言，只验 model.sort 会漏掉这个 bug。
+    var uiTestSortIndicator: (key: String, ascending: Bool)? {
+        guard let d = activeTab.listVC.tableView.sortDescriptors.first, let k = d.key else { return nil }
+        return (k, d.ascending)
+    }
+
+    /// UISelfTest（I-58）：直接改模型排序（模拟会话恢复那条路——restore 就是这样写的，不经列头）
+    func uiTestSetSort(key: String, ascending: Bool) {
+        guard let k = SortSpec.Key(rawValue: key) else { return }
+        activeTab.model.sort = SortSpec(key: k, ascending: ascending,
+                                        foldersFirst: activeTab.model.sort.foldersFirst)
+    }
+
+    /// UISelfTest（I-58）：模型侧的排序（对照组）
+    var uiTestModelSort: (key: String, ascending: Bool) {
+        (activeTab.model.sort.key.rawValue, activeTab.model.sort.ascending)
+    }
+
     /// UISelfTest（I-57）：面包屑当前显示的目录 / 是否可见。
     /// 「面包屑回显」必须验内容——只验 !isHidden 的断言把 breadcrumb.isHidden=false 删掉照样绿。
     var uiTestBreadcrumbURL: URL { breadcrumb.url }

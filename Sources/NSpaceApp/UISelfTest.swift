@@ -1467,6 +1467,35 @@ enum UISelfTest {
                          && samePath(dpane.uiTestCurrentURL, home),
                        "I-57 同一目录的不同写法不重复压后退栈（后退历史 \(backBefore)→\(dpane.backHistory.count)）")
             }
+            // ── I-58：排序指示器必须跟上 model.sort（用户报"排序状态丢失"）───────────────
+            // 真相：数据流是单向的——只有「点列头 → sortDescriptorsDidChange → model.sort」，
+            // 没有反向。会话恢复/新窗格/重建列之后，内容按 model.sort 排对了，列头箭头却停在
+            // 默认的"名称"上，用户看到的就是"排序丢了"。I-50 只断言写盘、且驱动方式正是点列头
+            // 那条已有的路，结构性地测不到恢复方向——绿灯与用户 bug 并存。
+            do {
+                let dpane = wc.grid.activePane
+                dpane.setViewMode(.list)
+                try? await Task.sleep(for: .milliseconds(200))
+                // 直接改模型（模拟会话恢复：restore 就是这样写 model.sort 的，不经列头）
+                dpane.uiTestSetSort(key: "dateModified", ascending: false)
+                try? await Task.sleep(for: .milliseconds(400))
+                let ind = dpane.uiTestSortIndicator
+                let mdl = dpane.uiTestModelSort
+                record(mdl.key == "dateModified" && mdl.ascending == false
+                         && ind?.key == "dateModified" && ind?.ascending == false,
+                       "I-58 模型改排序后列头指示器同步（模型=\(mdl.key)/\(mdl.ascending) 指示器=\(ind?.key ?? "无")/\(ind.map { String($0.ascending) } ?? "-")）")
+
+                // 重建可选列（列被移除再加回）之后指示器不得丢
+                NotificationCenter.default.post(name: .nspaceColumnsChanged, object: nil)
+                try? await Task.sleep(for: .milliseconds(400))
+                let ind2 = dpane.uiTestSortIndicator
+                record(ind2?.key == "dateModified" && ind2?.ascending == false,
+                       "I-58 重建列后指示器仍在（得 \(ind2?.key ?? "无")/\(ind2.map { String($0.ascending) } ?? "-")）")
+
+                // 收尾：还原成名称升序，别把排序泄漏给后续场景
+                dpane.uiTestSetSort(key: "name", ascending: true)
+                try? await Task.sleep(for: .milliseconds(250))
+            }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。
             // 铁律：只动自建 nspace-uitest-i32-* 夹具（assertSandboxed 守卫）；经 coordinator 走真实

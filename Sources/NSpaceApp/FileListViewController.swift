@@ -161,6 +161,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             filterPill.heightAnchor.constraint(equalToConstant: 20),
         ])
         view = root
+        syncSortIndicatorFromModel()   // I-58：首次装载即挂上指示器（新窗格/新标签不再显示成"名称"）
         model.reload()
     }
 
@@ -195,6 +196,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             addColumn(id: c.id, title: L10n.t(c.titleKey), width: c.width, min: c.min,
                       rightAlign: c.right, sortable: c.sortable)
         }
+        syncSortIndicatorFromModel()   // I-58：列被移除再加回，指示器会丢，须重挂
         tableView.reloadData()
     }
 
@@ -231,6 +233,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         // 同目录刷新也清缩略图覆盖层：文件可能已改内容（IconThumb 缓存键含 mtime，重取要么命中要么重生成）
         thumbOverlay.removeAll()
         emptyLabel.isHidden = true
+        syncSortIndicatorFromModel()   // I-58：列头箭头跟上 model.sort（恢复/切目录后不再停在"名称"）
         // FSEvents 自动刷新绝不吞掉用户选中：reloadData 前记 URL、后按 URL 恢复（含多选）。
         // I-32：选中真源用 selectionURLCache（选中变更时记账，反映"删除前"实际选中），
         // 不用此刻的 selectedURLs——model.items 已换新，旧行号会错映到位移后的新项造成"漂移"。
@@ -907,6 +910,19 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         model.sort = SortSpec(key: sortKey, ascending: d.ascending, foldersFirst: model.sort.foldersFirst)
         // I-50：改排序即落盘（否则排序只在干净退出才保存，非干净退出重启回退到旧排序）——同 I-47 导航即落盘
         (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    /// 把 model.sort 反向同步到列头指示器（I-58）。
+    /// 此前数据流是**单向**的：只有「用户点列头 → sortDescriptorsDidChange → model.sort」，
+    /// 没有反向。于是会话恢复、新建窗格/标签、重建可选列之后，数据按 model.sort 排对了，
+    /// 列头的排序箭头却停在默认的「名称」上——用户看到的就是「排序状态丢了」。
+    /// 列 id 与 SortSpec.Key.rawValue 一一对应（addColumn 用同一 id 建 sortDescriptorPrototype）。
+    private func syncSortIndicatorFromModel() {
+        let wanted = NSSortDescriptor(key: model.sort.key.rawValue, ascending: model.sort.ascending)
+        let current = tableView.sortDescriptors.first
+        // 已一致就别赋值：赋值会回调 sortDescriptorsDidChange，白白触发一次落盘
+        guard current?.key != wanted.key || current?.ascending != wanted.ascending else { return }
+        tableView.sortDescriptors = [wanted]
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
