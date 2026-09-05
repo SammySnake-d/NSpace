@@ -469,6 +469,35 @@ final class PaneViewController: NSViewController {
         return (k, d.ascending)
     }
 
+    /// UISelfTest（I-59）：走各视图真实的 copyPath(_:)（空白处快捷键那条路），不走捷径
+    func uiTestCopyPath() {
+        switch activeTab.viewMode {
+        case .list:    activeTab.listVC.copyPath(nil)
+        case .icons:   activeTab.iconVC?.copyPath(nil)
+        case .columns: activeTab.columnVC?.copyPath(nil)
+        }
+    }
+
+    /// UISelfTest（I-59）：**视图侧**认为的当前目录（copyPath 空选中时的回落值真源）。
+    /// 分栏的 currentDirectory 取自焦点列，异步建链期间会滞后于 browser.current——
+    /// 断言必须盯这个值，盯 browser.current 会在列链就位前就通过。
+    var uiTestViewCurrentDirectory: URL {
+        switch activeTab.viewMode {
+        case .list:    return activeTab.listVC.currentDirectory
+        case .icons:   return activeTab.iconVC?.currentDirectory ?? activeTab.browser.current
+        case .columns: return activeTab.columnVC?.currentDirectory ?? activeTab.browser.current
+        }
+    }
+
+    /// UISelfTest（I-59）：清空当前视图的选中（模拟"点击文件夹空白处"）
+    func uiTestClearSelection() {
+        switch activeTab.viewMode {
+        case .list:    activeTab.listVC.tableView.deselectAll(nil)
+        case .icons:   activeTab.iconVC?.uiTestClearSelection()
+        case .columns: activeTab.columnVC?.uiTestSelectInFocusedColumn([])
+        }
+    }
+
     /// UISelfTest（I-58）：直接改模型排序（模拟会话恢复那条路——restore 就是这样写的，不经列头）
     func uiTestSetSort(key: String, ascending: Bool) {
         guard let k = SortSpec.Key(rawValue: key) else { return }

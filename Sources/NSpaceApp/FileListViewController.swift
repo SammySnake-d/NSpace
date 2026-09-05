@@ -646,7 +646,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
     @objc func cutItems(_ sender: Any?) { coordinator?.cut(selectedURLs) }
     @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: currentDirectory) }
-    @objc func copyPath(_ sender: Any?) { coordinator?.copyPaths(selectedURLs) }
+    /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
+    /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
+    /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。
+    @objc func copyPath(_ sender: Any?) {
+        coordinator?.copyPaths(selectedURLs.isEmpty ? [currentDirectory] : selectedURLs)
+    }
     // NSText 标准选择器转发（当表视图为第一响应者时 ⌘C/⌘X/⌘V 生效）
     @objc func copy(_ sender: Any?) { copyItems(sender) }
     @objc func cut(_ sender: Any?) { cutItems(sender) }
@@ -779,7 +784,11 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
         let hasSelection = !tableView.selectedRowIndexes.isEmpty
         let single = tableView.selectedRowIndexes.count == 1
         switch menuItem.action {
-        case #selector(copyItems(_:)), #selector(cutItems(_:)), #selector(copyPath(_:)),
+        // 拷贝路径恒可用：空选中回落到当前目录（归在 hasSelection 组里会把菜单项禁用，
+        // 连带 ⌘⇧C 快捷键在空白处直接哑火——用户报的正是这个）
+        case #selector(copyPath(_:)):
+            return true
+        case #selector(copyItems(_:)), #selector(cutItems(_:)),
              #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
              #selector(copy(_:)), #selector(cut(_:)), #selector(airdropSelected(_:)),

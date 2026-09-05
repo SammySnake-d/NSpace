@@ -1496,6 +1496,56 @@ enum UISelfTest {
                 dpane.uiTestSetSort(key: "name", ascending: true)
                 try? await Task.sleep(for: .milliseconds(250))
             }
+            // ── I-59：点文件夹空白处拷贝路径（用户报"只能复制文件、复制不了当前文件夹"）──────
+            // 双因：① copyPath 只传 selectedURLs，空选中即空数组，coordinator.copyPaths 的
+            // guard !urls.isEmpty 直接吞掉；② validateMenuItem 把 copyPath 归在 hasSelection 组，
+            // 空选中时菜单项被禁用，⌘⇧C 在空白处根本派发不出去。三视图同病，故三视图同验。
+            do {
+                let dpane = wc.grid.activePane
+                let box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i59-\(UUID().uuidString)", isDirectory: true)
+                try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+                try? Data("x".utf8).write(to: box.appendingPathComponent("a.txt"))
+                defer { if assertSandboxed(box) { try? fs.removeItem(at: box) } }
+                let g59 = assertSandboxed(box)
+                record(g59, "沙箱守卫[I-59]: 拷贝路径夹具在自建临时目录内")
+                if g59 {
+                    // 保存用户真实剪贴板，收尾还原——产品 API 硬编码写 general，测试无从避开，
+                    // 但必须还回去（沿用沙箱铁律的精神）
+                    let savedClip = NSPasteboard.general.string(forType: .string)
+                    var results: [String] = []
+                    for (mode, name) in [(PaneViewMode.list, "列表"),
+                                         (PaneViewMode.icons, "图标"),
+                                         (PaneViewMode.columns, "分栏")] {
+                        dpane.setViewMode(mode)
+                        try? await Task.sleep(for: .milliseconds(250))
+                        dpane.navigate(to: box)
+                        _ = await pollFS { samePath(dpane.uiTestCurrentURL, box) }
+                        // 分栏是异步逐列加载：固定 sleep 会偶发拿到还没就位的旧列
+                        //（实测 1/5 轮拿到上一个目录），必须轮询到本视图的"当前目录"真对齐
+                        _ = await pollFS(40) { samePath(dpane.uiTestViewCurrentDirectory, box) }
+                        dpane.uiTestClearSelection()              // 模拟点空白处
+                        try? await Task.sleep(for: .milliseconds(150))
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("SENTINEL", forType: .string)
+                        dpane.uiTestCopyPath()                    // 走各视图真实的 copyPath(_:)
+                        try? await Task.sleep(for: .milliseconds(250))
+                        let got = NSPasteboard.general.string(forType: .string) ?? ""
+                        let ok = !got.isEmpty && got != "SENTINEL"
+                            && samePath(URL(fileURLWithPath: got), box)
+                        results.append("\(name)=\(ok ? "✓" : "✗(\((got as NSString).lastPathComponent))")")
+                    }
+                    record(results.allSatisfy { $0.contains("✓") },
+                           "I-59 空选中拷贝路径回落到当前目录（三视图 \(results.joined(separator: " ")))")
+                    // 还原用户剪贴板
+                    NSPasteboard.general.clearContents()
+                    if let savedClip { NSPasteboard.general.setString(savedClip, forType: .string) }
+                    dpane.setViewMode(.list)
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                dpane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(200))
+            }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。
             // 铁律：只动自建 nspace-uitest-i32-* 夹具（assertSandboxed 守卫）；经 coordinator 走真实

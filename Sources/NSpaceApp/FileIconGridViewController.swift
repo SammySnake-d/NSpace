@@ -195,6 +195,9 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
 
     var focusTarget: NSView { collectionView }
 
+    /// 当前目录（空白处拷贝路径 / 新建 / 粘贴的落点；语义同列表视图）
+    var currentDirectory: URL { model.directory }
+
     init(model: DirectoryViewModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
@@ -459,6 +462,9 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     func uiTestToggleFirstGroup() { if let k = sections.first?.key { toggleGroup(key: k) } }
     func uiTestFilterFirstGroup() { if let k = sections.first?.key { applyGroupFilter(key: k) } }
     func uiTestClearFilter() { groupFilterKey = nil; rebuildAndReloadPreservingSelection() }
+
+    /// UISelfTest（I-59）：清空选中（模拟点击网格空白处）
+    func uiTestClearSelection() { collectionView.deselectAll(nil) }
     var uiTestFilterPillVisible: Bool { !filterPill.isHidden }
 
     // MARK: 按需缩略图（只对可见项、滚出取消——北极星零浪费）
@@ -601,7 +607,12 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
     @objc func cutItems(_ sender: Any?) { coordinator?.cut(selectedURLs) }
     @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: model.directory) }
-    @objc func copyPath(_ sender: Any?) { coordinator?.copyPaths(selectedURLs) }
+    /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
+    /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
+    /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。
+    @objc func copyPath(_ sender: Any?) {
+        coordinator?.copyPaths(selectedURLs.isEmpty ? [currentDirectory] : selectedURLs)
+    }
     @objc func copy(_ sender: Any?) { copyItems(sender) }
     @objc func cut(_ sender: Any?) { cutItems(sender) }
     @objc func paste(_ sender: Any?) { pasteItems(sender) }
@@ -687,7 +698,10 @@ extension FileIconGridViewController: @preconcurrency NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let hasSelection = !collectionView.selectionIndexPaths.isEmpty
         switch menuItem.action {
-        case #selector(copyItems(_:)), #selector(cutItems(_:)), #selector(copyPath(_:)),
+        // 拷贝路径恒可用：空选中回落到当前目录（同列表视图）
+        case #selector(copyPath(_:)):
+            return true
+        case #selector(copyItems(_:)), #selector(cutItems(_:)),
              #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
              #selector(copy(_:)), #selector(cut(_:)):
