@@ -30,6 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     /// 恢复完成前的状态变化不落盘（防启动过程把半成品覆盖上次会话）
     private var sessionReady = false
+    /// 会话恢复完成前到达的外部打开请求（I-60）。
+    /// restoreSessionOrDefault 是 async（要 await 读 session.json），而 application(_:open:)
+    /// 由 LaunchServices 同步早到——NSpace 未运行时被"在访达中显示"拉起，请求会在零窗口时刻抵达，
+    /// activeMainWindowController() 返回 nil，于是掉进开新窗分支；随后会话恢复再开自己的窗，
+    /// 用户看到的就是"明明设了新标签，却多冒一个窗"。这里先排队，恢复完再按正常落点处理。
+    private var pendingExternalOpens: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
@@ -60,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await restoreSessionOrDefault()
             }
             sessionReady = true
+            flushPendingExternalOpens()   // I-60：补落地恢复期间排队的外部打开（此刻窗口已在）
             NSApp.activate()
             if UISelfTest.isEnabled {
                 UISelfTest.run(delegate: self)
@@ -191,6 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let first = urls.first {
             UserDefaults.standard.set("\(Date().timeIntervalSince1970)|\(first.path)", forKey: "debug.lastExternalOpen")
         }
+        // I-60：会话还没恢复完（零窗口时刻）就落地，只会开出一个多余的新窗。先排队。
+        guard sessionReady else {
+            pendingExternalOpens.append(contentsOf: urls)
+            return
+        }
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
@@ -302,6 +314,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if first == nil { first = wc }
         }
         first?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// UISelfTest（I-60）：排队中的外部打开请求数 / 会话是否已就绪
+    var uiTestPendingExternalOpenCount: Int { pendingExternalOpens.count }
+    var uiTestSessionReady: Bool { sessionReady }
+
+    /// UISelfTest（I-60）：在"会话未就绪"状态下投递一次外部打开（复现冷启动那一刻）
+    func uiTestDeliverExternalOpenWhileNotReady(_ url: URL) {
+        let saved = sessionReady
+        sessionReady = false
+        application(NSApp, open: [url])
+        sessionReady = saved
+    }
+
+    /// UISelfTest（I-60）：手动冲刷队列（模拟会话恢复完成）
+    func uiTestFlushPendingExternalOpens() { flushPendingExternalOpens() }
+
+    /// I-60：把会话恢复期间排队的外部打开请求补落地（此刻窗口已在，走正常的"现有窗口新标签"分支）
+    private func flushPendingExternalOpens() {
+        guard !pendingExternalOpens.isEmpty else { return }
+        let queued = pendingExternalOpens
+        pendingExternalOpens = []
+        openFileURLs(queued)
     }
 
     /// 状态变化落盘请求（位置/布局/工作区变化处调用；SessionStore 内部 1s 防抖合并）

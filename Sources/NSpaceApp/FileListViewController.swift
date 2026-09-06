@@ -649,8 +649,11 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
     /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
     /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。
-    @objc func copyPath(_ sender: Any?) {
-        coordinator?.copyPaths(selectedURLs.isEmpty ? [currentDirectory] : selectedURLs)
+    @objc func copyPath(_ sender: Any?) { copyPath(to: .general) }
+
+    /// 自测注入私有 pasteboard 用（产品路径恒走 .general）
+    func copyPath(to pasteboard: NSPasteboard) {
+        coordinator?.copyPaths(selectedURLs.isEmpty ? [currentDirectory] : selectedURLs, to: pasteboard)
     }
     // NSText 标准选择器转发（当表视图为第一响应者时 ⌘C/⌘X/⌘V 生效）
     @objc func copy(_ sender: Any?) { copyItems(sender) }

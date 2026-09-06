@@ -470,11 +470,11 @@ final class PaneViewController: NSViewController {
     }
 
     /// UISelfTest（I-59）：走各视图真实的 copyPath(_:)（空白处快捷键那条路），不走捷径
-    func uiTestCopyPath() {
+    func uiTestCopyPath(to pasteboard: NSPasteboard) {
         switch activeTab.viewMode {
-        case .list:    activeTab.listVC.copyPath(nil)
-        case .icons:   activeTab.iconVC?.copyPath(nil)
-        case .columns: activeTab.columnVC?.copyPath(nil)
+        case .list:    activeTab.listVC.copyPath(to: pasteboard)
+        case .icons:   activeTab.iconVC?.copyPath(to: pasteboard)
+        case .columns: activeTab.columnVC?.copyPath(to: pasteboard)
         }
     }
 

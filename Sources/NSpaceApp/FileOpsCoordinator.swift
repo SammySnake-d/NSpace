@@ -74,9 +74,11 @@ final class FileOpsCoordinator {
         }
     }
 
-    func copyPaths(_ urls: [URL]) {
+    /// 拷贝路径。pasteboard 可注入：默认写系统剪贴板（产品行为），自测注入私有板——
+    /// 既不污染用户真实剪贴板，也不会被机器上任何别的进程中途改写造成假失败（实测撞到过）。
+    func copyPaths(_ urls: [URL], to pasteboard: NSPasteboard = .general) {
         guard !urls.isEmpty else { return }
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
         Toast.show(urls.count == 1 ? L10n.t("toast.copiedPath")

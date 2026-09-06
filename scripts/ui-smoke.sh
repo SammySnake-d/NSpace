@@ -194,6 +194,52 @@ require_pass "I-48 reveal 后表格获焦（选中显蓝色强调，非未强调
 # I-45 Quick Look 收起淡出（不再缩到图标点）：收起态 sourceFrame=.zero，开启态=图标矩形
 require_pass "I-45 QL 收起 sourceFrame 淡出(.zero)、开启为图标矩形缩放"
 
+# I-53~I-57 地址栏三 bug（⌘L 全选 / 粘贴路径 Enter 跳转 / 失焦后回显）——用户报告
+require_pass "沙箱守卫[I-53]: 地址栏回归夹具在自建临时目录内"
+require_pass "I-53 ⌘L 呼出后地址栏文本全选"
+require_pass "I-53 Enter 文件夹路径 → 导航到该文件夹"
+require_pass "I-53 文件夹导航后编辑框已退出（面包屑回显）"
+require_pass "I-53 Enter 文件路径（.apk）→ 导航父目录并选中该文件"
+require_pass "I-53 文件 reveal 后编辑框已退出（面包屑回显）"
+require_pass "I-53 Enter 不存在路径 → 不跳转（仍在原目录）"
+require_pass "I-53 清空地址栏后失焦 → 编辑框退出，面包屑回显当前路径"
+require_pass "I-53 编辑中退回上级 → 编辑框退出+面包屑回显新目录"
+require_pass "沙箱守卫[I-54]: 路径解析矩阵夹具在自建临时目录内"
+require_pass "I-54 路径解析矩阵 26/26 通过"
+require_pass "I-54 ⌘L 全选后粘贴整段替换（非追加）"
+require_pass "I-54 无效路径 → 不跳转 + 内联提示 + 留在输入框可就地改"
+require_pass "I-54 删空地址栏后 ⌘R 刷新 → 菜单动作经响应链送达且编辑框退出"
+require_pass "I-54 粘贴当前目录内的文件 → 原地选中"
+require_pass "I-54 粘贴不弹补全"
+require_pass "I-54 补全候选是末段而非整条绝对路径"
+require_pass "沙箱守卫[I-55]: 边界修复夹具在自建临时目录内"
+require_pass "I-55 大小写与盘上不一致的路径仍能定位选中"
+require_pass "I-55 粘贴隐藏文件路径 → 自动显示隐藏文件并选中"
+require_pass "I-55 目标目录已载入仍找不到目标 → pending 定位作废"
+require_pass "I-55 Tab 补全唯一候选且仍留在输入框"
+require_pass "I-55 多候选 Tab 补到最长公共前缀"
+require_pass "I-55 地址栏已注册 fileURL 拖放类型"
+require_pass "I-55 拖文件到地址栏 → 填成其路径"
+require_pass "I-55 补全候选 head 对不上时全裁"
+require_pass "I-55 抖动以 layer.position.x 为基准"
+require_pass "I-55 分栏模式粘贴文件路径也能选中"
+require_pass "I-56 编辑地址栏时切布局：焦点仍在某个控件上而非掉回窗口"
+require_pass "I-56 读盘途中切视图模式，待定位目标搬到新视图"
+require_pass "I-57 窗口失 key：空地址栏自收、有内容一律保留"
+require_pass "I-57 退出编辑后面包屑真回显当前目录且 field editor 已释放"
+require_pass "I-57 ⌘L 经真实响应链送达且全选"
+require_pass "I-57 同一目录的不同写法不重复压后退栈"
+# I-58 排序指示器反向同步（模型→列头；此前product代码里根本不存在这条链）——用户报告
+require_pass "I-58 模型改排序后列头指示器同步"
+require_pass "I-58 重建列后指示器仍在"
+# I-59 空白处 ⌘⇧C 回落到当前目录（三视图）——用户报告
+require_pass "沙箱守卫[I-59]: 拷贝路径夹具在自建临时目录内"
+require_pass "I-59 空选中拷贝路径回落到当前目录"
+# I-60 冷启动外部打开排队（Chrome「在访达中显示」开新窗而非新标签）——用户报告
+require_pass "沙箱守卫[I-60]: 外部打开排队夹具在自建临时目录内"
+require_pass "I-60 会话未就绪的外部打开只排队不开窗"
+require_pass "I-60 冲刷后落到现有窗口新标签"
+
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46 / M28 / I-47）：清理 UITEST 隔离态，绝不留测试残留在用户真实域
 defaults delete com.nspace.NSpace "windowFrame.uitest" 2>/dev/null || true

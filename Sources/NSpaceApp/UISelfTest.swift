@@ -1510,9 +1510,9 @@ enum UISelfTest {
                 let g59 = assertSandboxed(box)
                 record(g59, "沙箱守卫[I-59]: 拷贝路径夹具在自建临时目录内")
                 if g59 {
-                    // 保存用户真实剪贴板，收尾还原——产品 API 硬编码写 general，测试无从避开，
-                    // 但必须还回去（沿用沙箱铁律的精神）
-                    let savedClip = NSPasteboard.general.string(forType: .string)
+                    // 走**私有** pasteboard：既不碰用户真实剪贴板，也不会被机器上别的进程
+                    // 中途改写造成假失败（实测撞到过一次——断言读到了别处复制的文本）
+                    let pb = NSPasteboard(name: NSPasteboard.Name("nspace.uitest.i59.\(UUID().uuidString)"))
                     var results: [String] = []
                     for (mode, name) in [(PaneViewMode.list, "列表"),
                                          (PaneViewMode.icons, "图标"),
@@ -1526,25 +1526,65 @@ enum UISelfTest {
                         _ = await pollFS(40) { samePath(dpane.uiTestViewCurrentDirectory, box) }
                         dpane.uiTestClearSelection()              // 模拟点空白处
                         try? await Task.sleep(for: .milliseconds(150))
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("SENTINEL", forType: .string)
-                        dpane.uiTestCopyPath()                    // 走各视图真实的 copyPath(_:)
+                        pb.clearContents()
+                        pb.setString("SENTINEL", forType: .string)
+                        dpane.uiTestCopyPath(to: pb)              // 走各视图真实的 copyPath 落地逻辑
                         try? await Task.sleep(for: .milliseconds(250))
-                        let got = NSPasteboard.general.string(forType: .string) ?? ""
+                        let got = pb.string(forType: .string) ?? ""
                         let ok = !got.isEmpty && got != "SENTINEL"
                             && samePath(URL(fileURLWithPath: got), box)
                         results.append("\(name)=\(ok ? "✓" : "✗(\((got as NSString).lastPathComponent))")")
                     }
                     record(results.allSatisfy { $0.contains("✓") },
                            "I-59 空选中拷贝路径回落到当前目录（三视图 \(results.joined(separator: " ")))")
-                    // 还原用户剪贴板
-                    NSPasteboard.general.clearContents()
-                    if let savedClip { NSPasteboard.general.setString(savedClip, forType: .string) }
+                    pb.releaseGlobally()
                     dpane.setViewMode(.list)
                     try? await Task.sleep(for: .milliseconds(200))
                 }
                 dpane.navigate(to: fs.homeDirectoryForCurrentUser)
                 try? await Task.sleep(for: .milliseconds(200))
+            }
+            // ── I-60：冷启动时外部打开不得多开一个窗（用户报"浏览器 open in Finder 还是新建窗口"）──
+            // restoreSessionOrDefault 是 async（await 读 session.json），而 application(_:open:)
+            // 由 LaunchServices 同步早到：NSpace 未运行时被"在访达中显示"拉起，请求在**零窗口时刻**
+            // 抵达 → activeMainWindowController() 为 nil → 掉进开新窗分支；随后会话恢复再开自己的窗。
+            // 真机实测修复前 2 窗、修复后 1 窗。此处断言排队机制本身（不真拉冷启动，避免动用户会话）。
+            do {
+                let box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i60-\(UUID().uuidString)", isDirectory: true)
+                try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+                defer { if assertSandboxed(box) { try? fs.removeItem(at: box) } }
+                let g60 = assertSandboxed(box)
+                record(g60, "沙箱守卫[I-60]: 外部打开排队夹具在自建临时目录内")
+                if g60 {
+                    func mainWins() -> Int {
+                        NSApp.windows.filter { $0.windowController is MainWindowController && $0.isVisible }.count
+                    }
+                    let before = mainWins()
+                    let queuedBefore = delegate.uiTestPendingExternalOpenCount
+                    // ① 会话未就绪时投递：必须只排队，一个窗都不许开
+                    delegate.uiTestDeliverExternalOpenWhileNotReady(box)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    let queuedAfter = delegate.uiTestPendingExternalOpenCount
+                    let winsAfterQueue = mainWins()
+                    record(queuedAfter == queuedBefore + 1 && winsAfterQueue == before,
+                           "I-60 会话未就绪的外部打开只排队不开窗（队列 \(queuedBefore)→\(queuedAfter)，窗口 \(before)→\(winsAfterQueue)）")
+                    // ② 冲刷后落地：队列清空，且仍不开新窗（走"现有窗口新标签"分支）
+                    let tabsBefore = wc.grid.activePane.tabs.count
+                    delegate.uiTestFlushPendingExternalOpens()
+                    _ = await pollFS { delegate.uiTestPendingExternalOpenCount == 0 }
+                    try? await Task.sleep(for: .milliseconds(400))
+                    let winsAfterFlush = mainWins()
+                    let tabsAfter = wc.grid.activePane.tabs.count
+                    record(delegate.uiTestPendingExternalOpenCount == 0
+                             && winsAfterFlush == before && tabsAfter == tabsBefore + 1,
+                           "I-60 冲刷后落到现有窗口新标签（窗口 \(before)→\(winsAfterFlush)，标签 \(tabsBefore)→\(tabsAfter)）")
+                    // 收尾：关掉本场景开的标签
+                    while wc.grid.activePane.tabs.count > tabsBefore {
+                        wc.grid.activePane.closeTab(at: wc.grid.activePane.tabs.count - 1)
+                    }
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
             }
             // ── 场景 I-32：多选删除(移废纸篓)后选中清空——三视图同验 ─────────────────
             // 用户报告 bug：多选删除后高亮"跟随"到顶上来的新行（语义应为选中清空）。

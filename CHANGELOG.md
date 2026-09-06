@@ -2,6 +2,22 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.19.16] - 2026-09-06
+
+### 修复
+- **Chrome「在访达中显示」冷启动时新开窗口而不是新标签（I-60，用户报告）**：竞态。`application(_:open:)` 由 LaunchServices **同步**送达,而 `restoreSessionOrDefault()` 是 `async`（`await sessionStore.load()`）。外部打开先到时窗口数为 0,`activeMainWindowController()` 返回 nil,代码落进 `openWindow(...)` 开新窗;随后会话恢复又开出会话里的窗——于是两个窗。
+  改为:`sessionReady` 未置位前把外部打开 URL 排进 `pendingExternalOpens` 队列,`sessionReady = true` 之后立刻 `flushPendingExternalOpens()`,让它走与热启动完全相同的「落到现有窗口新标签」路径。
+  真机实测:修前 2 窗,修后 1 窗（会话内 1 窗）,连续两轮一致。
+
+### 测试
+- ui-smoke 187 → 189：新增 I-60 两条断言——「会话未就绪的外部打开只排队不开窗（队列 0→1,窗口 1→1）」+「冲刷后落到现有窗口新标签（窗口 1→1,标签 1→2）」
+- 经反证确认有牙：撤掉排队后 `FAIL I-60 …（队列 0→0,窗口 1→1）`
+
+### 测试基础设施
+- **I-59 抖动根治**：`FileOpsCoordinator.copyPaths` 加可注入 `pasteboard` 参数（默认 `.general`,产品行为零变化）,三视图 `copyPath(to:)` 转发。I-59 改用一次性私有 `NSPasteboard`。
+  起因是实测撞到一次假失败——断言读回的是 `Write │ impeccable 设计钩子`,机器上**别的进程**在测试窗口期写了系统剪贴板。全局剪贴板谁都能改,拿它做断言载体本就不成立。顺带不再需要"保存/还原用户剪贴板"。
+- 6 轮验证 189 PASS / 0 FAIL（改前 4 轮中 1 轮因上述外部写入假失败）
+
 ## [0.19.15] - 2026-09-04
 
 ### 修复
