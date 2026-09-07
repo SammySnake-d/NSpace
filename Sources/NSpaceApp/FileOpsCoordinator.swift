@@ -3,6 +3,7 @@ import NSpaceKernel
 import NSpaceContracts
 import ArchiveEngine
 import Frecency
+import TrashLedger
 
 /// 操作后显露落点（新建完成 → 选中并按需进入重命名）；列表/图标视图各自实现（分栏传 nil）
 @MainActor
@@ -27,6 +28,9 @@ final class FileOpsCoordinator {
 
     /// 使用习惯学习（M28）：全应用打开/进入记账的载体（AppDelegate 注入同一实例；nil=不学习）。
     var frecencyStore: FrecencyStore?
+
+    /// 「放回原处」台账（AppDelegate 注入同一实例；nil=不记账 → 放回原处一律不可用）
+    var trashLedger: TrashLedger?
 
     /// 记一次访问（打开文件/进入文件夹）——供聚焦搜索按使用习惯排序。actor 异步提交，发后不等。
     func recordAccess(_ url: URL) {
@@ -86,6 +90,67 @@ final class FileOpsCoordinator {
                    in: grid?.view.window)
     }
 
+    // MARK: 清空废纸篓 / 放回原处（v0.19.19）
+
+    /// 清空废纸篓：**不可逆**。读废纸篓内容（只读，BG-1 允许）→ 确认 → 经内核 `.delete`。
+    /// 围栏根 = 该废纸篓本身，节点会拒绝围栏之外的任何项。
+    func emptyTrash(at trash: URL, in window: NSWindow?) {
+        // 用 options: [] 读全量：篓里可能有点文件，按显示过滤会漏删、"清空"就成了半句真话
+        let victims = (try? FileManager.default.contentsOfDirectory(
+            at: trash, includingPropertiesForKeys: nil, options: [])) ?? []
+        guard !victims.isEmpty else {
+            Toast.show(L10n.t("toast.trashAlreadyEmpty"), in: window ?? grid?.view.window)
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = L10n.f("alert.emptyTrash.title", victims.count)
+        alert.informativeText = L10n.t("alert.emptyTrash.body")
+        alert.addButton(withTitle: L10n.t("alert.emptyTrash.confirm"))
+        alert.addButton(withTitle: L10n.t("common.cancel"))
+        // 破坏性按钮标红 + 默认落在「取消」上：不可逆操作不许一路回车就执行
+        alert.buttons.first?.hasDestructiveAction = true
+        if alert.buttons.count > 1 { alert.window.defaultButtonCell = alert.buttons[1].cell as? NSButtonCell }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        performEmptyTrash(at: trash, victims: victims)
+    }
+
+    /// 清空废纸篓的**干活那半**（确认已通过）。拆开是为了自测能验它——
+    /// 模态弹窗会把无头自测挂死，而"确认弹窗存在"另有断言（甲板右键菜单那条）。
+    func performEmptyTrash(at trash: URL, victims: [URL]) {
+        guard !victims.isEmpty else { return }
+        run(OperationSpec(kind: .delete, sources: victims, destination: trash)) { [weak self] receipt in
+            guard let self, let receipt else { return }
+            // 台账里对应条目一并作废（那些落点已经不存在了）
+            if let led = self.trashLedger { Task { await led.forget(victims) } }
+            if receipt.failures.isEmpty {
+                Toast.show(L10n.f("toast.trashEmptied", receipt.filesDone), in: self.grid?.view.window)
+            } else {
+                Toast.show(L10n.f("toast.trashEmptiedPartial", receipt.filesDone,
+                                  receipt.failures.count, receipt.failures[0].message),
+                           in: self.grid?.view.window)
+            }
+        }
+    }
+
+    /// 放回原处：只对**台账里有记录**的项有效（= NSpace 自己删掉的）。
+    /// 别的应用删的项没有记录，菜单项诚实置灰——不假装能放回。
+    func putBack(_ urls: [URL]) {
+        guard !urls.isEmpty, let led = trashLedger else { NSSound.beep(); return }
+        Task { @MainActor in
+            let map = await led.origins(of: urls)
+            let known = urls.compactMap { u in map[u].map { (trashed: u, original: $0) } }
+            guard !known.isEmpty else {
+                Toast.show(L10n.t("toast.putBackUnknown"), in: self.grid?.view.window)
+                return
+            }
+            // 复用既有的"搬回原处 + 必要时改名回原名"链路（撤销废纸篓走的就是这条）
+            self.restore(known.map { TrashedItem(original: $0.original, trashed: $0.trashed) })
+            await led.forget(known.map(\.trashed))
+            Toast.show(L10n.f("toast.putBackN", known.count), in: self.grid?.view.window)
+        }
+    }
+
     // MARK: 内核操作
 
     func moveToTrash(_ urls: [URL]) {
@@ -105,7 +170,12 @@ final class FileOpsCoordinator {
             guard let self, let receipt else { return }
             let items = receipt.trashedItems
             // 真落地的那部分必须能撤销，哪怕整个 run 因为别的项判了 .failed
-            if !items.isEmpty { self.registerRestoreUndo(items) }
+            if !items.isEmpty {
+                self.registerRestoreUndo(items)
+                // 落台账：「放回原处」跨会话可用全靠它（UndoManager 只活在本窗本次会话里）
+                let pairs = items.map { (original: $0.original, trashed: $0.trashed) }
+                if let led = self.trashLedger { Task { await led.record(pairs) } }
+            }
             // 旧版此路径**零反馈**（copy/move 有吐司，trash 没有），用户只看到行消失。
             // 部分失败时更要说清：几项成了、几项没成、第一条原因是什么。
             if receipt.failures.isEmpty {
@@ -275,7 +345,9 @@ final class FileOpsCoordinator {
         undoManager.setActionName(L10n.t("undo.trash"))
     }
 
-    private func restore(_ items: [TrashedItem]) {
+    /// internal 而非 private：「放回原处」复用同一条搬回链路（不另写一份，
+    /// 否则两处会各自漂——撤销能改名回原名、放回原处却不能，那就是同病不同修）
+    func restore(_ items: [TrashedItem]) {
         // 注册重做：再次移到废纸篓（撤销/重做循环）
         undoManager.registerUndo(withTarget: self) { coord in
             MainActor.assumeIsolated { coord.moveToTrash(items.map(\.original)) }

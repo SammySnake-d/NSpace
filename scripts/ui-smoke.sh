@@ -258,6 +258,13 @@ require_pass "I-62 废纸篓内容真被列出"
 require_pass "I-62 拖到垃圾桶钮 → 真移到废纸篓"
 require_pass "I-62 前往菜单含「废纸篓」项并接 goTrash"
 require_pass "I-62 按窗口反查控制器"
+# I-63 清空废纸篓（不可逆，Eraser 胶囊）+ 放回原处（TrashLedger 胶囊）
+require_pass "沙箱守卫[I-63]: 清空夹具在自建临时目录内"
+require_pass "I-63 垃圾桶钮右键菜单含「清空废纸篓」"
+require_pass "I-63 清空废纸篓真删内容且保留篓本身"
+require_pass "I-63 放回原处闭环"
+require_pass "I-63 无台账记录的项不许假装能放回"
+require_pass "I-63 条目菜单按位置切换放回/移入"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46 / M28 / I-47）：清理 UITEST 隔离态，绝不留测试残留在用户真实域

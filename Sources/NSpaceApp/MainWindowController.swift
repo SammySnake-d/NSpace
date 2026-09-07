@@ -4,6 +4,7 @@ import BookmarkStore
 import StashStore
 import SessionStore
 import Frecency
+import TrashLedger
 
 /// 主窗口（M17 自绘甲板）：两列贯通结构——
 /// 左列 sidebarColumn（.sidebar 材质全高：红绿灯行 + 暂存架 + 书签），
@@ -35,11 +36,13 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     private var keyMonitor: Any?
 
     init(kernel: OperationKernel, frecencyStore: FrecencyStore? = nil,
+         trashLedger: TrashLedger? = nil,
          initialDirectory: URL, select: URL? = nil) {
         self.kernel = kernel
         self.grid = PaneGridController(initialDirectory: initialDirectory)
         self.coordinator = FileOpsCoordinator(kernel: kernel, grid: grid)
         self.coordinator.frecencyStore = frecencyStore   // M28：全应用打开/进入记账
+        self.coordinator.trashLedger = trashLedger       // 「放回原处」台账（全应用同一实例）
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NSpace")
         let model = SidebarModel(bookmarkStore: BookmarkStore(directory: supportDir))
@@ -511,6 +514,11 @@ extension MainWindowController: TopDeckDelegate {
     func deckToggleSidebar() { toggleSidebar(nil) }
     /// 点垃圾桶钮 = 在**应用内**导航到废纸篓（绝不外抛给访达）
     func deckOpenTrash() { grid.activePane.goTrash(nil) }
+    /// 右键垃圾桶钮 → 清空废纸篓（按当前窗格所在卷取篓，与打开/落点口径一致）
+    func deckEmptyTrash() {
+        coordinator.emptyTrash(at: TrashLocation.trash(for: grid.activePane.uiTestCurrentURL),
+                               in: window)
+    }
     /// 拖到垃圾桶钮 = 移到废纸篓（经内核，本层零写型 API）。
     /// 落到**来源窗**的 coordinator：跨窗拖放时撤销栈与吐司都该归发起那一侧，
     /// 否则 ⌘Z 在来源窗按不动，吐司还弹在一个可能被挡住的窗上。

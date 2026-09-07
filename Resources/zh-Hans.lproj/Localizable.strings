@@ -39,6 +39,17 @@
 "menu.goDown" = "下层文件夹";
 "menu.goHome" = "个人";
 "menu.goTrash" = "废纸篓";
+"common.cancel" = "取消";
+"menu.emptyTrash" = "清空废纸篓…";
+"menu.putBack" = "放回原处";
+"alert.emptyTrash.title" = "确定要永久删除废纸篓里的 %d 项吗？";
+"alert.emptyTrash.body" = "此操作不可撤销。";
+"alert.emptyTrash.confirm" = "清空废纸篓";
+"toast.trashEmptied" = "已永久删除 %d 项";
+"toast.trashEmptiedPartial" = "已永久删除 %1$d 项，%2$d 项失败：%3$@";
+"toast.trashAlreadyEmpty" = "废纸篓已经是空的";
+"toast.putBackN" = "已放回 %d 项";
+"toast.putBackUnknown" = "这些项没有原始位置记录（不是由 NSpace 移入废纸篓的），无法放回";
 "column.name" = "名称";
 "column.dateModified" = "修改日期";
 "column.size" = "大小";

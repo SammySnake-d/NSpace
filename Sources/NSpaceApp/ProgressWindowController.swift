@@ -262,6 +262,7 @@ final class ProgressRowView: NSView {
         case .newFile: "doc.badge.plus"
         case .compress: "doc.zipper"
         case .extract: "arrow.up.bin"
+        case .delete: "trash.slash"      // 永久删除：带斜杠的桶，与「移到废纸篓」明显区分
         }
     }
 }

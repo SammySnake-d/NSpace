@@ -285,8 +285,12 @@ final class SearchSession: NSObject, @unchecked Sendable {
         }
     }
 
-    /// 是否已推出过至少一批（用于让首批免于 300ms 节流）
-    private var hasYielded = false
+    /// 是否已推出过至少一批（用于让首批免于 300ms 节流）。
+    /// internal 而非 private：首批免节流要能被**确定性**断言——
+    /// 端到端测它会变成计时断言（易抖），而这个标志在 append 返回那一刻就是终值。
+    var hasYielded = false
+    /// 当前攥在缓冲里、还没推出去的条数（验"第二批小批仍受节流"）
+    var bufferedCount: Int { buffer.count }
 
     private func flushNow() {
         guard !finished, !buffer.isEmpty else { return }

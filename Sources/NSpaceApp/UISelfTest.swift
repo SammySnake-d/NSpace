@@ -1874,6 +1874,127 @@ enum UISelfTest {
                 if assertSandboxed(box) { try? fs.removeItem(at: box) }
             }
 
+                // ── 场景 I-63：清空废纸篓（不可逆）+ 放回原处 ────────────────────────
+                // 用户明示要这两个功能。清空走新胶囊 Eraser（`.delete` + 围栏根），
+                // 放回原处走新胶囊 TrashLedger（macOS 的 put-back 元数据在 Finder 私有库里读不到，
+                // 实测唯一 xattr 是空的 com.apple.provenance、Finder 自己的 AppleScript 也拿不到）。
+                // 铁律：**清空那半只在自建临时夹具上验**，一次都不碰用户真实废纸篓；
+                //       放回那半必须经真实废纸篓（那才是真目标），但只动自建 token 项且必须放回成功。
+                do {
+                    let tok = String(UUID().uuidString.prefix(8))
+
+                    // ① 甲板垃圾桶钮右键菜单里有「清空废纸篓」（确认弹窗那半不能在无头里跑，
+                    //   模态会把自测挂死；这条验入口存在且接线，干活那半下面单独验）
+                    let cm = wc.deck.uiTestTrashContextMenu()
+                    let hasEmpty = cm?.items.contains { $0.title == L10n.t("menu.emptyTrash") } ?? false
+                    let wired = cm?.items.first?.action != nil && cm?.items.first?.target != nil
+                    record(cm?.items.count == 1 && hasEmpty && wired,
+                           "I-63 垃圾桶钮右键菜单含「清空废纸篓」（\(cm?.items.count ?? -1) 项 命中=\(hasEmpty) 已接线=\(wired)）")
+
+                    // ② 清空的干活那半：在**自建临时夹具**上跑，绝不碰真实废纸篓
+                    let fakeTrash = fs.temporaryDirectory
+                        .appendingPathComponent("nspace-uitest-i63-\(tok)-trash", isDirectory: true)
+                    try? fs.createDirectory(at: fakeTrash.appendingPathComponent("dir"),
+                                            withIntermediateDirectories: true)
+                    try? Data("a".utf8).write(to: fakeTrash.appendingPathComponent("a.txt"))
+                    try? Data("b".utf8).write(to: fakeTrash.appendingPathComponent(".hidden-b"))
+                    try? Data("c".utf8).write(to: fakeTrash.appendingPathComponent("dir/c.txt"))
+                    record(assertSandboxed(fakeTrash), "沙箱守卫[I-63]: 清空夹具在自建临时目录内")
+                    let victims = (try? fs.contentsOfDirectory(at: fakeTrash,
+                                                               includingPropertiesForKeys: nil,
+                                                               options: [])) ?? []
+                    let victimCount = victims.count
+                    if assertSandboxed(fakeTrash), victimCount == 3 {
+                        wc.coordinator.performEmptyTrash(at: fakeTrash, victims: victims)
+                        let emptied = await pollFS {
+                            ((try? fs.contentsOfDirectory(atPath: fakeTrash.path)) ?? []).isEmpty
+                        }
+                        // 围栏根自身必须还在（清空的是内容，不是那个目录）
+                        let fenceAlive = fs.fileExists(atPath: fakeTrash.path)
+                        record(emptied && fenceAlive,
+                               "I-63 清空废纸篓真删内容且保留篓本身（清空=\(emptied) 篓仍在=\(fenceAlive) 原 \(victimCount) 项含点文件）")
+                    } else {
+                        record(false, "I-63 清空废纸篓真删内容且保留篓本身（夹具不合预期 \(victimCount) 项）")
+                    }
+                    try? fs.removeItem(at: fakeTrash)
+
+                    // ③ 放回原处闭环：真实删一个自建项 → 台账记账 → 放回 → 回到原位
+                    let pbBox = fs.temporaryDirectory
+                        .appendingPathComponent("nspace-uitest-i63-\(tok)-pb", isDirectory: true)
+                    let pbFile = pbBox.appendingPathComponent("nspace-uitest-i63-\(tok)-pb.txt")
+                    try? fs.createDirectory(at: pbBox, withIntermediateDirectories: true)
+                    try? Data("putback".utf8).write(to: pbFile)
+                    if assertSandboxed(pbFile) {
+                        wc.coordinator.moveToTrash([pbFile])
+                        let gone = await pollFS { !fs.fileExists(atPath: pbFile.path) }
+                        // 台账里必须有记录（否则"放回原处"就是空话）
+                        var recorded: URL?
+                        if let led = wc.coordinator.trashLedger {
+                            let trashed = TrashLocation.userTrash
+                                .appendingPathComponent(pbFile.lastPathComponent)
+                            for _ in 0..<30 {
+                                if let o = await led.origin(of: trashed) { recorded = o; break }
+                                try? await Task.sleep(for: .milliseconds(100))
+                            }
+                            if recorded != nil { wc.coordinator.putBack([trashed]) }
+                        }
+                        let back = await pollFS { fs.fileExists(atPath: pbFile.path) }
+                        let content = (try? Data(contentsOf: pbFile)) == Data("putback".utf8)
+                        record(gone && recorded?.standardizedFileURL.path == pbFile.standardizedFileURL.path
+                               && back && content,
+                               "I-63 放回原处闭环（删除=\(gone) 台账有记录=\(recorded != nil) 回到原位=\(back) 内容一致=\(content)）")
+                    } else {
+                        record(false, "I-63 放回原处闭环（沙箱守卫未过）")
+                    }
+                    // 收尾：把可能残留在真实废纸篓里的 token 项删净
+                    if let entries = try? fs.contentsOfDirectory(atPath: TrashLocation.userTrash.path) {
+                        for e in entries where e.contains("nspace-uitest-i63-\(tok)") {
+                            try? fs.removeItem(at: TrashLocation.userTrash.appendingPathComponent(e))
+                        }
+                    }
+                    if assertSandboxed(pbBox) { try? fs.removeItem(at: pbBox) }
+
+                    // ④ 诚实性：没有台账记录的项拿不到原始位置（别的应用删的项不许假装能放回）
+                    if let led = wc.coordinator.trashLedger {
+                        let stranger = TrashLocation.userTrash
+                            .appendingPathComponent("nspace-uitest-i63-\(tok)-stranger.txt")
+                        let noOrigin = await led.origin(of: stranger) == nil
+                        record(noOrigin,
+                               "I-63 无台账记录的项不许假装能放回（原始位置=\(noOrigin ? "nil" : "非nil")）")
+                    } else {
+                        record(false, "I-63 无台账记录的项不许假装能放回（台账未注入）")
+                    }
+
+                    // ⑤ 菜单按位置切换：废纸篓里出「放回原处」不出「移到废纸篓」，篓外反之
+                    let lvc = pane.activeTab.listVC
+                    let inTrashMenu = FileContextMenuBuilder.menu(
+                        selection: [], directory: TrashLocation.userTrash, target: lvc)
+                    let itemsInTrash = FileContextMenuBuilder.menu(
+                        selection: pane.activeTab.listVC.selectedItems.isEmpty
+                            ? [FileItem(url: TrashLocation.userTrash.appendingPathComponent("x"),
+                                        name: "x", isDirectory: false, isPackage: false,
+                                        isSymlink: false, isHidden: false, size: nil,
+                                        modified: nil, created: nil, added: nil,
+                                        contentTypeID: nil)]
+                            : pane.activeTab.listVC.selectedItems,
+                        directory: TrashLocation.userTrash, target: lvc)
+                    let a1 = Set(itemsInTrash.items.compactMap { $0.action })
+                    let outside = FileContextMenuBuilder.menu(
+                        selection: [FileItem(url: fs.temporaryDirectory.appendingPathComponent("y"),
+                                             name: "y", isDirectory: false, isPackage: false,
+                                             isSymlink: false, isHidden: false, size: nil,
+                                             modified: nil, created: nil, added: nil,
+                                             contentTypeID: nil)],
+                        directory: fs.temporaryDirectory, target: lvc)
+                    let a2 = Set(outside.items.compactMap { $0.action })
+                    let putBackSel = #selector(FileListViewController.putBackItems(_:))
+                    let trashSel = #selector(FileListViewController.moveToTrash(_:))
+                    record(a1.contains(putBackSel) && !a1.contains(trashSel)
+                           && a2.contains(trashSel) && !a2.contains(putBackSel)
+                           && inTrashMenu.items.count == 5,
+                           "I-63 条目菜单按位置切换放回/移入（篓内 放回=\(a1.contains(putBackSel)) 移入=\(a1.contains(trashSel))；篓外 移入=\(a2.contains(trashSel)) 放回=\(a2.contains(putBackSel))；空白菜单仍 \(inTrashMenu.items.count) 项）")
+                }
+
             }  // 结束 if !focusI37（I-62 会写真实废纸篓）
 
             // ── 场景 I-61：面包屑段命中盒占满地址栏全高 + 段名左右留余量 ──────────────

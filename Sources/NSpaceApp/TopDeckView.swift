@@ -19,6 +19,8 @@ import AppKit
 protocol TopDeckDelegate: AnyObject {
     /// 点垃圾桶钮 = **打开废纸篓**（恒可用，不看选中态）
     func deckOpenTrash()
+    /// 右键垃圾桶钮 = 清空废纸篓（**不可逆**，出口自带确认弹窗）
+    func deckEmptyTrash()
     /// 拖文件到垃圾桶钮 = 移到废纸篓（旧的"钮=删除"语义在这里保留下来，没丢）。
     /// `sourceWindow` = 拖拽发起窗：跨窗拖放时撤销与吐司必须归它，
     /// 否则 ⌘Z 在来源窗按不动、吐司弹在一个可能被挡住的窗上。
@@ -153,6 +155,10 @@ final class TopDeckView: NSVisualEffectView {
         trashButton.onDropFiles = { [weak self] urls, src in
             self?.deckDelegate?.deckDropOnTrash(urls, from: src)
         }
+        // 清空废纸篓挂在**右键菜单**上（同 Dock 里的废纸篓）：
+        // 不进空白区目录菜单——那份菜单有"恰好 5 项"的断言，加一项会撞它；
+        // 也不做成左键，左键已经是"打开废纸篓"，一个不可逆动作不该和导航共用一次点击。
+        trashButton.onEmptyTrash = { [weak self] in self?.deckDelegate?.deckEmptyTrash() }
         // 右簇：布局五段（rectangle 同族；PaneLayout.symbolName 与 §6.1 表一致）
         layoutControl.segmentCount = PaneLayout.allCases.count
         layoutControl.trackingMode = .selectOne
@@ -280,6 +286,17 @@ final class TopDeckView: NSVisualEffectView {
     var uiTestTrashAcceptsFileURLDrags: Bool {
         trashButton.registeredDraggedTypes.contains(.fileURL)
     }
+    /// 垃圾桶钮右键菜单：走 **AppKit 真正调用的那条路** `menu(for:)`，不是直调 buildContextMenu()。
+    /// 第一版直调构建函数——撤掉 `menu(for:)` override 它照样绿，证明的只是"菜单能造出来"，
+    /// 不是"右键真能唤出来"。
+    func uiTestTrashContextMenu() -> NSMenu? {
+        guard let ev = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero,
+                                          modifierFlags: [],
+                                          timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window?.windowNumber ?? 0, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 1) else { return nil }
+        return trashButton.menu(for: ev)
+    }
     /// 走垃圾桶钮真实的投放落地逻辑（pasteboard 可注入，不碰系统拖拽剪贴板）
     func uiTestDropOnTrash(from pasteboard: NSPasteboard, sourceWindow: NSWindow? = nil) -> Bool {
         trashButton.acceptDrop(from: pasteboard, sourceWindow: sourceWindow)
@@ -404,6 +421,7 @@ final class TopDeckView: NSVisualEffectView {
 @MainActor
 final class TrashDeckButton: NSButton {
     var onDropFiles: (([URL], NSWindow?) -> Void)?
+    var onEmptyTrash: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -414,6 +432,20 @@ final class TrashDeckButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    /// 右键菜单：只有一项「清空废纸篓」。构建与点击共用（自测可直接取这份菜单）
+    func buildContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let item = menu.addItem(withTitle: L10n.t("menu.emptyTrash"),
+                                action: #selector(emptyTrashClicked), keyEquivalent: "")
+        item.target = self
+        item.image = NSImage(systemSymbolName: "trash.slash", accessibilityDescription: nil)
+        return menu
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? { buildContextMenu() }
+
+    @objc private func emptyTrashClicked() { onEmptyTrash?() }
 
     /// 落地接缝：pasteboard 可注入，自测走私有板（不碰用户真实拖拽剪贴板）
     @discardableResult

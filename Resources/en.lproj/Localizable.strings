@@ -39,6 +39,17 @@
 "menu.goDown" = "Inner Folder";
 "menu.goHome" = "Home";
 "menu.goTrash" = "Trash";
+"common.cancel" = "Cancel";
+"menu.emptyTrash" = "Empty Trash…";
+"menu.putBack" = "Put Back";
+"alert.emptyTrash.title" = "Permanently erase %d items in the Trash?";
+"alert.emptyTrash.body" = "This cannot be undone.";
+"alert.emptyTrash.confirm" = "Empty Trash";
+"toast.trashEmptied" = "Permanently erased %d items";
+"toast.trashEmptiedPartial" = "Erased %1$d, %2$d failed: %3$@";
+"toast.trashAlreadyEmpty" = "The Trash is already empty";
+"toast.putBackN" = "Put back %d items";
+"toast.putBackUnknown" = "No original location on record for these (not moved to Trash by NSpace) — cannot put back";
 "column.name" = "Name";
 "column.dateModified" = "Date Modified";
 "column.size" = "Size";

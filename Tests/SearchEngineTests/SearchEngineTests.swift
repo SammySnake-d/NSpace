@@ -276,4 +276,27 @@ import Foundation
         #expect(got.count == SearchLimits.maxResults, "实得 \(got.count)，必须正好等于上限")
         #expect(Set(got.map(\.url.path)).count == got.count)   // 反空断言：去重后仍是这个数
     }
+    /// 首批免节流：扫描侧 150ms 发射窗之后，append() 又压 300ms 节流，
+    /// 稀疏查询的首个结果上屏要 ~450ms。首批直接推出去，后续才节流。
+    ///
+    /// 这条**不是**计时断言：`hasYielded` 在 append 返回那一刻就是终值，
+    /// 所以它是确定性的。端到端测同一件事会变成易抖的计时断言，那种不写。
+    @Test func firstBatchBypassesThrottleButLaterSmallBatchesDoNot() async throws {
+        let (stream, cont) = AsyncStream<[SearchHit]>.makeStream()
+        let session = SearchSession(request: SearchRequest(query: "thr", scope: .global),
+                                    continuation: cont)
+        func hit(_ i: Int) -> SearchHit {
+            SearchHit(url: URL(fileURLWithPath: "/tmp/nspace-thr-\(i)"), name: "thr-\(i)",
+                      isDirectory: false, size: nil, modified: nil, contentTypeID: nil)
+        }
+        // 首批：必须**立刻**推出（不进 300ms 计划）
+        session.append([hit(1)])
+        #expect(session.hasYielded, "首批必须立刻推出，不许压 300ms 节流")
+        #expect(session.bufferedCount == 0, "首批应已清空缓冲，实得 \(session.bufferedCount)")
+        // 第二批小批：节流仍要生效（否则每条命中都跨线程推一次，白烧 CPU）
+        session.append([hit(2)])
+        #expect(session.bufferedCount == 1, "第二批小批必须留在缓冲里受节流，实得 \(session.bufferedCount)")
+        session.stop()
+        _ = stream
+    }
 }

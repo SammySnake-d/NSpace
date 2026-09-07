@@ -645,6 +645,9 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     // 复制/剪切/粘贴/拷贝路径（Edit 菜单 ⌘C/⌘X/⌘V/⌘⇧C 与右键菜单共用）
     @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
     @objc func cutItems(_ sender: Any?) { coordinator?.cut(selectedURLs) }
+    /// 放回原处（仅废纸篓内；只对台账里有记录的项有效，其余诚实置灰）
+    @objc func putBackItems(_ sender: Any?) { coordinator?.putBack(selectedURLs) }
+
     @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: currentDirectory) }
     /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
     /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
@@ -791,6 +794,8 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
         // 连带 ⌘⇧C 快捷键在空白处直接哑火——用户报的正是这个）
         case #selector(copyPath(_:)):
             return true
+        case #selector(putBackItems(_:)):
+            return TrashLocation.isInsideTrash(currentDirectory) && !selectedURLs.isEmpty
         // 在废纸篓里做副本 = 又造一个只能被清空的文件，禁掉
         case #selector(duplicateItems(_:)) where TrashLocation.isInsideTrash(currentDirectory):
             return false

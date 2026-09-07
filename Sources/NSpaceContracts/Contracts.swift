@@ -73,6 +73,9 @@ public protocol ClassifiedError: Error, Sendable {
 public struct OperationSpec: Sendable {
     public enum Kind: String, Sendable {
         case copy, move, trash, duplicate, newFolder, newFile, rename
+        /// **永久删除（不可逆）**——Eraser 胶囊。必须带 destination 作为围栏根，
+        /// 每个 source 都要落在围栏内，否则整批拒绝（爆炸半径写进契约，不写进注释）
+        case delete
         /// 压缩为归档包（ArchiveEngine）
         case compress
         /// 从归档包解压（ArchiveEngine）

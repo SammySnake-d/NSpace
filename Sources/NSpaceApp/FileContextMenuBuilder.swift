@@ -70,8 +70,15 @@ enum FileContextMenuBuilder {
         }
         add(menu, "menu.duplicate", #selector(FileListViewController.duplicateItems(_:)), target,
             key: "d", mods: .command, symbol: "plus.square.on.square")
-        add(menu, "menu.moveToTrash", #selector(FileListViewController.moveToTrash(_:)), target,
-            key: "\u{8}", mods: .command, symbol: "trash")
+        // 在废纸篓里：「移到废纸篓」没有意义（已经在里面了），换成「放回原处」。
+        // 只在这个位置出现——常驻一个在别处永远灰着的项，就是 I-25 那种永败按钮。
+        if TrashLocation.isInsideTrash(directory) {
+            add(menu, "menu.putBack", #selector(FileListViewController.putBackItems(_:)), target,
+                symbol: "arrow.uturn.backward")
+        } else {
+            add(menu, "menu.moveToTrash", #selector(FileListViewController.moveToTrash(_:)), target,
+                key: "\u{8}", mods: .command, symbol: "trash")
+        }
         menu.addItem(.separator())
 
         // 归档：压缩任意选中 / 解压支持的归档（FG-1 诚实禁用：无支持项则不出"解压"）

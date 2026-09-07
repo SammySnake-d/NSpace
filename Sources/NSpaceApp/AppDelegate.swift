@@ -6,6 +6,8 @@ import LocalOps
 import ArchiveEngine
 import SessionStore
 import Frecency
+import TrashLedger
+import Eraser
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -17,6 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let sessionStore = SessionStore(directory: AppDelegate.supportDirectory)
     /// 使用习惯学习（M28）：全应用打开/进入记账 → 聚焦搜索按 frecency 排序。单一实例，注入到各窗口 coordinator 与搜索面板。
     let frecencyStore = FrecencyStore(directory: AppDelegate.supportDirectory)
+    /// 「放回原处」台账（全应用共享；各窗口 coordinator 注入同一实例）。
+    /// macOS 的 put-back 元数据在 Finder 私有库里读不到（实测：唯一 xattr 是空的
+    /// com.apple.provenance、mdls 无来源、Finder 自己的 AppleScript original item 返回 -1728），
+    /// 所以要能放回就得自己记账。
+    let trashLedger = TrashLedger(directory: AppDelegate.supportDirectory)
 
     /// 应用支持目录：UITEST 走隔离临时目录，绝不把测试夹具路径/记账污染进用户真实会话与搜索排序
     /// （测试沙箱铁律，同 I-46 windowFrame 隔离；I-47 后 sessionStore 亦经此，因导航即落盘会写 session）。
@@ -52,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])
             await kernel.register(LocalOpsNode(), for: [.rename, .newFolder, .newFile, .trash])
             await kernel.register(ArchiveEngineNode(), for: [.compress, .extract])
+            // 永久删除单独成节点：不可逆操作不与其余本地操作共用一个成熟节点
+            await kernel.register(EraserNode(), for: [.delete])
             await kernel.setArbiter(conflictSheet)
             ProgressWindowController.shared.start(kernel: kernel)
             // 性能自证入口（北极星验收用，非产品路径）：NSPACE_PERF_DIRS=a:b:c:d → 四宫格各导航一目录
@@ -260,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @discardableResult
     func openWindow(at directory: URL, selecting: URL? = nil, orderFront: Bool = true) -> MainWindowController {
         let wc = MainWindowController(kernel: kernel, frecencyStore: frecencyStore,
+                                      trashLedger: trashLedger,
                                      initialDirectory: directory, select: selecting)
         windowControllers.append(wc)
         wc.window?.delegate = self
