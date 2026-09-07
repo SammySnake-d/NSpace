@@ -791,6 +791,9 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
         // 连带 ⌘⇧C 快捷键在空白处直接哑火——用户报的正是这个）
         case #selector(copyPath(_:)):
             return true
+        // 在废纸篓里做副本 = 又造一个只能被清空的文件，禁掉
+        case #selector(duplicateItems(_:)) where TrashLocation.isInsideTrash(currentDirectory):
+            return false
         case #selector(copyItems(_:)), #selector(cutItems(_:)),
              #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
@@ -804,8 +807,13 @@ extension FileListViewController: @preconcurrency NSMenuItemValidation {
         case #selector(toggleGrouping(_:)):
             menuItem.state = Preferences.listGrouping ? .on : .off
             return true
+        // 废纸篓里禁掉「把活文件放进来」的动作（Finder 同样禁用）。废纸篓可浏览之后
+        // 这些入口才第一次可达：放进来的文件既无撤销、也无「放回原处」元数据，
+        // 将来清空废纸篓就真没了。
         case #selector(pasteItems(_:)), #selector(paste(_:)):
-            return pasteboardHasFiles
+            return TrashLocation.isInsideTrash(currentDirectory) ? false : pasteboardHasFiles
+        case #selector(newFolderHere(_:)), #selector(newFileHere(_:)):
+            return !TrashLocation.isInsideTrash(currentDirectory)
         default:
             return true
         }

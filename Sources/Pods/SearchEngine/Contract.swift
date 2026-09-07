@@ -8,6 +8,20 @@ public enum SearchLimits {
     /// 无上限地在主线程读全部 result(at:) + 铺进 NSTableView 会直接卡死、CPU 暴涨。达上限即停两通道。
     /// UI 据此显示"仅显示前 N 条，请细化关键词"。2000 足够定位单文件，且主线程成本恒有界。
     public static let maxResults = 2000
+
+    /// 通道B（隐藏文件扫描）在通道A 仍能读的时候被预留的名额。
+    ///
+    /// 真红：通道A 在首个 gathering 通知（0.3s）里就能一次读满 2000 条，`append()` 随即
+    /// `keptCount >= maxResults` → `flushNow(); teardown()` → `scanTask.cancel()`，通道B
+    /// 那一刻还攥在栈上的 batch 直接作废。于是任何 Spotlight 命中数 ≥2000 的查询，
+    /// 「包含隐藏文件」是个**静默空开关**——这是"能看到却搜不到"的另一个独立触发器。
+    /// 预留后通道A 最多吃到 maxResults - scanReserve，通道B 恒有名额落地。
+    public static let scanReserve = 500
+
+    /// 通道A 单次 drain 的读取预算（纯函数：单测可确定性断言，无需依赖 Spotlight 索引状态）
+    public static func spotlightReadBudget(kept: Int, scanAlive: Bool) -> Int {
+        max(0, maxResults - kept - (scanAlive ? scanReserve : 0))
+    }
 }
 
 public struct SearchRequest: Sendable {

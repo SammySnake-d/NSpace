@@ -41,6 +41,7 @@ enum KeyBindings {
         Entry(id: "goUp", titleKey: "menu.goUp", defaultKey: "\u{F700}", defaultMods: [.command]),
         Entry(id: "goDown", titleKey: "menu.goDown", defaultKey: "\u{F701}", defaultMods: [.command]),
         Entry(id: "goToPath", titleKey: "menu.goToPath", defaultKey: "l", defaultMods: [.command]),
+        Entry(id: "goTrash", titleKey: "menu.goTrash", defaultKey: "", defaultMods: []),
         // 用户点名默认：⌘F 当前文件夹、⇧⌘F 全局
         Entry(id: "searchHere", titleKey: "menu.searchHere", defaultKey: "f", defaultMods: [.command]),
         Entry(id: "searchGlobal", titleKey: "menu.searchGlobal", defaultKey: "f", defaultMods: [.command, .shift]),

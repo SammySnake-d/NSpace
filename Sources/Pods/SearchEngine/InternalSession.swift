@@ -24,6 +24,8 @@ final class SearchSession: NSObject, @unchecked Sendable {
     private var keptCount = 0
     /// Spotlight 增量读游标（gathering progress 只读新到达段）
     private var spotlightReadIndex = 0
+    /// 通道B 是否仍在跑——通道A 据此给通道B 预留名额（见 SearchLimits.scanReserve）
+    private var scanRunning = false
 
     init(request: SearchRequest, continuation: AsyncStream<[SearchHit]>.Continuation) {
         self.request = request
@@ -58,6 +60,7 @@ final class SearchSession: NSObject, @unchecked Sendable {
     private func teardown() {
         guard !finished else { return }
         finished = true
+        scanRunning = false
         scanTask?.cancel()
         scanTask = nil
         if let query {
@@ -116,8 +119,12 @@ final class SearchSession: NSObject, @unchecked Sendable {
         query.disableUpdates()
         let count = query.resultCount
         var hits: [SearchHit] = []
-        // 硬上限：本次 drain 最多再读 (maxResults - keptCount) 条，绝不在主线程读全量十万级结果
-        let readBudget = max(0, SearchLimits.maxResults - keptCount)
+        // 硬上限 + 通道B 预留：绝不在主线程读全量十万级结果，也绝不把名额一次吃干把通道B 饿死
+        // `!final` 是必须的：收尾那一次 drain 之后 query 就 stop+释放了，没有下一次机会。
+        // 若此时仍替通道B 预留，那 500 个名额里的 Spotlight 结果**永久丢失**且用户看不到
+        // "仅显示前 N 条"提示——审查抓到的真 bug，不是想象出来的。
+        let readBudget = SearchLimits.spotlightReadBudget(kept: keptCount,
+                                                          scanAlive: scanRunning && !final)
         while spotlightReadIndex < count, hits.count < readBudget {
             if let item = query.result(at: spotlightReadIndex) as? NSMetadataItem,
                let hit = Self.hit(from: item) {
@@ -154,6 +161,7 @@ final class SearchSession: NSObject, @unchecked Sendable {
 
     private func startScan() {
         pendingChannels += 1
+        scanRunning = true
         let request = self.request
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
             for root in Self.scanRoots(for: request.scope) {
@@ -162,7 +170,10 @@ final class SearchSession: NSObject, @unchecked Sendable {
                     DispatchQueue.main.async { self?.append(batch) }
                 }
             }
-            DispatchQueue.main.async { self?.channelDone() }
+            DispatchQueue.main.async {
+                self?.scanRunning = false     // 通道B 收工后通道A 不再需要预留
+                self?.channelDone()
+            }
         }
     }
 
@@ -180,36 +191,59 @@ final class SearchSession: NSObject, @unchecked Sendable {
         }
     }
 
-    /// 后台线程：不带 skipsHiddenFiles 的枚举 + 文件名大小写不敏感包含匹配；
-    /// 跳过配置的巨坑目录；≥50 条一批经回调发出；协作式取消（每项查 isCancelled）
-    private static func scan(root: URL, request: SearchRequest, emit: ([SearchHit]) -> Void) {
+    /// 后台线程：层序（BFS）遍历 + 文件名大小写不敏感包含匹配。
+    /// 两条发射条件缺一不可（都由真红引出，见 CHANGELOG v0.19.17）：
+    ///   ① `batch.count >= 50`——原有的，只够高命中率查询用；
+    ///   ② **距上次发射 ≥ flushInterval**——低命中率查询（如 ".claude"，~ 下 135 条/198 万项）
+    ///      光靠 ① 要等第 50 条,实测 17.9s;靠"扫完"要 45s。
+    /// 时钟只在 batch 非空时才读（短路），所以 2M 次迭代里几乎不付这个钱
+    /// （`DispatchTime.now().uptimeNanoseconds` 实测 10ns/次）。
+    static let flushInterval: UInt64 = 150_000_000   // 150ms
+
+    /// internal 而非 private：胶囊自测要直接驱动它、精确测「发射时机」，
+    /// 不能被 append() 的 300ms 节流糊住（@testable import 只暴露 internal）。
+    /// `flushInterval` 带默认值入参而非可变静态量：生产调用点不变，测试可传 1ms
+    /// 用小夹具做确定性断言，且不引入跨测试共享的可变状态。
+    static func scan(root: URL, request: SearchRequest,
+                     flushInterval: UInt64 = SearchSession.flushInterval,
+                     emit: ([SearchHit]) -> Void) {
+        // 命中才补的展示属性（未命中项一个 stat 都不多花）
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey,
                                          .contentModificationDateKey, .contentTypeKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: Array(keys), options: []) else { return }
         var batch: [SearchHit] = []
-        while let url = enumerator.nextObject() as? URL {
-            if Task.isCancelled { return }
+        var lastEmit = DispatchTime.now().uptimeNanoseconds
+
+        func flush() {
+            guard !batch.isEmpty else { return }
+            emit(batch)
+            batch = []
+            lastEmit = DispatchTime.now().uptimeNanoseconds
+        }
+        /// batch 非空且已过节流窗 → 发射（时钟读取被 !isEmpty 短路挡在绝大多数迭代之外）
+        func flushIfDue() {
+            guard !batch.isEmpty,
+                  DispatchTime.now().uptimeNanoseconds - lastEmit >= flushInterval else { return }
+            flush()
+        }
+
+        LevelOrderWalk.walk(root: root,
+                            skipDirectoryNames: request.skippedDirectoryNames,
+                            shouldContinue: { !Task.isCancelled }) { url, _, isDir in
             let name = url.lastPathComponent
-            if request.skippedDirectoryNames.contains(name),
-               (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                enumerator.skipDescendants()
-                continue
+            guard name.localizedCaseInsensitiveContains(request.query) else {
+                flushIfDue()          // 未命中也要推进时间发射，否则孤零零一条命中会被压到扫完
+                return
             }
-            guard name.localizedCaseInsensitiveContains(request.query) else { continue }
-            let rv = try? url.resourceValues(forKeys: keys)  // 命中才补属性
+            let rv = try? url.resourceValues(forKeys: keys)
             batch.append(SearchHit(
                 url: url, name: name,
-                isDirectory: rv?.isDirectory ?? false,
+                isDirectory: rv?.isDirectory ?? isDir,
                 size: (rv?.fileSize).map(Int64.init),
                 modified: rv?.contentModificationDate,
                 contentTypeID: rv?.contentType?.identifier))
-            if batch.count >= 50 {
-                emit(batch)
-                batch = []
-            }
+            if batch.count >= 50 { flush() } else { flushIfDue() }
         }
-        if !batch.isEmpty { emit(batch) }
+        flush()
     }
 
     // MARK: 去重合并 + 节流批推（主线程）

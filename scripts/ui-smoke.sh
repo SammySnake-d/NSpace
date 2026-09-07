@@ -239,6 +239,21 @@ require_pass "I-59 空选中拷贝路径回落到当前目录"
 require_pass "沙箱守卫[I-60]: 外部打开排队夹具在自建临时目录内"
 require_pass "I-60 会话未就绪的外部打开只排队不开窗"
 require_pass "I-60 冲刷后落到现有窗口新标签"
+# I-61 面包屑命中盒（用户报告：地址栏要点到文件夹正中心才跳转，偏一点变成输入模式）
+require_pass "沙箱守卫[I-61]: 命中盒夹具在自建临时目录内"
+require_pass "I-61 段命中盒占满地址栏全高"
+require_pass "I-61 箭头命中盒占满地址栏全高"
+require_pass "I-61 段名左右留命中余量"
+require_pass "I-61 全高命中点触发导航（非编辑模式）"
+require_pass "I-61 内容右缘之右仍是空白点击进编辑"
+require_pass "I-61 极窄栏仍不溢出且层级全可达"
+# I-62 废纸篓（用户报告：缺少废纸篓功能，右上角垃圾桶钮点了没用/常灰）
+require_pass "沙箱守卫[I-62]: 废纸篓夹具在自建临时目录内"
+require_pass "I-62 空选中时甲板垃圾桶钮仍可用"
+require_pass "I-62 点垃圾桶钮 → 应用内跳到废纸篓"
+require_pass "I-62 废纸篓内容真被列出"
+require_pass "I-62 拖到垃圾桶钮 → 真移到废纸篓"
+require_pass "I-62 前往菜单含「废纸篓」项并接 goTrash"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46 / M28 / I-47）：清理 UITEST 隔离态，绝不留测试残留在用户真实域

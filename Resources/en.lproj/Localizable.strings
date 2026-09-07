@@ -38,6 +38,7 @@
 "menu.goUp" = "Enclosing Folder";
 "menu.goDown" = "Inner Folder";
 "menu.goHome" = "Home";
+"menu.goTrash" = "Trash";
 "column.name" = "Name";
 "column.dateModified" = "Date Modified";
 "column.size" = "Size";
@@ -186,10 +187,14 @@
 "toolbar.airdrop" = "AirDrop";
 "toolbar.terminal" = "Open in Terminal";
 "toolbar.tasks" = "Tasks";
+"toolbar.trash" = "Trash";
+"toolbar.trash.help" = "Open Trash (drop files here to move them to Trash)";
 "toast.copied" = "%d items copied";
 "toast.cutN" = "%d items cut";
 "toast.copiedN" = "%d items copied";
 "toast.movedN" = "%d items moved";
+"toast.trashedN" = "Moved %d items to Trash";
+"toast.alreadyInTrash" = "Already in Trash; permanent delete not supported yet — drag out to restore";
 "toast.stashed" = "%d items stashed";
 "toast.ejected" = "%@ ejected";
 "toast.copiedPath" = "Path copied";

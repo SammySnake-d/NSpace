@@ -38,6 +38,7 @@
 "menu.goUp" = "上层文件夹";
 "menu.goDown" = "下层文件夹";
 "menu.goHome" = "个人";
+"menu.goTrash" = "废纸篓";
 "column.name" = "名称";
 "column.dateModified" = "修改日期";
 "column.size" = "大小";
@@ -186,10 +187,14 @@
 "toolbar.airdrop" = "隔空投送";
 "toolbar.terminal" = "在终端打开";
 "toolbar.tasks" = "任务状态";
+"toolbar.trash" = "废纸篓";
+"toolbar.trash.help" = "打开废纸篓（把文件拖到这里 = 移到废纸篓）";
 "toast.copied" = "已拷贝 %d 项";
 "toast.cutN" = "已剪切 %d 项";
 "toast.copiedN" = "已复制 %d 项";
 "toast.movedN" = "已移动 %d 项";
+"toast.trashedN" = "已移到废纸篓 %d 项";
+"toast.alreadyInTrash" = "已在废纸篓中；永久删除尚未支持，可拖出到其他文件夹恢复";
 "toast.stashed" = "已暂存 %d 项";
 "toast.ejected" = "已推出 %@";
 "toast.copiedPath" = "已拷贝路径";

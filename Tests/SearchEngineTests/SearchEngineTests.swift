@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-import SearchEngine
+@testable import SearchEngine
 
 /// 黑盒验收：通道B（隐藏文件扫描）用真实临时夹具树精确断言；
 /// 通道A（Spotlight）依赖系统索引状态，只做"能启动能停止不崩"的宽松断言（不做假 Mock）。
@@ -131,5 +131,121 @@ import SearchEngine
                                                includeHidden: true), timeout: 10)
         #expect(hits.count <= SearchLimits.maxResults)
         #expect(hits.count >= SearchLimits.maxResults - 50)   // 确实逼近上限（证明扫到了大量、且封顶）
+    }
+    // MARK: v0.19.17 —— "能看到却搜不到 .claude" 的四条独立真因（用户报告）
+
+    /// 真因① 遍历顺序：`FileManager.enumerator` 是惰性前序 DFS，拿到一个 depth-1 目录后
+    /// 会把它整棵子树走完才回到下一个 depth-1 兄弟。真机实测 `~/.claude` DFS 要 15.5s
+    /// 才被**枚举到**（第 75 万项），BFS 0.006s（第 104 项）。
+    ///
+    /// 本断言与目录枚举顺序**无关**（不靠运气）：夹具 root/{d1/leaf, d2/leaf} 下，
+    /// DFS 无论先走 d1 还是 d2，都必然产出 depth-2 之后才回到另一个 depth-1
+    /// → 「深度单调不减」必然被打破。BFS 则恒成立。
+    @Test func levelOrderWalkEmitsNonDecreasingDepths() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("nspace-bfs-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        for d in ["d1", "d2"] {
+            try fm.createDirectory(at: root.appendingPathComponent(d), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: root.appendingPathComponent("\(d)/leaf.txt"))
+        }
+        var depths: [Int] = []
+        LevelOrderWalk.walk(root: root, skipDirectoryNames: [], shouldContinue: { true }) { _, depth, _ in
+            depths.append(depth)
+        }
+        #expect(depths == depths.sorted(), "深度必须单调不减，实得 \(depths)")
+        #expect(depths.count == 4)                       // 反空断言：夹具真被走到了
+        #expect(depths.filter { $0 == 1 }.count == 2)    // 两个 depth-1 目录都在 depth-2 之前
+    }
+
+    /// 真因① 的**接线**：上一条只证明 LevelOrderWalk 自己是 BFS，把 scan() 换回 DFS
+    /// 它照样全绿（对抗审查实测 3/3）。这条打在 scan() 真实产出的命中序列上。
+    ///
+    /// 夹具 root/{m-dirA/m-inner, m-dirB/m-inner}，四项全部匹配 "nswire"。
+    /// DFS 无论先走哪个目录，都必然是 depth1→depth2→depth1→depth2；BFS 恒为 1,1,2,2。
+    /// 与目录枚举顺序无关。
+    @Test func scanDeliversShallowHitsBeforeDeepOnes() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("nspace-wire-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        for d in ["nswire-dirA", "nswire-dirB"] {
+            try fm.createDirectory(at: root.appendingPathComponent(d), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: root.appendingPathComponent("\(d)/nswire-inner.txt"))
+        }
+        var order: [SearchHit] = []
+        SearchSession.scan(root: root,
+                           request: SearchRequest(query: "nswire", scope: .directory(root),
+                                                  includeHidden: true)) { order.append(contentsOf: $0) }
+        let rootDepth = root.standardizedFileURL.pathComponents.count
+        let depths = order.map { $0.url.standardizedFileURL.pathComponents.count - rootDepth }
+        #expect(depths == depths.sorted(), "scan() 产出的深度必须单调不减，实得 \(depths)")
+        #expect(depths.count == 4)                      // 反空断言：四项都到齐
+        #expect(depths.prefix(2).allSatisfy { $0 == 1 }) // 两个 depth-1 目录在任何 depth-2 之前
+    }
+
+    /// 真因② 发射条件：旧版只有 `batch.count >= 50` 和「整棵扫完」两个发射点。
+    /// 低命中率查询（~ 下搜 ".claude" 只有 135 条命中 / 198 万项）命中被攥在栈上，
+    /// 实测第一批要等到 17.9s（第 50 条命中），扫完要 45s。
+    ///
+    /// 夹具两个命中分处 depth 1 与 depth 3，中间隔 5000 个不命中项。
+    /// 加了时间发射后浅层命中会**单独成批**先发出 → 至少 2 次发射；
+    /// 只有计数发射时 2 < 50，全程只有收尾那一次发射 → 断言必红。
+    @Test func sparseHitIsNotWithheldUntilScanEnds() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("nspace-flush-\(UUID().uuidString)")
+        let deepDir = root.appendingPathComponent("bulk/deep")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: deepDir, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: root.appendingPathComponent("flushneedle-shallow.txt"))   // depth 1
+        try Data("x".utf8).write(to: deepDir.appendingPathComponent("flushneedle-deep.txt"))   // depth 3
+        for i in 0..<5000 {                                                                    // depth 2 填充
+            try Data().write(to: root.appendingPathComponent("bulk/pad-\(i).bin"))
+        }
+        var emits: [[SearchHit]] = []
+        SearchSession.scan(root: root,
+                           request: SearchRequest(query: "flushneedle", scope: .directory(root),
+                                                  includeHidden: true),
+                           flushInterval: 1_000_000) { emits.append($0) }   // 1ms 窗，配 5000 项(~12ms)夹具
+        #expect(emits.count >= 2, "浅层命中必须先单独发出，实得 \(emits.count) 次发射")
+        #expect(emits.first?.contains { $0.name == "flushneedle-shallow.txt" } == true,
+                "第一批必须是 depth-1 的那条，实得 \(emits.first?.map(\.name) ?? [])")
+        #expect(emits.flatMap { $0 }.count == 2)         // 反空断言：两条命中都到齐
+    }
+
+    /// 真因③ 跳过名单里的目录**本身**永远不可能成为命中：旧版 skip 分支在匹配测试
+    /// **之前** `continue`，于是搜 "node_modules" / "Library" / ".git" 搜不到那个目录自己。
+    @Test func skippedDirectoryItselfCanStillBeAHit() async throws {
+        // 专用夹具：坑内文件名**也**包含查询词。用共享夹具的 skip-nsneedle.txt 时
+        // 「仍然不下钻」那句是恒真的（查询词 node_modules 根本匹配不到它），等于没断言。
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("nspace-skip-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: dir) }
+        try fm.createDirectory(at: dir.appendingPathComponent("node_modules"),
+                               withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: dir.appendingPathComponent("node_modules/node_modules-inside.txt"))
+        let hits = await collect(SearchRequest(query: "node_modules", scope: .directory(dir),
+                                               searchNames: true, searchContents: false,
+                                               includeHidden: true))
+        #expect(hits.contains { $0.name == "node_modules" && $0.isDirectory },
+                "巨坑目录自身必须可被命中，实得 \(hits.map(\.name))")
+        // 仍然不下钻：坑内那个**同样匹配**的文件必须不出现（跳过语义没被一起改掉）
+        #expect(!hits.contains { $0.name == "node_modules-inside.txt" },
+                "跳过语义必须保留，实得 \(hits.map(\.name))")
+    }
+
+    /// 真因④ 结果封顶饿死通道B：通道A 在首个 gathering 通知里就能一次读满 2000 条，
+    /// `append()` 随即 `keptCount >= maxResults` → `teardown()` → `scanTask.cancel()`，
+    /// 通道B 攥在栈上的 batch 直接作废。于是任何 Spotlight 命中 ≥2000 的词，
+    /// 「包含隐藏文件」是个静默空开关。预留后通道A 吃不满全部名额。
+    @Test func spotlightBudgetReservesRoomForTheScanChannel() {
+        // 通道B 在跑：通道A 单次最多读 maxResults - scanReserve（旧公式会给出全部 maxResults）
+        #expect(SearchLimits.spotlightReadBudget(kept: 0, scanAlive: true)
+                == SearchLimits.maxResults - SearchLimits.scanReserve)
+        #expect(SearchLimits.scanReserve > 0)                       // 反焊死：预留必须真的有量
+        // 通道B 已收工：不再预留，通道A 可用满额度（否则白丢结果）
+        #expect(SearchLimits.spotlightReadBudget(kept: 0, scanAlive: false) == SearchLimits.maxResults)
+        // 已读接近上限时预算归零，绝不负数
+        #expect(SearchLimits.spotlightReadBudget(kept: SearchLimits.maxResults, scanAlive: true) == 0)
+        #expect(SearchLimits.spotlightReadBudget(kept: SearchLimits.maxResults + 99, scanAlive: false) == 0)
     }
 }

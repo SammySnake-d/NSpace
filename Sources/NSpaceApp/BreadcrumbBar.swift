@@ -19,6 +19,12 @@ final class BreadcrumbBar: NSView {
     private static let edgeInset: CGFloat = 8
     /// chevron 分隔箭头的固定占位宽（4pt 阶梯）
     private static let chevronWidth: CGFloat = 16
+    /// 段命中盒左右各留的余量（4pt 阶梯）：点到名字旁边一点点仍是这一段，不被隔壁 chevron 抢走
+    private static let segHitPadX: CGFloat = 4
+    /// 段命中宽（纯函数：layout 与自测共用同一口径，不许各算一遍）
+    static func segmentHitWidth(glyphWidth: CGFloat) -> CGFloat {
+        max(1, glyphWidth) + segHitPadX * 2
+    }
 
     /// 一级路径的完整模型：段按钮 + 其后的下钻 chevron
     private struct Level {
@@ -112,7 +118,7 @@ final class BreadcrumbBar: NSView {
         let avail = bounds.width - leftInset - rightInset
         let chevW = Self.chevronWidth
 
-        func segW(_ i: Int) -> CGFloat { max(1, levels[i].button.intrinsicContentSize.width) }
+        func segW(_ i: Int) -> CGFloat { Self.segmentHitWidth(glyphWidth: levels[i].button.intrinsicContentSize.width) }
         // 每级占位 = 段宽 + 其后 chevron
         func levelW(_ i: Int) -> CGFloat { segW(i) + chevW }
 
@@ -161,29 +167,61 @@ final class BreadcrumbBar: NSView {
         // 先全部隐藏，再显式点亮参与排布的
         for lvl in levels { lvl.button.isHidden = true; lvl.chevron.isHidden = true }
 
-        place(levels[0].button, at: &x, width: segW(0), height: h)
-        levels[0].button.isHidden = false
-        place(levels[0].chevron, at: &x, width: chevW, height: h)
-        levels[0].chevron.isHidden = false
+        // 「装得下底线」（对抗审查用真实 layout() 实测到的回归）：
+        // root + 「…」 + 强制可见的末段这个**种子**本身也可能装不下（窄窗格 + 长末段名）。
+        // 旧版把它无条件铺开，于是 lastContentRight 越过 bounds.width，I-37「不溢出」不变量被打破。
+        // 段宽 +2×segHitPadX 之后这个阈值被抬高，所以底线必须补上：
+        //   ① 种子装不下 → 连根段一起折进「…」（I-37 的「全层级永远可达」由菜单兜住，不丢层级）
+        //   ② 逐个按剩余预算 clamp → x 结构上不可能越过 leftInset + avail
+        var remaining = avail
+        func placeClamped(_ v: NSView, desired: CGFloat) -> Bool {
+            guard remaining > 0 else { return false }
+            let w = min(desired, remaining)
+            place(v, at: &x, width: w, height: h)
+            remaining -= w
+            return true
+        }
 
-        collapsedURLs = (1..<tailStart).map { levels[$0].url }
-        ellipsis.collapsedURLs = collapsedURLs
-        ellipsis.isHidden = false
-        place(ellipsis, at: &x, width: ellW, height: h)
+        let seedFits = rootCost + ellW + levelW(n - 1) <= avail
+        var collapsed: [URL] = []
 
-        for j in tailStart..<n {
-            place(levels[j].button, at: &x, width: segW(j), height: h)
+        if seedFits {
+            _ = placeClamped(levels[0].button, desired: segW(0))
+            levels[0].button.isHidden = false
+            _ = placeClamped(levels[0].chevron, desired: chevW)
+            levels[0].chevron.isHidden = false
+            collapsed = (1..<tailStart).map { levels[$0].url }
+        } else {
+            // 根段也放不下：它进折叠菜单（含根，仍然可达）
+            collapsed = (0..<max(1, n - 1)).map { levels[$0].url }
+        }
+
+        collapsedURLs = collapsed
+        ellipsis.collapsedURLs = collapsed
+        // 连「…」都放不下时必须真的隐藏它：否则留下一个"可见但未被排布"的旧 frame，
+        // 那既是幽灵命中区，也会让 uiTestHasEllipsis 撒谎
+        ellipsis.isHidden = !placeClamped(ellipsis, desired: ellW)
+
+        let visibleTailStart = seedFits ? tailStart : n - 1
+        for j in visibleTailStart..<n {
+            guard placeClamped(levels[j].button, desired: segW(j)) else { break }
             levels[j].button.isHidden = false
-            place(levels[j].chevron, at: &x, width: chevW, height: h)
-            levels[j].chevron.isHidden = false
+            if placeClamped(levels[j].chevron, desired: chevW) {
+                levels[j].chevron.isHidden = false
+            }
         }
         lastContentRight = x
     }
 
-    /// 垂直居中放置一个子视图，并推进游标
+    /// 放置一个子视图：**frame 就是命中盒**，占满整条 bar 的高度（字形居中交给 cell 自己画）。
+    ///
+    /// 反面教材（用户报告 bug，v0.19.17）：旧版把 frame 高度收成 intrinsicContentSize.height
+    /// 再垂直居中，于是 20pt 的栏里段按钮只有 14pt、chevron 只有 6.5pt，上下都是死区——
+    /// 点进死区就穿透到本视图的 mouseDown → onBeginEditing，用户看到的就是
+    /// 「要点到文件夹正中心才跳转，偏一点变成输入模式」。
+    /// 实测死区占比：段 6/20=30%（换算到 24pt 地址行是 42%）、chevron 13.5/20=68%。
     private func place(_ v: NSView, at x: inout CGFloat, width: CGFloat, height: CGFloat) {
-        let vh = min(max(1, v.intrinsicContentSize.height), height)
-        v.frame = NSRect(x: x, y: ((height - vh) / 2).rounded(), width: width, height: vh)
+        v.frame = NSRect(x: x, y: 0, width: width, height: height)
         x += width
     }
 
@@ -204,6 +242,50 @@ final class BreadcrumbBar: NSView {
     var uiTestLastSegmentToolTip: String? { levels.last?.button.toolTip }
     /// 当前可见末段完整名
     var uiTestLastSegmentFullName: String? { levels.last?.fullTitle }
+
+    // ---- 命中盒探针（用户报告"要点正中心才跳转"）----
+    // 断言必须打在**命中区**上，不是打在 frame 上：只验 frame 的断言，把 place() 改回
+    // 居中矮盒照样能算对数,验不出"点不到"。故这里走 AppKit 自己派发 mouseDown 用的
+    // NSView.hitTest(_:)，不复刻。
+
+    /// hitTest 落在哪一类节点上
+    enum HitKind: String { case segment, chevron, ellipsis, bar, none }
+
+    /// 在 bar 自身坐标系的一点做**真实** hitTest。
+    /// hitTest(_:) 收的是「接收者 superview」坐标系，故先换算上去。
+    func uiTestHitKind(at p: NSPoint) -> HitKind {
+        guard let sp = superview else { return .none }
+        let v = hitTest(convert(p, to: sp))
+        if v === self { return .bar }
+        if v is SegmentButton { return .segment }
+        if v is ChevronButton { return .chevron }
+        if v is EllipsisButton { return .ellipsis }
+        return v == nil ? .none : .bar
+    }
+
+    /// 命中点落在段按钮上则触发它真实的 action 并回报该段 URL；不落在段上返回 nil。
+    /// 直调 action 而非合成鼠标事件：NSCell.trackMouse 会开嵌套事件循环，headless 会挂。
+    func uiTestActivateSegment(at p: NSPoint) -> URL? {
+        guard let sp = superview,
+              let b = hitTest(convert(p, to: sp)) as? SegmentButton else { return nil }
+        _ = b.target?.perform(b.action, with: b)
+        return b.url
+    }
+
+    /// 当前可见段的 (URL, frame)（bar 局部坐标）
+    var uiTestVisibleSegments: [(url: URL, frame: NSRect)] {
+        levels.filter { !$0.button.isHidden }.map { ($0.url, $0.button.frame) }
+    }
+    /// 当前可见 chevron 的 frame（bar 局部坐标）
+    var uiTestVisibleChevronFrames: [NSRect] {
+        levels.filter { !$0.chevron.isHidden }.map { $0.chevron.frame }
+    }
+    /// 可见末段的字形宽（intrinsic）——用于验「命中宽 == 字形宽 + 2×padX」
+    var uiTestLastSegmentGlyphWidth: CGFloat? {
+        levels.last(where: { !$0.button.isHidden })?.button.intrinsicContentSize.width
+    }
+    /// 段命中盒左右余量总量（自测口径与产品口径同源）
+    static var uiTestSegHitPadTotal: CGFloat { segHitPadX * 2 }
 }
 
 /// 路径分段按钮：点击导航 + 文件投放目标（拖文件到分段=投进该祖先目录）
@@ -227,8 +309,23 @@ private final class SegmentButton: NSButton {
         action = #selector(clicked)
         setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         wantsLayer = true
-        layer?.cornerRadius = 4
+        dropHighlight.cornerRadius = 4
+        dropHighlight.backgroundColor = NSColor.clear.cgColor
+        layer?.addSublayer(dropHighlight)
         registerForDraggedTypes([.fileURL])
+    }
+
+    /// 投放高亮层：与命中盒**解耦**——命中盒占满 bar 全高（否则上下是死区），
+    /// 但高亮不能跟着占满，那样会顶到地址行边缘看着像个色块。
+    /// 高亮铺满命中盒的**宽度**（= 字形 + 2×segHitPadX，与真正接受投放的区域同宽——
+    /// 这是刻意的，高亮该指示「投这里会落到哪一段」），只上下各内缩 2pt 避开地址行边缘。
+    private let dropHighlight = CALayer()
+    /// 高亮相对命中盒的上下内缩（≤2pt 视错觉修正档，grid-lint 豁免）
+    private static let dropHighlightInsetY: CGFloat = 2
+
+    override func layout() {
+        super.layout()
+        dropHighlight.frame = bounds.insetBy(dx: 0, dy: Self.dropHighlightInsetY)
     }
 
     @available(*, unavailable)
@@ -257,7 +354,7 @@ private final class SegmentButton: NSButton {
     }
 
     private func setDropHighlight(_ on: Bool) {
-        layer?.backgroundColor = on
+        dropHighlight.backgroundColor = on
             ? Theme.accent.withAlphaComponent(0.10).cgColor
             : NSColor.clear.cgColor
     }

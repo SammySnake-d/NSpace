@@ -875,6 +875,13 @@ final class PaneViewController: NSViewController {
         reloadActiveList()
     }
 
+    /// 前往废纸篓（甲板垃圾桶钮 / Go 菜单共用同一出口）
+    @objc func goTrash(_ sender: Any?) {
+        // 按**当前所在卷**取废纸篓：在外置盘上浏览时跳该卷的回收站，
+        // 与 fm.trashItem 的实际落点一致（否则按钮说的和做的是两个地方）
+        navigate(to: TrashLocation.trash(for: activeTab.browser.current))
+    }
+
     @objc func goHome(_ sender: Any?) {
         navigate(to: FileManager.default.homeDirectoryForCurrentUser)
     }

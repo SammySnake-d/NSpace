@@ -502,6 +502,10 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
 
 extension MainWindowController: TopDeckDelegate {
     func deckToggleSidebar() { toggleSidebar(nil) }
+    /// 点垃圾桶钮 = 在**应用内**导航到废纸篓（绝不外抛给访达）
+    func deckOpenTrash() { grid.activePane.goTrash(nil) }
+    /// 拖到垃圾桶钮 = 移到废纸篓（经内核，本层零写型 API）
+    func deckDropOnTrash(_ urls: [URL]) { coordinator.moveToTrash(urls) }
     func deckGoBack() { grid.activePane.goBack(nil) }
     func deckGoForward() { grid.activePane.goForward(nil) }
     func deckGoUp() { grid.activePane.goUpFolder(nil) }

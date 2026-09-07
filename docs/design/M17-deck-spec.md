@@ -78,10 +78,17 @@ NSWindow: styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSiz
 |---|---|---|
 | 导航 | ◀ ▶（长按出历史菜单）⌃ | 现 navItemID 三联 |
 | 视图 | ⊞ ≡ ⫿ 分段 | 现 viewMode segmented（syncViewModeControl 保留） |
-| 动作 | AirDrop、终端、任务、废纸篓 | 现 airdrop/terminal/tasks/trashSel |
+| 动作 | AirDrop、终端、任务、废纸篓 | 现 airdrop/terminal/tasks/trash |
 | 布局 | 单/双列/双行/三列/四宫格 分段 | 现 layout switcher |
 | 最左 | 侧栏开关 ◫ | 现 toggleSidebar（自管宽度逻辑保留） |
 FG-1：迁移时逐个接回 action+validate，禁止先摆图标后补功能。
+
+废纸篓钮语义（v0.19.17 修订，用户报告「缺少废纸篓功能」）：**点击 = 打开废纸篓**（在应用内导航到
+`~/.Trash`，恒可用、不看选中态）；**拖文件到钮上 = 移到废纸篓**。旧版是「action=moveToTrash +
+`isEnabled = hasSelection`」，空选中时长期灰着，且应用内没有任何通往废纸篓的路径。
+不做「有选中就删、没选中就打开」：用户手上几乎总有选中项，那样一个想去废纸篓的人会先把文件删掉。
+删除的既有入口全部保留（⌘⌫ / 条目右键菜单 / Backspace 习惯设置）。
+第二条入口在「前往」菜单 → 废纸篓（`goTrash`，默认不绑快捷键，可在设置里自定）。
 
 ## 4. 已知陷阱（前车之鉴，实现者必读）
 

@@ -13,9 +13,14 @@ import AppKit
 //        the verdict, and DESIGN.md.
 
 /// 甲板动作出口（MainWindowController 实现）：需带选中态/校验的控件走此协议，
-/// 纯响应链动作（AirDrop/终端/废纸篓）由甲板直接 target=nil 上抛第一响应者。
+/// 纯响应链动作（AirDrop/终端）由甲板直接 target=nil 上抛第一响应者。
+/// 废纸篓钮不在响应链一列——它有两种意图（点=打开、投放=移入），都走本协议。
 @MainActor
 protocol TopDeckDelegate: AnyObject {
+    /// 点垃圾桶钮 = **打开废纸篓**（恒可用，不看选中态）
+    func deckOpenTrash()
+    /// 拖文件到垃圾桶钮 = 移到废纸篓（旧的"钮=删除"语义在这里保留下来，没丢）
+    func deckDropOnTrash(_ urls: [URL])
     func deckToggleSidebar()
     func deckGoBack()
     func deckGoForward()
@@ -60,7 +65,7 @@ final class TopDeckView: NSVisualEffectView {
     private let airdropButton = NSButton()
     private let terminalButton = NSButton()
     private let tasksButton = NSButton()
-    private let trashButton = NSButton()
+    private let trashButton = TrashDeckButton()
     private var tabRowLeading: NSLayoutConstraint!
 
     init() {
@@ -135,8 +140,15 @@ final class TopDeckView: NSVisualEffectView {
                         tooltipKey: "toolbar.tasks",
                         action: #selector(ProgressWindowController.toggleVisible(_:)),
                         target: ProgressWindowController.shared)
-        buildIconButton(trashButton, symbol: "trash", fallback: nil, tooltipKey: "menu.moveToTrash",
-                        action: #selector(FileListViewController.moveToTrash(_:)), target: nil)
+        // 垃圾桶钮语义（v0.19.17，用户报告）：**点击恒为打开废纸篓**，不看选中态。
+        // 为什么不做"有选中就删、没选中就打开"：用户手上几乎总有选中项（截图里就有），
+        // 那样一个想去废纸篓的人会把选中的文件删掉。删除留在 ⌘⌫/右键菜单/拖到本钮上。
+        buildIconButton(trashButton, symbol: "trash", fallback: nil, tooltipKey: "toolbar.trash",
+                        action: #selector(trashClicked), target: self)
+        // 提示语要带「拖进来 = 移到废纸篓」这句用法说明，但**无障碍标签**不该是整句：
+        // buildIconButton 用同一个 key 既当 AX 标签又当 toolTip，旁白会把整句念出来。
+        trashButton.toolTip = L10n.t("toolbar.trash.help")
+        trashButton.onDropFiles = { [weak self] urls in self?.deckDelegate?.deckDropOnTrash(urls) }
         // 右簇：布局五段（rectangle 同族；PaneLayout.symbolName 与 §6.1 表一致）
         layoutControl.segmentCount = PaneLayout.allCases.count
         layoutControl.trackingMode = .selectOne
@@ -236,12 +248,14 @@ final class TopDeckView: NSVisualEffectView {
         navControl.setEnabled(canUp, forSegment: 2)
     }
 
-    /// 动作钮校验（FG-1：与原工具栏 autovalidate 等价）：AirDrop/废纸篓需选中；终端/任务恒可用
+    /// 动作钮校验（FG-1：与原工具栏 autovalidate 等价）：AirDrop 需选中；
+    /// 终端/任务/废纸篓恒可用——垃圾桶钮现在是"打开废纸篓"，跟选中态无关
+    /// （旧版 `trashButton.isEnabled = hasSelection` 让它长期灰着，用户因此认为"没有废纸篓功能"）。
     func validateActions(hasSelection: Bool) {
         airdropButton.isEnabled = hasSelection
-        trashButton.isEnabled = hasSelection
         terminalButton.isEnabled = true
         tasksButton.isEnabled = true
+        trashButton.isEnabled = true
     }
 
     /// 侧栏折叠态：标签行让位红绿灯（§1）
@@ -252,6 +266,20 @@ final class TopDeckView: NSVisualEffectView {
     // MARK: 动作转发
 
     @objc private func sidebarClicked() { deckDelegate?.deckToggleSidebar() }
+
+    @objc private func trashClicked() { deckDelegate?.deckOpenTrash() }
+
+    // ---- 自测通道（I-62）----
+    var uiTestTrashButtonEnabled: Bool { trashButton.isEnabled }
+    func uiTestClickTrash() { trashButton.performClick(nil) }
+    /// 真实拖放接线：注入接缝证明不了 AppKit 会把拖拽送到这个钮上（要 registerForDraggedTypes 过）
+    var uiTestTrashAcceptsFileURLDrags: Bool {
+        trashButton.registeredDraggedTypes.contains(.fileURL)
+    }
+    /// 走垃圾桶钮真实的投放落地逻辑（pasteboard 可注入，不碰系统拖拽剪贴板）
+    func uiTestDropOnTrash(from pasteboard: NSPasteboard) -> Bool {
+        trashButton.acceptDrop(from: pasteboard)
+    }
 
     @objc private func navClicked(_ sender: NSSegmentedControl) {
         switch sender.selectedSegment {
@@ -363,5 +391,64 @@ final class TopDeckView: NSVisualEffectView {
         let box = NSBox()
         box.boxType = .separator
         return box
+    }
+}
+
+/// 甲板垃圾桶钮：点击=打开废纸篓（action 由 TopDeckView 接），拖文件进来=移到废纸篓。
+/// 投放形状照抄 BreadcrumbBar.SegmentButton（同一套判卷/高亮/落地口径，不另发明）。
+/// 本层零写型 API——落地一律经 coordinator → OperationKernel（BG-1）。
+@MainActor
+final class TrashDeckButton: NSButton {
+    var onDropFiles: (([URL]) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        registerForDraggedTypes([.fileURL])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    /// 落地接缝：pasteboard 可注入，自测走私有板（不碰用户真实拖拽剪贴板）
+    @discardableResult
+    func acceptDrop(from pasteboard: NSPasteboard) -> Bool {
+        guard let urls = pasteboard.readObjects(
+                forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return false }
+        onDropFiles?(urls)
+        return true
+    }
+
+    private func hasFiles(_ info: any NSDraggingInfo) -> Bool {
+        let urls = info.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        return !(urls?.isEmpty ?? true)
+    }
+
+    private func setDropHighlight(_ on: Bool) {
+        layer?.backgroundColor = on
+            ? Theme.accent.withAlphaComponent(0.10).cgColor
+            : NSColor.clear.cgColor
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let ok = hasFiles(sender)
+        setDropHighlight(ok)
+        return ok ? .move : []
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        hasFiles(sender) ? .move : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) { setDropHighlight(false) }
+    override func draggingEnded(_ sender: any NSDraggingInfo) { setDropHighlight(false) }
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { hasFiles(sender) }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        setDropHighlight(false)
+        return acceptDrop(from: sender.draggingPasteboard)
     }
 }

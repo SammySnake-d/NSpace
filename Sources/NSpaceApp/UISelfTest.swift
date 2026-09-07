@@ -1758,6 +1758,234 @@ enum UISelfTest {
                 try? await Task.sleep(for: .milliseconds(200))
                 try? fs.removeItem(at: base)
             }
+
+            // ── 场景 I-62：废纸篓——甲板钮恒可用、点击在应用内导航、拖入=移到废纸篓 ────────
+            // 聚焦调试模式（NSPACE_UITEST_ONLY=i37）跳过本场景：它是全套里唯一会写
+            // **用户真实 ~/.Trash** 的场景，只为调面包屑而跑的时候不该碰它。
+            if !focusI37 {
+            // 用户原话「nspace 缺少废纸篓功能，点击废纸篓还是会跳到 finder，……右上角有 icon 的
+            // 废纸篓按钮，点击之后可以直接跳转到废纸篓」。
+            // 改前：那个垃圾桶钮 action 是 moveToTrash 且 `isEnabled = hasSelection`，
+            // 空选中时长期灰着 → 用户认为"没有这个功能"；应用内**没有任何**通往废纸篓的路径。
+            // 铁律：只动自建 nspace-uitest-i62-* 夹具；落进真实废纸篓的测试项按 token 清干净。
+            do {
+                let token = String(UUID().uuidString.prefix(8))
+                let box = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i62-\(token)", isDirectory: true)
+                let victimName = "nspace-uitest-i62-\(token)-victim.txt"
+                let victim = box.appendingPathComponent(victimName)
+                try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+                try? Data("x".utf8).write(to: victim)
+                let g62 = assertSandboxed(victim)
+                record(g62, "沙箱守卫[I-62]: 废纸篓夹具在自建临时目录内")
+
+                if g62 {
+                    pane.uiTestEndPathEditing()
+                    pane.navigate(to: box)
+                    _ = await pollFS { pane.uiTestViewCurrentDirectory.standardizedFileURL.path
+                                        == box.standardizedFileURL.path }
+                    // ① 空选中时垃圾桶钮必须可用（改前恒灰——用户看到的"缺功能"就是这个）
+                    pane.uiTestClearSelection()
+                    wc.deck.validateActions(hasSelection: false)
+                    try? await Task.sleep(for: .milliseconds(120))
+                    let enabledNoSel = wc.deck.uiTestTrashButtonEnabled
+                    record(enabledNoSel,
+                           "I-62 空选中时甲板垃圾桶钮仍可用（可用=\(enabledNoSel)）")
+
+                    // ② 拖文件到垃圾桶钮 → 真移到废纸篓。
+                    //   放在"点击导航"之前是刻意的：这样下面数废纸篓项数时，篓里必有我们
+                    //   自己造的那一项，断言不再依赖"用户真实废纸篓非空"（清空废纸篓的机器上会必红）。
+                    let dragRegistered = wc.deck.uiTestTrashAcceptsFileURLDrags
+                    let pb = NSPasteboard(name: NSPasteboard.Name("nspace.uitest.i62.\(UUID().uuidString)"))
+                    pb.clearContents()
+                    pb.writeObjects([victim as NSURL])
+                    let accepted = wc.deck.uiTestDropOnTrash(from: pb)
+                    let gone = accepted ? (await pollFS { !fs.fileExists(atPath: victim.path) }) : false
+                    let inTrash = await pollFS {
+                        ((try? fs.contentsOfDirectory(atPath: TrashLocation.userTrash.path)) ?? [])
+                            .contains { $0.hasPrefix("nspace-uitest-i62-\(token)") }
+                    }
+                    // dragRegistered 不可省：注入接缝只验落地逻辑，验不出 AppKit 会不会
+                    // 把拖拽送到这个钮（要 registerForDraggedTypes 过）
+                    record(accepted && gone && inTrash && dragRegistered,
+                           "I-62 拖到垃圾桶钮 → 真移到废纸篓（受理=\(accepted) 源消失=\(gone) 废纸篓有=\(inTrash) 已注册fileURL拖放=\(dragRegistered)）")
+                    pb.releaseGlobally()
+
+                    // ③ 点击 → 在**应用内**导航到 ~/.Trash（走钮真实 action → 甲板出口 → 窗格）
+                    wc.deck.uiTestClickTrash()
+                    let arrived = await pollFS {
+                        TrashLocation.isTrash(pane.uiTestCurrentURL)
+                    }
+                    record(arrived && TrashLocation.isTrash(pane.uiTestBreadcrumbURL),
+                           "I-62 点垃圾桶钮 → 应用内跳到废纸篓（落点=\(pane.uiTestCurrentURL.lastPathComponent) 面包屑=\(pane.uiTestBreadcrumbURL.lastPathComponent)）")
+
+                    // ③ 废纸篓内容真被列出（~/.Trash 自身带 hidden 标志，
+                    //    别只验"导航到了"——那样列表空白照样绿）
+                    // 盘上口径必须**跟着模型当前的** includeHidden 走，不能假定它是 false：
+                    // 前面的场景（I-55 等）会把"显示隐藏文件"打开且不一定复原，
+                    // 写死 .skipsHiddenFiles 会拿 15 去比模型的 17（首次写这条时就是这么红的）。
+                    @MainActor func trashCountOnDisk() -> Int {
+                        let opts: FileManager.DirectoryEnumerationOptions =
+                            pane.activeTab.model.includeHidden ? [] : [.skipsHiddenFiles]
+                        return (try? fs.contentsOfDirectory(
+                            at: TrashLocation.userTrash, includingPropertiesForKeys: nil,
+                            options: opts))?.count ?? -1
+                    }
+                    // 必须等模型真的换到废纸篓再采样：`count >= 0` 那种恒真的等待等于没等，
+                    // 会采到上一个目录的旧计数（首次写这条时就采到了 box 的 1 项）。
+                    let listed = await pollFS {
+                        TrashLocation.isTrash(pane.uiTestViewCurrentDirectory)
+                            && pane.activeTab.model.items.count == trashCountOnDisk()
+                    }
+                    let trashItemCount = pane.activeTab.model.items.count
+                    let onDisk = trashCountOnDisk()
+                    record(listed && trashItemCount == onDisk && onDisk > 0,
+                           "I-62 废纸篓内容真被列出（列表 \(trashItemCount) 项 == 盘上 \(onDisk) 项，隐藏=\(pane.activeTab.model.includeHidden)）")
+
+                    // ⑤ Go 菜单有「废纸篓」项且接在 goTrash 上（甲板之外的第二条路，不止一个入口）
+                    let goHit = MainMenu.uiTestMenuItem(for: #selector(PaneViewController.goTrash(_:)))
+                    // 不止"树里某处有 goTrash"：必须在「前往」菜单下、标题对、且真的可点
+                    let inGoMenu = goHit?.ownerTitle == L10n.t("menu.go")
+                    let usable = goHit.map { $0.item.isEnabled || $0.item.target == nil } ?? false
+                    record(goHit != nil && goHit?.item.title == L10n.t("menu.goTrash") && inGoMenu && usable,
+                           "I-62 前往菜单含「废纸篓」项并接 goTrash（标题=\(goHit?.item.title ?? "nil") 所属=\(goHit?.ownerTitle ?? "nil") 可用=\(usable)）")
+
+                    // 清理：把落进真实废纸篓的测试项按 token 删净（唯一名，安全）
+                    if let entries = try? fs.contentsOfDirectory(atPath: TrashLocation.userTrash.path) {
+                        for e in entries where e.hasPrefix("nspace-uitest-i62-\(token)") {
+                            try? fs.removeItem(at: TrashLocation.userTrash.appendingPathComponent(e))
+                        }
+                    }
+                }
+                pane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(200))
+                if assertSandboxed(box) { try? fs.removeItem(at: box) }
+            }
+
+            }  // 结束 if !focusI37（I-62 会写真实废纸篓）
+
+            // ── 场景 I-61：面包屑段命中盒占满地址栏全高 + 段名左右留余量 ──────────────
+            // 用户原话「上方地址栏比如要点击到对应文件夹的正中心才会跳转，偏离一点都无法跳转，
+            // 而是（进入）输入模式」。根因：place() 把 frame 高度收成 intrinsicContentSize.height
+            // 再垂直居中，段 14pt / chevron 6.5pt 躺在 20pt 的栏里，上下都是死区，
+            // 点进死区就穿透到 BreadcrumbBar.mouseDown → onBeginEditing。
+            // 断言必须打在**命中区**（走 AppKit 自己派发 mouseDown 用的 NSView.hitTest），
+            // 只验 frame 的断言把 place() 改回矮盒照样能算对数，验不出「点不到」。
+            do {
+                let token = String(UUID().uuidString.prefix(8))
+                let base = fs.temporaryDirectory
+                    .appendingPathComponent("nspace-uitest-i61-\(token)", isDirectory: true)
+                let deep = base.appendingPathComponent("alpha", isDirectory: true)
+                    .appendingPathComponent("beta", isDirectory: true)
+                try? fs.createDirectory(at: deep, withIntermediateDirectories: true)
+                record(assertSandboxed(deep), "沙箱守卫[I-61]: 命中盒夹具在自建临时目录内")
+
+                let bc = pane.uiTestBreadcrumb
+                pane.uiTestEndPathEditing()
+                pane.navigate(to: deep)
+                try? await Task.sleep(for: .milliseconds(400))
+                window.contentView?.layoutSubtreeIfNeeded()
+                bc.layoutSubtreeIfNeeded()
+
+                let h = bc.bounds.height
+                let vis = bc.uiTestVisibleSegments
+
+                // ① 段命中盒占满全高：栏顶栏底两个极端 y 都必须命中段按钮本身
+                if let last = vis.last {
+                    let f = last.frame
+                    let kLow = bc.uiTestHitKind(at: NSPoint(x: f.midX, y: 1))
+                    let kHigh = bc.uiTestHitKind(at: NSPoint(x: f.midX, y: h - 1))
+                    // 反空断言：没铺过版/零高的栏一律不许通过
+                    record(kLow == .segment && kHigh == .segment
+                           && vis.count >= 2 && h >= 16
+                           && f.minY == 0 && f.height == h,
+                           "I-61 段命中盒占满地址栏全高（y=1 命中=\(kLow.rawValue) y=\(Int(h) - 1) 命中=\(kHigh.rawValue) 段frame=\(f) 条高=\(h)）")
+                } else {
+                    record(false, "I-61 段命中盒占满地址栏全高（无可见段）")
+                }
+
+                // ② chevron 命中盒占满全高：它紧贴每个文件夹名右侧，是最大的一块穿透区（13.5/20）
+                if let cf = bc.uiTestVisibleChevronFrames.last {
+                    let kLow = bc.uiTestHitKind(at: NSPoint(x: cf.midX, y: 1))
+                    let kHigh = bc.uiTestHitKind(at: NSPoint(x: cf.midX, y: h - 1))
+                    record(kLow == .chevron && kHigh == .chevron && cf.minY == 0 && cf.height == h,
+                           "I-61 箭头命中盒占满地址栏全高（y=1 命中=\(kLow.rawValue) y=\(Int(h) - 1) 命中=\(kHigh.rawValue) 箭头frame=\(cf)）")
+                } else {
+                    record(false, "I-61 箭头命中盒占满地址栏全高（无可见箭头）")
+                }
+
+                // ③ 段名左右留命中余量：不止验宽度算对，还要验余量里**真的**命中这一段
+                //   （余量之内、字形之外的那个 x，改前落在前一个 chevron 上）
+                if let last = vis.last, let gw = bc.uiTestLastSegmentGlyphWidth {
+                    let f = last.frame
+                    let padPoint = NSPoint(x: f.midX - gw / 2 - 2, y: h / 2)
+                    let kPad = bc.uiTestHitKind(at: padPoint)
+                    record(f.width == BreadcrumbBar.segmentHitWidth(glyphWidth: gw) && kPad == .segment,
+                           "I-61 段名左右留命中余量（命中宽 \(f.width) == 字形 \(gw) + \(BreadcrumbBar.uiTestSegHitPadTotal)，余量内命中=\(kPad.rawValue)）")
+                } else {
+                    record(false, "I-61 段名左右留命中余量（取不到段或字形宽）")
+                }
+
+                // ④ 闭环：在**过去是死区**的 y=1 上命中并真的导航（而不是掉进输入模式）
+                if vis.count >= 2 {
+                    let parent = vis[vis.count - 2]
+                    let editingBefore = pane.uiTestIsPathEditing
+                    let fired = bc.uiTestActivateSegment(at: NSPoint(x: parent.frame.midX, y: 1))
+                    try? await Task.sleep(for: .milliseconds(350))
+                    let landed = pane.uiTestCurrentURL.standardizedFileURL.path
+                    let want = parent.url.standardizedFileURL.path
+                    record(fired != nil && landed == want && !editingBefore && !pane.uiTestIsPathEditing,
+                           "I-61 全高命中点触发导航（非编辑模式）（y=1 命中段=\(fired?.lastPathComponent ?? "nil") 落点=\(pane.uiTestCurrentURL.lastPathComponent) 编辑中=\(pane.uiTestIsPathEditing)）")
+                    pane.navigate(to: deep)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    window.contentView?.layoutSubtreeIfNeeded()
+                    bc.layoutSubtreeIfNeeded()
+                } else {
+                    record(false, "I-61 全高命中点触发导航（非编辑模式）（可见段不足 2）")
+                }
+
+                // ⑤ 「点空白进编辑」不能被这次修复吃掉：内容右缘之右仍是空白，且真能进编辑
+                let blank = NSPoint(x: bc.bounds.width - 4, y: h / 2)
+                let kBlank = bc.uiTestHitKind(at: blank)
+                let rightOK = bc.uiTestContentRight <= bc.bounds.width - 8
+                pane.uiTestEndPathEditing()
+                if let ev = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
+                                               modifierFlags: [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil,
+                                               eventNumber: 0, clickCount: 1, pressure: 1) {
+                    bc.mouseDown(with: ev)
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+                let entered = pane.uiTestIsPathEditing
+                record(kBlank == .bar && rightOK && entered,
+                       "I-61 内容右缘之右仍是空白点击进编辑（右缘 \(Int(bc.uiTestContentRight)) 条宽 \(Int(bc.bounds.width)) 命中=\(kBlank.rawValue) 进编辑=\(entered)）")
+                pane.uiTestEndPathEditing()
+
+                // ⑥ 折叠分支的「装得下底线」：把栏压到连 root+「…」+末段这个种子都装不下的宽度，
+                //   内容右缘仍不许越过栏宽，且所有被折叠的层级仍在「…」菜单里可达。
+                //   段宽 +2×segHitPadX 把这个阈值抬高了，旧代码在此宽度下会直接溢出。
+                let savedW = bc.frame.width
+                // 48pt：种子成本实测 104pt（根段 16 + 箭头 16 + 「…」20 + 末段 36 + 箭头 16），
+                // 可用宽只有 48-16=32，必然走到底线分支。
+                // 第一版用了 120 → 种子恰好装得下，撤掉底线照样绿（假绿，已修正）。
+                bc.setFrameSize(NSSize(width: 48, height: bc.frame.height))
+                bc.layout()
+                let narrowRight = bc.uiTestContentRight
+                let narrowW = bc.frame.width
+                let collapsedCount = bc.uiTestCollapsedURLs.count
+                let menuCount = bc.uiTestEllipsisMenu()?.items.count ?? -1
+                record(narrowW == 48 && narrowRight <= narrowW
+                       && collapsedCount > 0 && menuCount == collapsedCount,
+                       "I-61 极窄栏仍不溢出且层级全可达（内容右缘 \(Int(narrowRight)) ≤ 栏宽 \(Int(narrowW))，折叠 \(collapsedCount) 菜单 \(menuCount)）")
+                bc.setFrameSize(NSSize(width: savedW, height: bc.frame.height))
+                bc.layout()
+
+                // 清理（token 唯一，安全）
+                pane.navigate(to: fs.homeDirectoryForCurrentUser)
+                try? await Task.sleep(for: .milliseconds(200))
+                try? fs.removeItem(at: base)
+            }
             window.makeKeyAndOrderFront(nil)
 
             if focusI37 { return finish() }   // 聚焦模式：I-37 验完即收尾

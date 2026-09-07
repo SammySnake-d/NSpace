@@ -709,9 +709,15 @@ extension FileIconGridViewController: @preconcurrency NSMenuItemValidation {
              #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
              #selector(copy(_:)), #selector(cut(_:)):
             return hasSelection
+        // 废纸篓里禁掉「把活文件放进来」的动作（Finder 同样禁用）。废纸篓可浏览之后
+        // 这些入口才第一次可达：放进来的文件既无撤销、也无「放回原处」元数据，
+        // 将来清空废纸篓就真没了。三视图同病同修。
         case #selector(pasteItems(_:)), #selector(paste(_:)):
+            if TrashLocation.isInsideTrash(model.directory) { return false }
             return NSPasteboard.general.canReadObject(forClasses: [NSURL.self],
                                                       options: [.urlReadingFileURLsOnly: true])
+        case #selector(newFolderHere(_:)), #selector(newFileHere(_:)):
+            return !TrashLocation.isInsideTrash(model.directory)
         case #selector(toggleGrouping(_:)):
             menuItem.state = Preferences.listGrouping ? .on : .off
             return true

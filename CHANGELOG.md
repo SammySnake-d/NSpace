@@ -2,6 +2,110 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.19.17] - 2026-09-07
+
+三个用户报告的 bug。每条根因都用真机读数钉死，改完各自反证过；另有一次对抗审查抓出的
+内存 blocker 与两处假绿测试，一并修掉。
+
+### 修复：搜「.claude」搜不到，但列表里看得见
+
+**四个独立真因，缺一个都还是搜不到。**
+
+1. **遍历顺序**。`FileManager.enumerator` 是惰性前序 DFS：拿到一个 depth-1 目录后会把它整棵
+   子树走完才回到下一个兄弟。真机实测（root=`~`，198.6 万项）:
+   `~/.claude` DFS **15.5s** 才被枚举到（第 75 万项）、`~/.claude.json` **34.2s**（第 163 万项）;
+   BFS 下两者都在 **0.006s**（第 104 / 214 项）。新增 `LevelOrderWalk` 层序遍历节点。
+   全树总成本 43.6s vs 42.4s（+2.8%）。
+2. **发射条件**。通道B 只有 `batch.count >= 50` 和「整棵扫完」两个发射点。`~` 下搜 `.claude`
+   只有 135 条命中，第一批要等到 **17.9s**（第 50 条命中），扫完要 45s。加了 150ms 时间发射;
+   时钟读取被 `!batch.isEmpty` 短路，2M 次迭代里几乎不付这个钱（`uptimeNanoseconds` 10ns/次）。
+3. **结果封顶饿死通道B**。通道A 在首个 gathering 通知（0.3s）里就能一次读满 2000 条,
+   `append()` 随即 `keptCount >= maxResults` → `teardown()` → `scanTask.cancel()`，通道B
+   攥在栈上的 batch 直接作废。于是**任何 Spotlight 命中 ≥2000 的词，「包含隐藏文件」是个静默空开关**。
+   加 `scanReserve = 500` + 纯函数 `spotlightReadBudget(kept:scanAlive:)`。
+4. **跳过名单里的目录本身永远不可能成为命中**：skip 分支在匹配测试**之前** `continue`，
+   搜 `Library` / `node_modules` / `.git` 搜不到那个文件夹自己。`LevelOrderWalk` 把 `visit`
+   放在「是否下钻」之前。
+
+端到端实测：修前首批 17.9s，**修后 0.151s**（118 倍），且首批就把四条 `~/.claude*` 全带上屏。
+
+**对抗审查抓到的 blocker（我引入的）**：BFS 峰值 RSS 从旧 DFS 的 512MB 涨到 **1219MB**。
+根因不是 frontier 数组（那只 2MB），是扫描跑在 `Task.detached` 里没有 RunLoop 排水，
+`contentsOfDirectory`/`resourceValues` 的自动释放对象一路堆到扫完。每目录一个
+`autoreleasepool` → **51.6MB**，比旧实现还低 10 倍，代价 +3%。取消粒度也从「每目录」
+收回到「每项」（旧 DFS 就是每项，不能因为换遍历而退化）。
+
+### 新增：废纸篓（右上角垃圾桶钮）
+
+改前那个钮 action 是 `moveToTrash` 且 `isEnabled = hasSelection`，**空选中时长期灰着**,
+而且应用内**没有任何**通往废纸篓的路径（侧栏种子位置、前往菜单、面包屑都没有）。
+
+- **点击 = 打开废纸篓**，恒可用，在应用内导航（`TrashLocation` 新接缝）。
+  不做「有选中就删、没选中就打开」：用户手上几乎总有选中项，那样一个想去废纸篓的人
+  会先把文件删掉。删除的既有入口全部保留（⌘⌫ / 条目右键 / Backspace 习惯设置）。
+- **拖文件到钮上 = 移到废纸篓**（`TrashDeckButton`，`acceptDrop(from:)` 接缝可注入）。
+- 第二条入口：**前往菜单 → 废纸篓**（`goTrash`，默认不绑快捷键，可在设置里自定）。
+- `moveToTrash` 补上它一直缺的吐司（copy/move 早就有，trash 没有——用户只看到行消失,
+  这本身就是「感觉没有废纸篓功能」的一部分）。
+- **按卷取废纸篓**：外置盘上浏览时跳该卷的 `.Trashes/<uid>`，与 `fm.trashItem` 的实际落点
+  一致（旧版硬编码 `~/.Trash`，按钮说的和做的是两个地方）。
+- **已在废纸篓里的项诚实拒绝**：实测 `fm.trashItem` 对已在废纸篓的文件是安全空操作
+  （返回同一路径、文件仍在、不抛错），所以没有数据风险；但那样会弹一句「已移到废纸篓 N 项」
+  的假话。量词用 `contains` 不是 `allSatisfy`——混选用 `allSatisfy` 会放行然后报虚高的数。
+  判据覆盖任意深度（`~/.Trash/某文件夹/文件` 不许绕过）。
+- **废纸篓里禁用「粘贴 / 新建文件夹 / 新建文件 / 制作副本」**（Finder 同样禁用）。废纸篓可
+  浏览之后这些入口才第一次可达：放进来的活文件既无撤销、也无「放回原处」元数据，
+  将来清空废纸篓就真没了。三视图同修。
+
+**未做（需要你拍）**：清空废纸篓 / 放回原处。`OperationSpec.Kind` 只有
+copy/move/trash/duplicate/newFolder/newFile/rename/compress/extract，**没有永久删除**;
+要做得新增内核契约 + 新胶囊节点，且是不可逆操作。放回原处则依赖 Finder 私有的 put-back
+元数据，无公开 API，NSpace 自己的 `TrashedItem.original` 只覆盖本会话内被它删掉的项。
+当前可用的替代：从废纸篓把文件**拖出**到别的文件夹（既有 move 路径已经能用）。
+
+### 修复：地址栏要点到文件夹正中心才跳转，偏一点变成输入模式
+
+`BreadcrumbBar.place()` 把子视图高度收成 `intrinsicContentSize.height` 再垂直居中：
+20pt 的栏里段按钮只有 **14pt**、chevron 只有 **6.5pt**，上下都是死区，点进去就穿透到
+`mouseDown` → `onBeginEditing`。实测死区占比：段 30%、chevron 68%（换算到 24pt 地址行是
+42% / 73%）。段宽还等于文字宽、零内边距，于是「点到名字右边一点」落在 chevron 上弹子菜单。
+
+- `place()` 改为 **frame 即命中盒**，占满栏全高（字形居中交给 cell 画，视觉不变）。
+- 段左右各加 4pt 命中余量，走共享纯函数 `segmentHitWidth(glyphWidth:)`，layout 与自测同源。
+- 投放高亮移到内缩子层，避免全高强调色块顶到地址行边缘。
+- **折叠分支补「装得下底线」**（对抗审查用真实 `layout()` 实测到的回归）：
+  `root + 「…」 + 强制可见末段`这个种子本身也可能装不下，旧版无条件铺开，`lastContentRight`
+  直接越过 `bounds.width`。段宽 +8 抬高了这个阈值。现在种子装不下就连根段一起折进「…」
+  （层级仍全可达），并逐个按剩余预算 clamp——结构上不可能溢出。
+
+### 测试
+
+- 胶囊级单测 128 → **133**：BFS 深度单调（与目录枚举顺序无关的确定性构造）、
+  **BFS 接线**（打在 `scan()` 真实产出上）、稀疏命中不被压到扫完、跳过目录自身可命中、
+  预留预算公式。
+- ui-smoke 189 → **202**：I-61（面包屑命中盒 7 条，含极窄栏不溢出）、I-62（废纸篓 6 条）。
+- 全部经反证：每处修复单独撤掉，对应断言确定性报红；且各条断言可分离归因，无冗余。
+- **修掉两处我自己的假绿**：
+  - `levelOrderWalkEmitsNonDecreasingDepths` 只钉 walk 自己，把 `scan()` 换回 DFS 它照样
+    3/3 全绿 → 补 `scanDeliversShallowHitsBeforeDeepOnes` 打在 `scan()` 产出上。
+  - 「极窄栏不溢出」第一版用 120pt，种子恰好装得下，撤掉底线照样绿 → 改 48pt（种子成本
+    实测 104pt，可用宽 32pt，必然走底线分支），反证得 `内容右缘 112 ≤ 栏宽 48`。
+  - I-62「废纸篓内容真被列出」原先依赖用户真实废纸篓非空（清空废纸篓的机器上必红），
+    改为先做拖放、篓里必有自建夹具项再采样；盘上口径跟随模型的 `includeHidden`，不写死。
+- pod-lint 新增 4 道定点不变量（各自反证有牙）：读预算必经 `spotlightReadBudget`、
+  不许绕过预留、`scan()` 必走 `LevelOrderWalk`、`LevelOrderWalk` 必带 `autoreleasepool`。
+  **grep 必须先剔注释行**——第一版没剔，代码里删掉 `autoreleasepool` 后注释仍命中，门形同不存在。
+- I-62 挡在 `NSPACE_UITEST_ONLY=i37` 聚焦调试门之外：它是全套里唯一会写用户真实 `~/.Trash` 的场景。
+
+### 已知未做（对抗审查确认存在，本次不动）
+
+- `LocalOps.trashEntries` 是首错即终止：混选里有一个删不掉的项时，前缀已被真删、
+  run 判 `.failed`、receipt 被丢弃，于是既不注册撤销也不弹吐司也不报错。**这是既有缺陷**,
+  不是本次引入；修它要改胶囊的错误语义（部分成功回执），单独排。
+- 跨窗口拖放：从 A 窗拖文件到甲板垃圾桶钮时，撤销与吐司落在接收窗而不是来源窗。
+- `sidebarWidth` 没有 UITEST 键隔离（窗口 frame 有），I-37 窄窗断言的栏宽会随用户真实
+  侧栏宽变化。既有测试卫生问题，本次段宽 +8 让它更靠近边界。
+
 ## [0.19.16] - 2026-09-06
 
 ### 修复

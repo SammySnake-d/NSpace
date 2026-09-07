@@ -90,9 +90,23 @@ final class FileOpsCoordinator {
 
     func moveToTrash(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        // 废纸篓可浏览之后新出现的情形：对**已在 ~/.Trash 里**的项再 trash 一次。
+        // 实测 `fm.trashItem` 此时是安全的空操作（返回同一路径、文件仍在、不抛错），
+        // 所以不存在数据风险；但那样会弹一句"已移到废纸篓 N 项"的假话。诚实拒绝，不装。
+        // 真正的出路是永久删除，那需要新的内核 kind + 新胶囊节点（不可逆操作，归用户拍）。
+        // 量词是 `contains` 不是 `allSatisfy`：混选（一部分在废纸篓、一部分不在）用 allSatisfy
+        // 会放行，然后吐司按 items.count 报一个虚高的数、⌘Z 也会拿到一份不自洽的撤销集。
+        // 整批拒绝是可预期的行为；用户把选中收窄一次就能继续。
+        if urls.contains(where: { TrashLocation.isInsideTrash($0) }) {
+            Toast.show(L10n.t("toast.alreadyInTrash"), in: grid?.view.window)
+            return
+        }
         run(OperationSpec(kind: .trash, sources: urls)) { [weak self] receipt in
             guard let self, let items = receipt?.trashedItems, !items.isEmpty else { return }
             self.registerRestoreUndo(items)
+            // 旧版此路径**零反馈**（copy/move 有吐司，trash 没有），用户只看到行消失——
+            // 这本身就是"感觉没有废纸篓功能"的一部分；拖到甲板钮更需要一句确认。
+            Toast.show(L10n.f("toast.trashedN", items.count), in: self.grid?.view.window)
         }
     }
 

@@ -157,6 +157,9 @@ enum MainMenu {
                                       action: #selector(PaneViewController.goDownFolder(_:)), keyEquivalent: "")
         KeyBindings.apply("goDown", to: downItem)
         goMenu.addItem(.separator())
+        let trashNavItem = goMenu.addItem(withTitle: L10n.t("menu.goTrash"),
+                                          action: #selector(PaneViewController.goTrash(_:)), keyEquivalent: "")
+        KeyBindings.apply("goTrash", to: trashNavItem)
         let homeItem = goMenu.addItem(withTitle: L10n.t("menu.goHome"),
                                       action: #selector(PaneViewController.goHome(_:)), keyEquivalent: "h")
         homeItem.keyEquivalentModifierMask = [.command, .shift]
@@ -191,5 +194,23 @@ enum MainMenu {
         NSApp.windowsMenu = windowMenu
 
         return main
+    }
+
+    // MARK: 自测通道（I-62）
+
+    /// 从**真实已装配**的主菜单树里按 action 找菜单项（不复刻构建逻辑，
+    /// 否则"菜单项建了但没挂上去"这种错验不出来）
+    /// 返回 (菜单项, 它所在菜单的标题)——只答"树里某处有这个 action"是不够的，
+    /// 那样把它挂到任何菜单下都算通过；调用方要能验它真在「前往」里。
+    static func uiTestMenuItem(for action: Selector) -> (item: NSMenuItem, ownerTitle: String)? {
+        func find(_ menu: NSMenu) -> (NSMenuItem, String)? {
+            for item in menu.items {
+                if item.action == action { return (item, menu.title) }
+                if let sub = item.submenu, let hit = find(sub) { return hit }
+            }
+            return nil
+        }
+        guard let main = NSApp.mainMenu else { return nil }
+        return find(main)
     }
 }
