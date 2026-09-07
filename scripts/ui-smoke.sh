@@ -262,9 +262,17 @@ require_pass "I-62 按窗口反查控制器"
 require_pass "沙箱守卫[I-63]: 清空夹具在自建临时目录内"
 require_pass "I-63 垃圾桶钮右键菜单含「清空废纸篓」"
 require_pass "I-63 清空废纸篓真删内容且保留篓本身"
+require_pass "I-63 清倒确认回车只取消"
 require_pass "I-63 放回原处闭环"
 require_pass "I-63 无台账记录的项不许假装能放回"
 require_pass "I-63 条目菜单按位置切换放回/移入"
+# I-64 地址栏右端的「清倒」按钮（用户报告：藏在右键菜单里等于没有）
+require_pass "I-64 「清倒」钮只在废纸篓出现"
+require_pass "I-64 真点「清倒」打开本窗确认，默认取消"
+require_pass "I-64 取消清倒不删除任何项目"
+require_pass "I-64 编辑地址时「清倒」钮收起、退出编辑后回来"
+require_pass "I-64 废纸篓子文件夹里不显示「清倒」"
+require_pass "I-64 子目录夹具放回原处"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46 / M28 / I-47）：清理 UITEST 隔离态，绝不留测试残留在用户真实域

@@ -41,6 +41,8 @@
 "menu.goTrash" = "Trash";
 "common.cancel" = "Cancel";
 "menu.emptyTrash" = "Empty Trash…";
+"trash.empty.button" = "Empty";
+"trash.empty.tooltip" = "Permanently erase everything in the Trash (cannot be undone)";
 "menu.putBack" = "Put Back";
 "alert.emptyTrash.title" = "Permanently erase %d items in the Trash?";
 "alert.emptyTrash.body" = "This cannot be undone.";

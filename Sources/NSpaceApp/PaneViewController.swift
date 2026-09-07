@@ -59,6 +59,13 @@ final class PaneViewController: NSViewController {
         set { UserDefaults.standard.set(newValue, forKey: "showPaneTabBar") }
     }
     private let breadcrumb = BreadcrumbBar()
+    /// 「清倒」按钮：**只在窗格显示废纸篓根时出现**，同原生访达那颗。
+    /// 放地址栏右端而不是右键菜单——用户报告：藏在右键里等于没有。
+    private let emptyTrashButton = NSButton()
+    /// 按钮占位宽（隐藏时归零，面包屑随即吃回这段宽度）
+    private var emptyTrashWidth: NSLayoutConstraint!
+    /// 面包屑右缘（显示按钮时让出 4pt 间隙）
+    private var breadcrumbTrailing: NSLayoutConstraint!
     private let pathEditor = PathEditorField()
     private let addressArea = AddressBarBacking()
     /// 地址栏内联错误提示（路径不存在/无权限）：红字贴右端、1.5s 后淡出——不弹窗（spec 做工不变量）
@@ -130,6 +137,24 @@ final class PaneViewController: NSViewController {
         pathHint.backgroundColor = .controlBackgroundColor
         pathHint.isHidden = true
 
+        // 「清倒」钮：先加，面包屑的右缘要挂在它左边
+        emptyTrashButton.title = L10n.t("trash.empty.button")
+        emptyTrashButton.bezelStyle = .rounded
+        emptyTrashButton.controlSize = .small
+        emptyTrashButton.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        emptyTrashButton.target = self
+        emptyTrashButton.action = #selector(emptyTrashClicked(_:))
+        emptyTrashButton.toolTip = L10n.t("trash.empty.tooltip")
+        emptyTrashButton.isHidden = true
+        emptyTrashButton.translatesAutoresizingMaskIntoConstraints = false
+        addressArea.addSubview(emptyTrashButton)
+        emptyTrashWidth = emptyTrashButton.widthAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            emptyTrashWidth,
+            emptyTrashButton.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor, constant: -4),
+            emptyTrashButton.centerYAnchor.constraint(equalTo: addressArea.centerYAnchor),
+        ])
+
         for sub in [breadcrumb, pathEditor] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addressArea.addSubview(sub)
@@ -137,9 +162,15 @@ final class PaneViewController: NSViewController {
                 sub.topAnchor.constraint(equalTo: addressArea.topAnchor, constant: 2),
                 sub.bottomAnchor.constraint(equalTo: addressArea.bottomAnchor, constant: -2),
                 sub.leadingAnchor.constraint(equalTo: addressArea.leadingAnchor, constant: 4),
-                sub.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor, constant: -4),
             ])
         }
+        // 面包屑右缘挂「清倒」钮左边：钮宽归零时，右缘落点与原来（addressArea.trailing - 4）一致，
+        // 所以隐藏态下 I-37 的一切宽度数学分毫不变。
+        breadcrumbTrailing = breadcrumb.trailingAnchor.constraint(
+            equalTo: emptyTrashButton.leadingAnchor, constant: 0)
+        breadcrumbTrailing.isActive = true
+        // 路径编辑器仍铺满整行（编辑时钮会被收起，不抢位）
+        pathEditor.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor, constant: -4).isActive = true
 
         // 内联错误提示浮在地址栏右端（最后添加=盖在编辑框之上），不改行高、不挤压面包屑
         pathHint.translatesAutoresizingMaskIntoConstraints = false
@@ -378,6 +409,7 @@ final class PaneViewController: NSViewController {
         if isViewLoaded, !pathEditor.isHidden { endPathEditing() }
         tabBar.update(titles: tabs.map { displayName($0.browser.current) }, active: activeTabIndex)
         breadcrumb.setURL(activeTab.browser.current)
+        syncEmptyTrashButton()
         onLocationChange?(activeTab.browser.current)
         applyActiveTint()
         // 状态栏：计数即时刷；卷容量只在目录变化/标签切换时读一次（statfs 只读，不轮询）
@@ -434,10 +466,7 @@ final class PaneViewController: NSViewController {
     var uiTestBreadcrumb: BreadcrumbBar { breadcrumb }
     /// I-30 探针：以指定种子进入编辑（走真实 begin 链，仅替换种子文本便于净首键断言）
     func uiTestBeginPathEditing(seed: String) {
-        onRequestFocus?()
-        pathEditor.isHidden = false
-        breadcrumb.isHidden = true
-        pathEditor.beginEditing(with: seed)
+        beginPathEditing(with: seed)
     }
 
     /// UISelfTest（I-30 编排收尾）：退出路径编辑恢复面包屑（场景不得把编辑态泄漏给后续截图）
@@ -713,16 +742,22 @@ final class PaneViewController: NSViewController {
     // MARK: 地址栏编辑
 
     func beginPathEditing() {
+        beginPathEditing(with: activeTab.browser.current.path)
+    }
+
+    private func beginPathEditing(with seed: String) {
         onRequestFocus?()
         pathEditor.isHidden = false
         breadcrumb.isHidden = true
+        syncEmptyTrashButton()
         hidePathHint()
-        pathEditor.beginEditing(with: activeTab.browser.current.path)
+        pathEditor.beginEditing(with: seed)
     }
 
     private func endPathEditing(takeFocus: Bool = true) {
         pathEditor.isHidden = true
         breadcrumb.isHidden = false
+        syncEmptyTrashButton()
         hidePathHint()
         // 失焦复位这条路上 takeFocus=false：焦点此刻已经在别处（可能是另一个窗格、侧边栏、工具栏），
         // 再 makeFirstResponder 就是把用户刚点过去的焦点抢回来——用户点隔壁窗格却发现光标跳回这边。
@@ -882,6 +917,37 @@ final class PaneViewController: NSViewController {
     @objc func refresh(_ sender: Any?) {
         if isViewLoaded, !pathEditor.isHidden { endPathEditing() }
         reloadActiveList()
+    }
+
+    /// 「清倒」钮的显隐：只在**废纸篓根**且未在编辑地址时出现。
+    /// 宽度归零而不只是 isHidden——隐藏的视图照样占 Auto Layout 的位，
+    /// 只 hide 会让面包屑白白少一截宽度。
+    private func syncEmptyTrashButton() {
+        guard isViewLoaded else { return }
+        let show = TrashLocation.isTrashRoot(activeTab.browser.current) && pathEditor.isHidden
+        emptyTrashButton.isHidden = !show
+        emptyTrashWidth.constant = show ? emptyTrashButton.intrinsicContentSize.width : 0
+        breadcrumbTrailing.constant = show ? -4 : 0
+        addressArea.needsLayout = true
+    }
+
+    @objc private func emptyTrashClicked(_ sender: Any?) {
+        let here = activeTab.browser.current
+        guard TrashLocation.isTrashRoot(here) else { return }
+        onRequestFocus?()
+        coordinator?.emptyTrash(at: here, in: view.window)
+    }
+
+    // ---- 自测通道（I-64）----
+    var uiTestEmptyTrashButtonVisible: Bool { isViewLoaded && !emptyTrashButton.isHidden }
+    var uiTestEmptyTrashButtonWidth: CGFloat { emptyTrashWidth?.constant ?? -1 }
+    var uiTestEmptyTrashButtonTitle: String { emptyTrashButton.title }
+    /// 走钮真实的 action（不复刻），返回是否真的可点
+    func uiTestClickEmptyTrashButton() -> Bool {
+        guard !emptyTrashButton.isHiddenOrHasHiddenAncestor, emptyTrashButton.isEnabled,
+              emptyTrashButton.action != nil, emptyTrashButton.target != nil else { return false }
+        emptyTrashButton.performClick(nil)
+        return true
     }
 
     /// 前往废纸篓（甲板垃圾桶钮 / Go 菜单共用同一出口）

@@ -95,11 +95,12 @@ final class FileOpsCoordinator {
     /// 清空废纸篓：**不可逆**。读废纸篓内容（只读，BG-1 允许）→ 确认 → 经内核 `.delete`。
     /// 围栏根 = 该废纸篓本身，节点会拒绝围栏之外的任何项。
     func emptyTrash(at trash: URL, in window: NSWindow?) {
+        guard let window = window ?? grid?.view.window, window.attachedSheet == nil else { return }
         // 用 options: [] 读全量：篓里可能有点文件，按显示过滤会漏删、"清空"就成了半句真话
         let victims = (try? FileManager.default.contentsOfDirectory(
             at: trash, includingPropertiesForKeys: nil, options: [])) ?? []
         guard !victims.isEmpty else {
-            Toast.show(L10n.t("toast.trashAlreadyEmpty"), in: window ?? grid?.view.window)
+            Toast.show(L10n.t("toast.trashAlreadyEmpty"), in: window)
             return
         }
         let alert = NSAlert()
@@ -110,14 +111,15 @@ final class FileOpsCoordinator {
         alert.addButton(withTitle: L10n.t("common.cancel"))
         // 破坏性按钮标红 + 默认落在「取消」上：不可逆操作不许一路回车就执行
         alert.buttons.first?.hasDestructiveAction = true
-        if alert.buttons.count > 1 { alert.window.defaultButtonCell = alert.buttons[1].cell as? NSButtonCell }
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        performEmptyTrash(at: trash, victims: victims)
+        alert.window.defaultButtonCell = alert.buttons[1].cell as? NSButtonCell
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.performEmptyTrash(at: trash, victims: victims)
+        }
     }
 
-    /// 清空废纸篓的**干活那半**（确认已通过）。拆开是为了自测能验它——
-    /// 模态弹窗会把无头自测挂死，而"确认弹窗存在"另有断言（甲板右键菜单那条）。
-    func performEmptyTrash(at trash: URL, victims: [URL]) {
+    /// 永久删除只从已确认的窗口动作进入。
+    private func performEmptyTrash(at trash: URL, victims: [URL]) {
         guard !victims.isEmpty else { return }
         run(OperationSpec(kind: .delete, sources: victims, destination: trash)) { [weak self] receipt in
             guard let self, let receipt else { return }

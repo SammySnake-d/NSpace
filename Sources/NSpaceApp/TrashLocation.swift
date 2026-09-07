@@ -30,9 +30,18 @@ enum TrashLocation {
         return FileManager.default.fileExists(atPath: perVolume.path) ? perVolume : userTrash
     }
 
-    /// 该 URL 是否就是废纸篓本身
+    /// 该 URL 是否就是废纸篓本身（只认用户废纸篓）
     static func isTrash(_ url: URL) -> Bool {
         url.standardizedFileURL.path == userTrash.standardizedFileURL.path
+    }
+
+    /// 该 URL 是否是**某个**废纸篓的根（用户废纸篓 或 该卷的 per-user 回收站）。
+    /// 「清倒」按钮只在根上出现——同 Finder：进到废纸篓里的子文件夹时不显示，
+    /// 那里点「清倒」会让人以为只清这一层。
+    static func isTrashRoot(_ url: URL) -> Bool {
+        let p = url.standardizedFileURL.path
+        return p == userTrash.standardizedFileURL.path
+            || p == trash(for: url).standardizedFileURL.path
     }
 
     /// 该 URL 是否**位于废纸篓之内**（含任意深度的子层级）。

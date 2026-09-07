@@ -40,7 +40,9 @@
 "menu.goHome" = "个人";
 "menu.goTrash" = "废纸篓";
 "common.cancel" = "取消";
-"menu.emptyTrash" = "清空废纸篓…";
+"menu.emptyTrash" = "清倒废纸篓…";
+"trash.empty.button" = "清倒";
+"trash.empty.tooltip" = "永久删除废纸篓里的全部项目（不可撤销）";
 "menu.putBack" = "放回原处";
 "alert.emptyTrash.title" = "确定要永久删除废纸篓里的 %d 项吗？";
 "alert.emptyTrash.body" = "此操作不可撤销。";
