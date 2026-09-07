@@ -19,8 +19,10 @@ import AppKit
 protocol TopDeckDelegate: AnyObject {
     /// 点垃圾桶钮 = **打开废纸篓**（恒可用，不看选中态）
     func deckOpenTrash()
-    /// 拖文件到垃圾桶钮 = 移到废纸篓（旧的"钮=删除"语义在这里保留下来，没丢）
-    func deckDropOnTrash(_ urls: [URL])
+    /// 拖文件到垃圾桶钮 = 移到废纸篓（旧的"钮=删除"语义在这里保留下来，没丢）。
+    /// `sourceWindow` = 拖拽发起窗：跨窗拖放时撤销与吐司必须归它，
+    /// 否则 ⌘Z 在来源窗按不动、吐司弹在一个可能被挡住的窗上。
+    func deckDropOnTrash(_ urls: [URL], from sourceWindow: NSWindow?)
     func deckToggleSidebar()
     func deckGoBack()
     func deckGoForward()
@@ -148,7 +150,9 @@ final class TopDeckView: NSVisualEffectView {
         // 提示语要带「拖进来 = 移到废纸篓」这句用法说明，但**无障碍标签**不该是整句：
         // buildIconButton 用同一个 key 既当 AX 标签又当 toolTip，旁白会把整句念出来。
         trashButton.toolTip = L10n.t("toolbar.trash.help")
-        trashButton.onDropFiles = { [weak self] urls in self?.deckDelegate?.deckDropOnTrash(urls) }
+        trashButton.onDropFiles = { [weak self] urls, src in
+            self?.deckDelegate?.deckDropOnTrash(urls, from: src)
+        }
         // 右簇：布局五段（rectangle 同族；PaneLayout.symbolName 与 §6.1 表一致）
         layoutControl.segmentCount = PaneLayout.allCases.count
         layoutControl.trackingMode = .selectOne
@@ -277,8 +281,8 @@ final class TopDeckView: NSVisualEffectView {
         trashButton.registeredDraggedTypes.contains(.fileURL)
     }
     /// 走垃圾桶钮真实的投放落地逻辑（pasteboard 可注入，不碰系统拖拽剪贴板）
-    func uiTestDropOnTrash(from pasteboard: NSPasteboard) -> Bool {
-        trashButton.acceptDrop(from: pasteboard)
+    func uiTestDropOnTrash(from pasteboard: NSPasteboard, sourceWindow: NSWindow? = nil) -> Bool {
+        trashButton.acceptDrop(from: pasteboard, sourceWindow: sourceWindow)
     }
 
     @objc private func navClicked(_ sender: NSSegmentedControl) {
@@ -399,7 +403,7 @@ final class TopDeckView: NSVisualEffectView {
 /// 本层零写型 API——落地一律经 coordinator → OperationKernel（BG-1）。
 @MainActor
 final class TrashDeckButton: NSButton {
-    var onDropFiles: (([URL]) -> Void)?
+    var onDropFiles: (([URL], NSWindow?) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -413,11 +417,11 @@ final class TrashDeckButton: NSButton {
 
     /// 落地接缝：pasteboard 可注入，自测走私有板（不碰用户真实拖拽剪贴板）
     @discardableResult
-    func acceptDrop(from pasteboard: NSPasteboard) -> Bool {
+    func acceptDrop(from pasteboard: NSPasteboard, sourceWindow: NSWindow? = nil) -> Bool {
         guard let urls = pasteboard.readObjects(
                 forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !urls.isEmpty else { return false }
-        onDropFiles?(urls)
+        onDropFiles?(urls, sourceWindow)
         return true
     }
 
@@ -449,6 +453,8 @@ final class TrashDeckButton: NSButton {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         setDropHighlight(false)
-        return acceptDrop(from: sender.draggingPasteboard)
+        // 应用内拖拽时 draggingSource 是发起视图，据此拿到来源窗
+        return acceptDrop(from: sender.draggingPasteboard,
+                          sourceWindow: (sender.draggingSource as? NSView)?.window)
     }
 }

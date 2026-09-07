@@ -1850,6 +1850,18 @@ enum UISelfTest {
                     record(goHit != nil && goHit?.item.title == L10n.t("menu.goTrash") && inGoMenu && usable,
                            "I-62 前往菜单含「废纸篓」项并接 goTrash（标题=\(goHit?.item.title ?? "nil") 所属=\(goHit?.ownerTitle ?? "nil") 可用=\(usable)）")
 
+                    // ⑥ 跨窗拖放的路由接缝：按窗口反查控制器。
+                    //   跨窗拖到别的窗的甲板上时，撤销与吐司必须归**来源窗**，
+                    //   否则 ⌘Z 在来源窗按不动、吐司弹在可能被挡住的窗上。
+                    let del = NSApp.delegate as? AppDelegate
+                    let ownFound = del?.mainWindowController(for: window) === wc
+                    let strangerWin = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+                                               styleMask: [.borderless], backing: .buffered, defer: true)
+                    let strangerNil = del?.mainWindowController(for: strangerWin) == nil
+                    let nilIsNil = del?.mainWindowController(for: nil) == nil
+                    record(ownFound && strangerNil && nilIsNil,
+                           "I-62 按窗口反查控制器（自身命中=\(ownFound) 陌生窗为空=\(strangerNil) nil为空=\(nilIsNil)）")
+
                     // 清理：把落进真实废纸篓的测试项按 token 删净（唯一名，安全）
                     if let entries = try? fs.contentsOfDirectory(atPath: TrashLocation.userTrash.path) {
                         for e in entries where e.hasPrefix("nspace-uitest-i62-\(token)") {
@@ -1981,6 +1993,46 @@ enum UISelfTest {
                 bc.setFrameSize(NSSize(width: savedW, height: bc.frame.height))
                 bc.layout()
 
+                // ⑦ 每级总宽必须与改前一致：段的水平命中余量是从 chevron 槽里让出来的
+                //   （16→8），不是加在每级上。否则折叠阈值每级右移 8pt，同宽度下少显一层路径
+                //   （审查实测 dualH 600 窗、侧栏折叠、4 层路径：改前全展示、+8 后退化成折叠）。
+                if let last = vis.last, let cf2 = bc.uiTestVisibleChevronFrames.last,
+                   let gw2 = bc.uiTestLastSegmentGlyphWidth {
+                    let levelW = last.frame.width + cf2.width
+                    record(levelW == gw2 + 16 && cf2.width == 8,
+                           "I-61 每级总宽与改前一致（段 \(last.frame.width) + 箭头 \(cf2.width) == 字形 \(gw2) + 16）")
+                } else {
+                    record(false, "I-61 每级总宽与改前一致（取不到段/箭头/字形宽）")
+                }
+
+                // ⑧ 点非活动窗格的地址栏要**激活该窗格**：旧版只导航不激活，
+                //   窗口标题 / 甲板动作钮校验 / 状态栏全停在旧窗格上（列表视图早就经
+                //   onInteract 报了活，只有地址栏漏了）。
+                wc.grid.apply(layout: .dualH)
+                try? await Task.sleep(for: .milliseconds(300))
+                window.contentView?.layoutSubtreeIfNeeded()
+                if wc.grid.visiblePanes.count >= 2 {
+                    let p0 = wc.grid.visiblePanes[0]
+                    wc.grid.setActivePane(1)
+                    try? await Task.sleep(for: .milliseconds(150))
+                    let before = wc.grid.activePaneIndex
+                    let bc0 = p0.uiTestBreadcrumb
+                    bc0.layoutSubtreeIfNeeded()
+                    let segs0 = bc0.uiTestVisibleSegments
+                    var fired: URL?
+                    if segs0.count >= 2 {
+                        fired = bc0.uiTestActivateSegment(
+                            at: NSPoint(x: segs0[segs0.count - 2].frame.midX, y: bc0.bounds.height / 2))
+                    }
+                    try? await Task.sleep(for: .milliseconds(300))
+                    record(before == 1 && fired != nil && wc.grid.activePaneIndex == 0,
+                           "I-61 点非活动窗格地址栏 → 该窗格被激活（点前活动 \(before) 点后 \(wc.grid.activePaneIndex) 命中段=\(fired?.lastPathComponent ?? "nil")）")
+                } else {
+                    record(false, "I-61 点非活动窗格地址栏 → 该窗格被激活（双栏未生效）")
+                }
+                wc.grid.apply(layout: .single)
+                try? await Task.sleep(for: .milliseconds(250))
+
                 // 清理（token 唯一，安全）
                 pane.navigate(to: fs.homeDirectoryForCurrentUser)
                 try? await Task.sleep(for: .milliseconds(200))
@@ -1999,6 +2051,10 @@ enum UISelfTest {
             // ── 场景 I-46：帧持久化键在 UITEST 下隔离，绝不污染用户真实 windowFrame ──────────
             record(MainWindowController.frameDefaultsKey == "windowFrame.uitest",
                    "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）")
+            // 同一条铁律扩到侧栏宽：只隔离窗口 frame 不够——I-37 窄窗断言的栏宽
+            // = 511 - sidebarWidth，跟着开发者真实侧栏宽漂，拖到上限 320 时余量被吃光会因环境报红
+            record(MainWindowController.sidebarWidthKey == "sidebarWidth.uitest",
+                   "I-46 UITEST 侧栏宽键隔离（写 sidebarWidth.uitest 不碰产品 sidebarWidth）")
 
             // M28/I-47 测试沙箱：frecency 记账 + 会话保存在 UITEST 走隔离临时目录，绝不污染用户真实排序/会话
             record(AppDelegate.supportDirectory.path.contains("nspace-uitest-support"),

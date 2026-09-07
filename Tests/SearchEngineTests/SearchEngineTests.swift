@@ -248,4 +248,32 @@ import Foundation
         #expect(SearchLimits.spotlightReadBudget(kept: SearchLimits.maxResults, scanAlive: true) == 0)
         #expect(SearchLimits.spotlightReadBudget(kept: SearchLimits.maxResults + 99, scanAlive: false) == 0)
     }
+    /// 封顶必须**逐条**守，不能靠"批次恒为 50 所以正好落在 2000"这种巧合：
+    /// 加了时间发射之后批次大小不定，越顶后才发现会多留最多 49 条。
+    /// 直接喂 7 条一批（7 不整除 2000）——端到端夹具做不出这个条件（命中都在同一目录、
+    /// 批次恒 50，keptCount 本来就正好落上限，第一版据此写的断言是假绿）。
+    @Test func hardCapLandsExactlyOnLimitWithIrregularBatches() async throws {
+        let (stream, cont) = AsyncStream<[SearchHit]>.makeStream()
+        let session = SearchSession(request: SearchRequest(query: "capx", scope: .global),
+                                    continuation: cont)
+        let collector = Task { @MainActor in
+            var out: [SearchHit] = []
+            for await b in stream { out.append(contentsOf: b) }
+            return out
+        }
+        var i = 0
+        while i < SearchLimits.maxResults + 100 {
+            let batch = (0..<7).map { k -> SearchHit in
+                SearchHit(url: URL(fileURLWithPath: "/tmp/nspace-capx-\(i + k)"),
+                          name: "capx-\(i + k)", isDirectory: false,
+                          size: nil, modified: nil, contentTypeID: nil)
+            }
+            session.append(batch)
+            i += 7
+        }
+        session.stop()
+        let got = await collector.value
+        #expect(got.count == SearchLimits.maxResults, "实得 \(got.count)，必须正好等于上限")
+        #expect(Set(got.map(\.url.path)).count == got.count)   // 反空断言：去重后仍是这个数
+    }
 }

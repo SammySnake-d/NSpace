@@ -243,6 +243,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// （用户按全局热键呼出 NSpace 时冒出多余窗口）。窗口台账在 windowWillClose 里同步维护，可信。
     var hasLiveMainWindow: Bool { windowControllers.contains { $0.window != nil } }
 
+    /// 按窗口反查它的控制器（跨窗拖放要把撤销/吐司送回来源窗）
+    func mainWindowController(for window: NSWindow?) -> MainWindowController? {
+        guard let window else { return nil }
+        return windowControllers.first { $0.window === window }
+    }
+
     /// 最前的主窗口（全局热键呼出用）。不用 NSApp.windows.first —— 已 close() 但尚未析构的窗口
     /// 仍留在里面，makeKeyAndOrderFront 会把它"复活"成用户以为早就关掉的僵尸窗。
     var frontmostMainWindow: NSWindow? {

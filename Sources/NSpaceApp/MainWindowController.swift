@@ -134,7 +134,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
             grid.apply(layout: l)
         }
         savedSidebarWidth = {
-            let w = UserDefaults.standard.double(forKey: "sidebarWidth")
+            let w = UserDefaults.standard.double(forKey: Self.sidebarWidthKey)
             return w > 0 ? min(max(w, 160), 320) : 200
         }()
         let startCollapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed")
@@ -215,6 +215,13 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     /// 帧持久化键：UITEST 走隔离键 `windowFrame.uitest`，绝不污染用户真实 `windowFrame`。
     /// 测试沙箱铁律（I-46 用户报告"重新 build 后尺寸回默认"根因=冒烟 SETFRAME 写了产品同键，
     /// 每次跑冒烟都把真实窗口尺寸覆盖为测试值 900×520）。
+    /// 同一条铁律扩到侧栏宽（I-46 只隔离了窗口 frame，侧栏宽仍读产品键）：
+    /// 冒烟里 I-37 的窄窗断言宽度 = 511 - sidebarWidth，跟着开发者真实侧栏宽漂，
+    /// 侧栏拖到上限 320 时余量被吃光，断言就会因为环境而红。
+    static var sidebarWidthKey: String {
+        ProcessInfo.processInfo.environment["NSPACE_UITEST"] != nil ? "sidebarWidth.uitest" : "sidebarWidth"
+    }
+
     static var frameDefaultsKey: String {
         ProcessInfo.processInfo.environment["NSPACE_UITEST"] != nil ? "windowFrame.uitest" : "windowFrame"
     }
@@ -223,7 +230,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         let w = sidebarWrap.frame.width
         if w >= 160 {
             savedSidebarWidth = w
-            UserDefaults.standard.set(w, forKey: "sidebarWidth")
+            UserDefaults.standard.set(w, forKey: Self.sidebarWidthKey)
             UserDefaults.standard.set(false, forKey: "sidebarCollapsed")
             deck.setSidebarCollapsed(false)
         } else if w < 1 {
@@ -504,8 +511,14 @@ extension MainWindowController: TopDeckDelegate {
     func deckToggleSidebar() { toggleSidebar(nil) }
     /// 点垃圾桶钮 = 在**应用内**导航到废纸篓（绝不外抛给访达）
     func deckOpenTrash() { grid.activePane.goTrash(nil) }
-    /// 拖到垃圾桶钮 = 移到废纸篓（经内核，本层零写型 API）
-    func deckDropOnTrash(_ urls: [URL]) { coordinator.moveToTrash(urls) }
+    /// 拖到垃圾桶钮 = 移到废纸篓（经内核，本层零写型 API）。
+    /// 落到**来源窗**的 coordinator：跨窗拖放时撤销栈与吐司都该归发起那一侧，
+    /// 否则 ⌘Z 在来源窗按不动，吐司还弹在一个可能被挡住的窗上。
+    func deckDropOnTrash(_ urls: [URL], from sourceWindow: NSWindow?) {
+        let owner = (NSApp.delegate as? AppDelegate)?
+            .mainWindowController(for: sourceWindow) ?? self
+        owner.coordinator.moveToTrash(urls)
+    }
     func deckGoBack() { grid.activePane.goBack(nil) }
     func deckGoForward() { grid.activePane.goForward(nil) }
     func deckGoUp() { grid.activePane.goUpFolder(nil) }

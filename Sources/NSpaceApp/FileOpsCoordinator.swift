@@ -102,11 +102,20 @@ final class FileOpsCoordinator {
             return
         }
         run(OperationSpec(kind: .trash, sources: urls)) { [weak self] receipt in
-            guard let self, let items = receipt?.trashedItems, !items.isEmpty else { return }
-            self.registerRestoreUndo(items)
-            // 旧版此路径**零反馈**（copy/move 有吐司，trash 没有），用户只看到行消失——
-            // 这本身就是"感觉没有废纸篓功能"的一部分；拖到甲板钮更需要一句确认。
-            Toast.show(L10n.f("toast.trashedN", items.count), in: self.grid?.view.window)
+            guard let self, let receipt else { return }
+            let items = receipt.trashedItems
+            // 真落地的那部分必须能撤销，哪怕整个 run 因为别的项判了 .failed
+            if !items.isEmpty { self.registerRestoreUndo(items) }
+            // 旧版此路径**零反馈**（copy/move 有吐司，trash 没有），用户只看到行消失。
+            // 部分失败时更要说清：几项成了、几项没成、第一条原因是什么。
+            if receipt.failures.isEmpty {
+                guard !items.isEmpty else { return }
+                Toast.show(L10n.f("toast.trashedN", items.count), in: self.grid?.view.window)
+            } else {
+                Toast.show(L10n.f("toast.trashedPartial", items.count,
+                                  receipt.failures.count, receipt.failures[0].message),
+                           in: self.grid?.view.window)
+            }
         }
     }
 
@@ -293,7 +302,10 @@ final class FileOpsCoordinator {
             var receipt: OperationReceipt?
             for await p in await kernel.projections() where p.id == id {
                 guard p.state.isTerminal else { continue }
-                if case .completed = p.state { receipt = await kernel.receipt(id) }
+                // 任一终态都取回执，不只 .completed：部分失败的 run 状态是 .failed，
+                // 但内核已把回执存下（里面有真落地的那部分）。只在 .completed 取回执
+                // 等于把"已经做成的事"连同状态一起丢掉——撤销与汇报全没了。
+                receipt = await kernel.receipt(id)
                 break
             }
             onComplete?(receipt)

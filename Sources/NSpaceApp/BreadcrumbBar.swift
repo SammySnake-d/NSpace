@@ -17,8 +17,14 @@ final class BreadcrumbBar: NSView {
     private static let maxSegmentChars = 18
     /// 左右内缩（4pt 阶梯）
     private static let edgeInset: CGFloat = 8
-    /// chevron 分隔箭头的固定占位宽（4pt 阶梯）
-    private static let chevronWidth: CGFloat = 16
+    /// chevron 分隔箭头的固定占位宽（4pt 阶梯）。
+    /// 16 → 8：段命中盒左右各留的 4pt 余量**从这里让出来**，于是每级总宽
+    /// （段字形 + segHitPadX×2 + chevronWidth = 字形 + 16）与改前完全一致，
+    /// 折叠阈值不右移。否则同宽度下会少显一层路径（审查实测：dualH 600 窗、
+    /// 侧栏折叠、4 层路径，改前全展示、改后退化成折叠）。
+    /// 箭头字形实测 7pt，装得进 8pt；且命中盒现在是全高 20pt，
+    /// 面积 8×20=160pt² 仍比改前的 16×6.5=104pt² 大 54%。
+    private static let chevronWidth: CGFloat = 8
     /// 段命中盒左右各留的余量（4pt 阶梯）：点到名字旁边一点点仍是这一段，不被隔壁 chevron 抢走
     private static let segHitPadX: CGFloat = 4
     /// 段命中宽（纯函数：layout 与自测共用同一口径，不许各算一遍）

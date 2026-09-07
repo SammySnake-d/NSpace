@@ -172,6 +172,7 @@ require_pass "I-49 foldersFirst 下组仍按新近排：今天(仅文件)在最�
 
 # I-46 窗口尺寸被测试污染根因：UITEST 帧键隔离（不写产品 windowFrame）
 require_pass "I-46 UITEST 帧键隔离（写 windowFrame.uitest 不碰产品 windowFrame）"
+require_pass "I-46 UITEST 侧栏宽键隔离"
 # I-43 点选区内收敛卡顿（AppKit 双击间隔~0.5s 等待）：纯单击已选多选行抢先收敛谓词
 require_pass "I-43 点选区内收敛谓词：纯单击多选已选行=抢先收敛，修饰键/双击/选区外/单选=不介入"
 # M28 搜索智能排序（frecency+匹配融合）：开关开=高频次命中最前 / 关=回退到达序
@@ -247,6 +248,8 @@ require_pass "I-61 段名左右留命中余量"
 require_pass "I-61 全高命中点触发导航（非编辑模式）"
 require_pass "I-61 内容右缘之右仍是空白点击进编辑"
 require_pass "I-61 极窄栏仍不溢出且层级全可达"
+require_pass "I-61 每级总宽与改前一致"
+require_pass "I-61 点非活动窗格地址栏 → 该窗格被激活"
 # I-62 废纸篓（用户报告：缺少废纸篓功能，右上角垃圾桶钮点了没用/常灰）
 require_pass "沙箱守卫[I-62]: 废纸篓夹具在自建临时目录内"
 require_pass "I-62 空选中时甲板垃圾桶钮仍可用"
@@ -254,6 +257,7 @@ require_pass "I-62 点垃圾桶钮 → 应用内跳到废纸篓"
 require_pass "I-62 废纸篓内容真被列出"
 require_pass "I-62 拖到垃圾桶钮 → 真移到废纸篓"
 require_pass "I-62 前往菜单含「废纸篓」项并接 goTrash"
+require_pass "I-62 按窗口反查控制器"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46 / M28 / I-47）：清理 UITEST 隔离态，绝不留测试残留在用户真实域

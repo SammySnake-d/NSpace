@@ -194,6 +194,7 @@
 "toast.copiedN" = "已复制 %d 项";
 "toast.movedN" = "已移动 %d 项";
 "toast.trashedN" = "已移到废纸篓 %d 项";
+"toast.trashedPartial" = "已移到废纸篓 %1$d 项，%2$d 项失败：%3$@";
 "toast.alreadyInTrash" = "已在废纸篓中；永久删除尚未支持，可拖出到其他文件夹恢复";
 "toast.stashed" = "已暂存 %d 项";
 "toast.ejected" = "已推出 %@";

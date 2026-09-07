@@ -84,16 +84,25 @@ extension LocalOpsNode {
         }
         context.report(.scanTotals(files: spec.sources.count, bytes: 0))
         var pairs: [TrashedItem] = []
+        var failures: [OperationFailure] = []
         var done = 0
+        // 逐项容错，不首错即终止。
+        // 旧版任一项失败就 throw，已经**真落地**的那些随 throw 一起丢：内核只在成功路径存回执，
+        // UI 拿到 nil，于是既不注册撤销、也不弹吐司、也不报错——用户的文件真进了废纸篓
+        // 却撤不回、也不知情。废纸篓可浏览之后这条路更好走（篓里的项本身就动不了）。
         for src in spec.sources {
             guard fm.fileExists(atPath: src.path) else {
-                throw LocalOpsError(.external, "源不存在: \(src.lastPathComponent)", path: src.path)
+                failures.append(OperationFailure(url: src, errorClass: .external,
+                                                 message: "源不存在: \(src.lastPathComponent)"))
+                continue
             }
             var resulting: NSURL?
             do {
                 try fm.trashItem(at: src, resultingItemURL: &resulting)
             } catch {
-                throw LocalOpsError(.external, "移到废纸篓失败: \(error.localizedDescription)", path: src.path)
+                failures.append(OperationFailure(url: src, errorClass: .external,
+                                                 message: "移到废纸篓失败: \(error.localizedDescription)"))
+                continue
             }
             // 回收站落点未知时以原名兜底（撤销仍可按原路径尝试）
             let trashed = (resulting as URL?) ?? src
@@ -101,7 +110,12 @@ extension LocalOpsNode {
             done += 1
             context.report(.progress(filesDone: done, bytesDone: 0, currentPath: src.path))
         }
+        // 一件都没做成 = 真正的失败，不许粉饰成"部分成功"
+        if pairs.isEmpty, let first = failures.first {
+            throw LocalOpsError(first.errorClass, first.message, path: first.url.path)
+        }
         return OperationReceipt(id: context.operationID, filesDone: done, bytesDone: 0,
-                                duration: Date().timeIntervalSince(started), trashedItems: pairs)
+                                duration: Date().timeIntervalSince(started),
+                                trashedItems: pairs, failures: failures)
     }
 }

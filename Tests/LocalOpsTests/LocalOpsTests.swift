@@ -130,4 +130,45 @@ import NSpaceContracts
         try FileManager.default.moveItem(at: pair.trashed, to: pair.original)
         #expect(try Data(contentsOf: src) == Data("bye".utf8))
     }
+    // MARK: 部分失败（对抗审查抓到的既有缺陷，v0.19.18）
+
+    /// 混选里有一项动不了时，旧实现在中途 `throw`：**前面已经真删掉的那些随 throw 一起丢**——
+    /// 内核只在成功路径存回执，于是 coordinator 拿到 nil，既不注册撤销、也不弹吐司、也不报错。
+    /// 用户的文件真进了废纸篓，而他撤不回来、也不知道发生了什么。
+    /// 废纸篓可浏览之后这条路更好走了（篓里的项本身就动不了），所以必须修。
+    @Test func partialTrashFailureStillReportsWhatLanded() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let real = dir.appendingPathComponent("lands.txt")
+        try Data("x".utf8).write(to: real)
+        let ghost = dir.appendingPathComponent("ghost-never-existed.txt")   // 必然失败的一项
+
+        let r = try await LocalOpsNode().execute(
+            OperationSpec(kind: .trash, sources: [real, ghost]),
+            context: Self.context())
+
+        // 真落地的那一项必须回报（撤销全靠它）
+        #expect(r.trashedItems.count == 1, "实得 \(r.trashedItems.count) 项")
+        #expect(r.trashedItems.first?.original == real)
+        #expect(!FileManager.default.fileExists(atPath: real.path))
+        // 失败的那一项必须如实回报，不许静默
+        #expect(r.failures.count == 1, "实得 \(r.failures.count) 条失败")
+        #expect(r.failures.first?.url == ghost)
+        #expect(r.failures.first?.message.isEmpty == false)
+        #expect(r.filesDone == 1)                       // 计数说真话：1 成 1 败
+        // 清理落进真实废纸篓的项
+        if let t = r.trashedItems.first?.trashed { try? FileManager.default.removeItem(at: t) }
+    }
+
+    /// 但**全都失败**仍必须 throw：部分成功语义不许把"一件都没做成"也粉饰成完成
+    @Test func totalTrashFailureStillThrows() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ghost = dir.appendingPathComponent("ghost-never-existed.txt")
+        await #expect(throws: (any Error).self) {
+            _ = try await LocalOpsNode().execute(
+                OperationSpec(kind: .trash, sources: [ghost]),
+                context: Self.context())
+        }
+    }
 }

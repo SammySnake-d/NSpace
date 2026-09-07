@@ -196,6 +196,22 @@ public struct TrashedItem: Sendable, Hashable {
 }
 
 /// 操作真实成败凭证（Proof Owner 产物）
+/// 单项失败：**部分成功**的操作用它如实汇报哪一项没成、为什么。
+///
+/// 为什么需要它（对抗审查抓到的既有缺陷，v0.19.18）：节点原先首错即 `throw`，
+/// 已经真落地的那部分随 throw 一起丢——内核只在成功路径存回执，UI 拿到 nil，
+/// 于是既不注册撤销、也不弹吐司、也不报错。用户的文件真进了废纸篓却撤不回、也不知情。
+/// 「部分成功」是真实存在的结局，不是异常；它必须能被表达出来。
+public struct OperationFailure: Sendable {
+    public let url: URL
+    public let errorClass: ErrorClass
+    public let message: String
+
+    public init(url: URL, errorClass: ErrorClass, message: String) {
+        self.url = url; self.errorClass = errorClass; self.message = message
+    }
+}
+
 public struct OperationReceipt: Sendable {
     public let id: UUID
     public let filesDone: Int
@@ -205,11 +221,16 @@ public struct OperationReceipt: Sendable {
     public let createdURLs: [URL]
     /// trash 操作回传 原URL→回收站URL 对（UI 注册撤销用）
     public let trashedItems: [TrashedItem]
+    /// 逐项失败清单。非空 = 部分成功：内核据此把状态判为 .failed（状态说真话），
+    /// 但**回执照样存下来**，让 UI 能为真落地的那部分注册撤销并如实汇报。
+    public let failures: [OperationFailure]
 
     public init(id: UUID, filesDone: Int, bytesDone: Int64, duration: TimeInterval,
-                createdURLs: [URL] = [], trashedItems: [TrashedItem] = []) {
+                createdURLs: [URL] = [], trashedItems: [TrashedItem] = [],
+                failures: [OperationFailure] = []) {
         self.id = id; self.filesDone = filesDone; self.bytesDone = bytesDone; self.duration = duration
         self.createdURLs = createdURLs; self.trashedItems = trashedItems
+        self.failures = failures
     }
 }
 

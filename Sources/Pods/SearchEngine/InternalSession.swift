@@ -248,9 +248,17 @@ final class SearchSession: NSObject, @unchecked Sendable {
 
     // MARK: 去重合并 + 节流批推（主线程）
 
-    private func append(_ hits: [SearchHit]) {
+    /// internal 而非 private：封顶逻辑在这里，自测要直接喂**不对齐**的批次
+    /// （端到端夹具的命中都在同一目录、批次恒为 50，keptCount 本来就正好落在上限，
+    ///  验不出"越顶"——第一版就是这么假绿的）
+    func append(_ hits: [SearchHit]) {
         guard !finished, !hits.isEmpty else { return }
-        for hit in hits where seenPaths.insert(hit.url.path).inserted {
+        for hit in hits {
+            // 硬上限逐条守：改前批次恒为 50，keptCount 正好落在 2000；
+            // 加了时间发射后批次大小不定，越顶后才发现会多留最多 49 条。
+            // 注意先判上限再 insert——反过来会把没留下的路径标成"已见过"。
+            guard keptCount < SearchLimits.maxResults else { break }
+            guard seenPaths.insert(hit.url.path).inserted else { continue }
             buffer.append(hit)
             keptCount += 1
         }
@@ -260,7 +268,11 @@ final class SearchSession: NSObject, @unchecked Sendable {
             teardown()
             return
         }
-        if buffer.count >= 50 {
+        // 首批不吃节流：稀疏查询下 150ms 的扫描发射窗后再压 300ms，
+        // 首个结果上屏要 450ms。第一批直接推出去，后续才节流。
+        if !hasYielded {
+            flushNow()
+        } else if buffer.count >= 50 {
             flushNow()
         } else if !flushScheduled, !buffer.isEmpty {
             // 用 dispatch 定时而非 RunLoop Timer：无 RunLoop 模式依赖（测试环境同样可靠）
@@ -273,9 +285,13 @@ final class SearchSession: NSObject, @unchecked Sendable {
         }
     }
 
+    /// 是否已推出过至少一批（用于让首批免于 300ms 节流）
+    private var hasYielded = false
+
     private func flushNow() {
         guard !finished, !buffer.isEmpty else { return }
         continuation.yield(buffer)
+        hasYielded = true
         buffer = []
     }
 

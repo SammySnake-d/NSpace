@@ -83,8 +83,17 @@ final class PaneViewController: NSViewController {
         tabBar.onClose = { [weak self] i in self?.closeTab(at: i) }
         tabBar.onNew = { [weak self] in self?.openNewTab() }
 
-        breadcrumb.onNavigate = { [weak self] url in self?.navigate(to: url) }
-        breadcrumb.onBeginEditing = { [weak self] in self?.beginPathEditing() }
+        // onRequestFocus 先于动作：多窗格布局下点非活动窗格的地址栏，
+        // 旧版只导航不激活，窗口标题/甲板动作钮校验/状态栏全停在旧窗格上
+        // （列表/图标/分栏视图早就经 onInteract 报了活，只有地址栏漏了）
+        breadcrumb.onNavigate = { [weak self] url in
+            self?.onRequestFocus?()
+            self?.navigate(to: url)
+        }
+        breadcrumb.onBeginEditing = { [weak self] in
+            self?.onRequestFocus?()
+            self?.beginPathEditing()
+        }
         breadcrumb.onDropFiles = { [weak self] urls, target, forceCopy in
             // 拖文件到面包屑分段 = 投进该祖先目录（语义同列表投放，经 coordinator 判卷提交）
             self?.coordinator?.dropTransfer(urls: urls, into: target, forceCopy: forceCopy)

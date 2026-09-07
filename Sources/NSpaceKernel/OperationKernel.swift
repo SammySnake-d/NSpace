@@ -128,7 +128,17 @@ public actor OperationKernel {
             commit(id) { run in
                 run.filesDone = receipt.filesDone
                 run.bytesDone = receipt.bytesDone
-                run.state = .completed
+                // 部分失败不算完成：状态说真话。但回执**照样已经存下来了**——
+                // 真落地的那部分必须能被撤销、能被如实汇报，不能随状态一起被丢掉。
+                if let first = receipt.failures.first {
+                    run.state = .failed(
+                        message: receipt.failures.count == 1
+                            ? first.message
+                            : "\(first.message)（另有 \(receipt.failures.count - 1) 项失败）",
+                        errorClass: first.errorClass)
+                } else {
+                    run.state = .completed
+                }
             }
         } catch is CancellationError {
             commit(id) { $0.state = .cancelled }

@@ -194,6 +194,7 @@
 "toast.copiedN" = "%d items copied";
 "toast.movedN" = "%d items moved";
 "toast.trashedN" = "Moved %d items to Trash";
+"toast.trashedPartial" = "Moved %1$d to Trash, %2$d failed: %3$@";
 "toast.alreadyInTrash" = "Already in Trash; permanent delete not supported yet — drag out to restore";
 "toast.stashed" = "%d items stashed";
 "toast.ejected" = "%@ ejected";
