@@ -48,12 +48,13 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// 展示行序列（分组开启时 = [组头, 项...] 交织；关闭时 = 每项一行）。
     /// 严禁在别处散落 index 算术：所有「行号→item」「item→行号」换算一律走本数组的 helper。
     private enum ListRow {
-        case group(key: String, title: String, count: Int, collapsed: Bool)
+        case group(key: String, title: String, count: Int)
         case item(Int)   // 下标指向 model.items
     }
     private var listRows: [ListRow] = []
     /// 已折叠组键集合（重组时据此决定是否铺开组内项）
-    private var collapsedGroups: Set<String> = []
+    // 折叠已取消（用户要求：分组头印在背景条上，不是可伸缩控件）。
+    // 不留恒空集合——那会留下"看着能折其实不能"的半截实现。
     /// 组过滤：非 nil 时仅展示该组（「仅显示此组」）；nil = 全部组
     private var groupFilterKey: String?
     /// 过滤态提示药丸（FG-1：过滤态不留悬疑，可一键还原）
@@ -98,7 +99,6 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
         tableView.onDragExited = { [weak self] in self?.cancelSpringLoad() }
         tableView.isGroupRowProvider = { [weak self] row in self?.isGroupRow(row) ?? false }
-        tableView.onGroupRowClick = { [weak self] row in self?.handleGroupRowClick(row) }
         tableView.style = .plain  // 紧凑密度：去 inset 大留白（QSpace 式）
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
         tableView.rowHeight = Self.rowHeight(for: Formatters.listFontSize)
@@ -274,7 +274,14 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     }
 
     /// 仅重绘（剪切灰显变化时由协调器调用）
-    func redraw() { tableView.reloadData() }
+    /// 仅重绘（剪切灰显变化）。
+    /// **不能用 reloadData()**：它会把选中清空，而"重绘"语义里行没变、选中就不该变
+    /// （用户报告：⌘C 之后选中框消失）。按行/列重载会保留选中。
+    func redraw() {
+        guard tableView.numberOfRows > 0, tableView.numberOfColumns > 0 else { return }
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<tableView.numberOfRows),
+                             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+    }
 
     // MARK: 分组换算（M26）——组键/桶划分委托 FileGrouping（列表/图标共用真源）；本层只管展示行序与视图态
 
@@ -300,9 +307,8 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         // 过滤态失效自愈：被过滤组已不存在（换目录/排序键）→ 清过滤
         if let only = groupFilterKey, !groups.contains(where: { $0.key == only }) { groupFilterKey = nil }
         for g in groups where groupFilterKey == nil || groupFilterKey == g.key {
-            let collapsed = collapsedGroups.contains(g.key)
-            listRows.append(.group(key: g.key, title: g.title, count: g.indices.count, collapsed: collapsed))
-            if !collapsed { for i in g.indices { listRows.append(.item(i)) } }
+            listRows.append(.group(key: g.key, title: g.title, count: g.indices.count))
+            for i in g.indices { listRows.append(.item(i)) }
         }
         updateFilterPill(titles: titles)
     }
@@ -349,19 +355,6 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         guard listRows.indices.contains(row) else { return false }
         if case .group = listRows[row] { return true }
         return false
-    }
-
-    /// 组头行点击：切换该组折叠（重组行序 + 保选中）
-    private func handleGroupRowClick(_ row: Int) {
-        guard listRows.indices.contains(row), case .group(let key, _, _, _) = listRows[row] else { return }
-        toggleGroup(key: key)
-    }
-
-    /// 切换某组折叠态并重建（保 URL 选中）
-    func toggleGroup(key: String) {
-        if collapsedGroups.contains(key) { collapsedGroups.remove(key) }
-        else { collapsedGroups.insert(key) }
-        rebuildRowsPreservingSelection()
     }
 
     /// 应用组过滤（「仅显示此组」）
@@ -576,7 +569,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
 
     private func buildMenu(clickedRow row: Int) -> NSMenu {
         // 组头行右键：组过滤菜单（仅显示此组 / 显示全部组）
-        if isGroupRow(row), case .group(let key, _, _, _) = listRows[row] {
+        if isGroupRow(row), case .group(let key, _, _) = listRows[row] {
             return buildGroupMenu(key: key)
         }
         return FileContextMenuBuilder.menu(selection: selectedItems, directory: currentDirectory, target: self)
@@ -906,10 +899,10 @@ extension FileListViewController: NSTableViewDataSource, NSTableViewDelegate {
         // 组头行：整行铺满的组头视图（仅首列构建一次，其余列返回 nil）
         if isGroupRow(row) {
             guard tableColumn == nil || tableColumn == tableView.tableColumns.first else { return nil }
-            guard case .group(_, let title, let count, let collapsed) = listRows[row] else { return nil }
+            guard case .group(_, let title, let count) = listRows[row] else { return nil }
             let cell = tableView.makeView(withIdentifier: .init("groupHeader"), owner: nil) as? GroupHeaderView
                 ?? GroupHeaderView(identifier: .init("groupHeader"))
-            cell.configure(title: title, count: count, collapsed: collapsed)
+            cell.configure(title: title, count: count)
             return cell
         }
         guard let colID = tableColumn?.identifier.rawValue, let item = item(atRow: row) else { return nil }
@@ -1138,18 +1131,18 @@ extension FileListViewController {
     }
     /// 组头标题串（按行序）
     var uiTestGroupTitles: [String] {
-        listRows.compactMap { if case .group(_, let t, _, _) = $0 { return t }; return nil }
+        listRows.compactMap { if case .group(_, let t, _) = $0 { return t }; return nil }
     }
-    /// 组头（标题, 项数, 折叠）三元组（按行序）
-    var uiTestGroups: [(title: String, count: Int, collapsed: Bool)] {
+    /// 组头（标题, 项数）二元组（按行序）。折叠已取消，所以不再有第三项。
+    var uiTestGroups: [(title: String, count: Int)] {
         listRows.compactMap {
-            if case .group(_, let t, let c, let col) = $0 { return (t, c, col) }
+            if case .group(_, let t, let c) = $0 { return (t, c) }
             return nil
         }
     }
     /// 组键（稳定键，按行序）
     var uiTestGroupKeys: [String] {
-        listRows.compactMap { if case .group(let k, _, _, _) = $0 { return k }; return nil }
+        listRows.compactMap { if case .group(let k, _, _) = $0 { return k }; return nil }
     }
     /// 当前展示行总数
     var uiTestRowCount: Int { listRows.count }
@@ -1161,8 +1154,46 @@ extension FileListViewController {
     var uiTestFilterPillVisible: Bool { !filterPill.isHidden }
     /// 分组是否生效（偏好开 + 日期排序键）
     var uiTestGroupingActive: Bool { groupingActive }
-    /// 驱动组头点击折叠（真实处理路径）
-    func uiTestClickGroupRow(_ row: Int) { handleGroupRowClick(row) }
+    /// 走表视图**真实** mouseDown 分支点组头（不复刻判定：接线断了这条才会红）
+    func uiTestClickGroupRowRaw(_ row: Int) {
+        let rect = tableView.rect(ofRow: row)
+        guard let win = view.window,
+              let ev = NSEvent.mouseEvent(with: .leftMouseDown,
+                                          location: tableView.convert(NSPoint(x: rect.midX, y: rect.midY),
+                                                                      to: nil),
+                                          modifierFlags: [],
+                                          timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: win.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+        tableView.mouseDown(with: ev)
+    }
+    /// 选中第一个项行（组头不可选，所以要跳过组头）
+    /// 按 URL 集选中（走真实选中变更链）
+    func uiTestSelect(urls: [URL]) {
+        let wanted = Set(urls.map(\.standardizedFileURL.path))
+        var idx = IndexSet()
+        for (r, lr) in listRows.enumerated() {
+            guard case .item(let i) = lr, model.items.indices.contains(i) else { continue }
+            if wanted.contains(model.items[i].url.standardizedFileURL.path) { idx.insert(r) }
+        }
+        tableView.selectRowIndexes(idx, byExtendingSelection: false)
+    }
+    /// 视图层**原始**选中行数（直查 tableView，不经任何缓存——
+    /// reloadData 清空选中这类问题只有直查才看得见）
+    var uiTestRawSelectionCount: Int { tableView.selectedRowIndexes.count }
+
+    func uiTestSelectFirstItem() {
+        guard let r = uiTestFirstItemRow else { return }
+        tableView.selectRowIndexes([r], byExtendingSelection: false)
+    }
+    /// 组头单元格真有底色（"印在背景条上"验的是这个，不是验没崩）
+    var uiTestGroupHeaderIsBackgroundBar: Bool {
+        guard let r = listRows.firstIndex(where: { if case .group = $0 { return true }; return false }),
+              let cell = tableView.view(atColumn: 0, row: r, makeIfNecessary: true) as? GroupHeaderView,
+              let bg = cell.layer?.backgroundColor else { return false }
+        return bg.alpha > 0.01
+    }
+
     /// 首个非组头（项）行的表行号
     var uiTestFirstItemRow: Int? {
         for (r, lr) in listRows.enumerated() { if case .item = lr { return r } }

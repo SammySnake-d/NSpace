@@ -76,13 +76,11 @@ final class FocusReportingTableView: NSTableView {
 
     override func mouseDown(with event: NSEvent) {
         onInteract?()
-        // 组头行：单击切折叠（不落入 super 的选中/双击链）
+        // 组头行：不可选、不可折叠，单击直接吞掉（不落入 super 的选中链，
+        // 否则会把选中"跳"到组头下面那一行）
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
-        if row >= 0, isGroupRowProvider?(row) == true {
-            onGroupRowClick?(row)
-            return
-        }
+        if row >= 0, isGroupRowProvider?(row) == true { return }
         // I-43：纯单击「已选中的多选行」时，AppKit 会等双击间隔(~0.5s NSEvent.doubleClickInterval)才把
         // 选中收敛为单选（为区分双击打开）——造成"点选区内卡 0.5-1s、点选区外即时"（真机插桩实测 0.672s）。
         // 让 super 正常处理（拖拽/双击语义不受影响），若期间未发起拖拽（pasteboardWriterForRow 未被调）则
@@ -318,30 +316,27 @@ final class NameCellView: NSTableCellView {
 /// 行高 24、floatsGroupRows 悬浮由 FileListViewController 配置。
 @MainActor
 final class GroupHeaderView: NSTableCellView {
-    private let chevron = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
 
+    /// 组头是**印在背景条上的标题**，不是可点开合的控件（用户要求：像 QSpace，不要伸缩）。
+    /// 去掉了 chevron 与折叠能力：一个长得像按钮却什么都不做的箭头，
+    /// 比没有箭头更糟——它在承诺一件做不到的事。
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
-        chevron.translatesAutoresizingMaskIntoConstraints = false
-        chevron.contentTintColor = .secondaryLabelColor
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.textColor = .labelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.textColor = .secondaryLabelColor
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)  // tabular-nums
-        addSubview(chevron)
         addSubview(titleLabel)
         addSubview(countLabel)
         NSLayoutConstraint.activate([
-            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 12),
-            chevron.heightAnchor.constraint(equalToConstant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -352,11 +347,7 @@ final class GroupHeaderView: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
-    func configure(title: String, count: Int, collapsed: Bool) {
-        chevron.image = NSImage.officialSymbol(collapsed ? "chevron.right" : "chevron.down",
-                                               fallback: collapsed ? "arrowtriangle.right.fill"
-                                                                    : "arrowtriangle.down.fill",
-                                               accessibility: title)
+    func configure(title: String, count: Int) {
         titleLabel.stringValue = title
         countLabel.stringValue = L10n.f("group.count", count)
     }

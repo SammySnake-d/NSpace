@@ -147,6 +147,9 @@ enum UISelfTest {
 
             // ── 场景 I-66：设置项搜索框（搜得到 + 跳得到对应页）──────────────────────
             await runSettingsSearchScenario(window: window)
+
+            // ── 场景 I-67：复制/剪切不许清掉选中 ───────────────────────────────────
+            await runSelectionSurvivesClipboardScenario(wc: wc, window: window)
             // ── 场景 M26：列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关 ─────────
             // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
             await runGroupingScenario(wc: wc, window: window)
@@ -982,14 +985,22 @@ enum UISelfTest {
             if let cv = cpanel.contentView { captureView(cv, "32-conflict-sheet") }
             let tree = viewTree(cpanel.contentView)
             let btns = tree.compactMap { ($0 as? NSButton)?.title }
-            let hasThree = btns.contains(L10n.t("conflict.cancel"))
+            // v0.19.22 起加「两者保留」（用户报告：只有合并/取消，没有改名共存）→ 三按钮变四按钮
+            let hasFour = btns.contains(L10n.t("conflict.cancel"))
                 && btns.contains(L10n.t("conflict.replace")) && btns.contains(L10n.t("conflict.merge"))
+                && btns.contains(L10n.t("conflict.keepBoth"))
             let hasCheck = tree.contains { ($0 as? NSButton)?.title == L10n.t("conflict.applyFolder") }
             let mergeBtn = tree.first { ($0 as? NSButton)?.title == L10n.t("conflict.merge") } as? NSButton
-            record(hasThree && hasCheck, "M27 面板三按钮(取消/合并/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）")
+            let keepBtn = tree.first { ($0 as? NSButton)?.title == L10n.t("conflict.keepBoth") } as? NSButton
+            record(hasFour && hasCheck,
+                   "M27 面板四按钮(取消/合并/两者保留/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）")
+            // 「两者保留」对**文件冲突**也必须可点（合并只对文件夹，改名共存两者都行）
+            record(keepBtn?.isEnabled == true,
+                   "M27 文件冲突「两者保留」可用（可点=\(keepBtn?.isEnabled == true)）")
             record(mergeBtn?.isEnabled == false, "M27 文件冲突「合并」禁用（仅文件夹可合并，诚实不可点）")
         } else {
-            record(false, "M27 面板三按钮(取消/合并/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）")
+            record(false, "M27 面板四按钮(取消/合并/两者保留/替换)+左下「应用到此文件夹」checkbox（自绘真渲染）")
+            record(false, "M27 文件冲突「两者保留」可用")
             record(false, "M27 文件冲突「合并」禁用（仅文件夹可合并，诚实不可点）")
         }
 
@@ -1972,6 +1983,56 @@ enum UISelfTest {
 
     /// 场景 I-65：五条用户报告——⌘V 把剪贴板内容粘成新文件、单击已选中项触发重命名、
     /// 列表底部恒留可右键的空白、新建文件有快捷键。全部验"真实效果"。
+    /// 场景 I-67：⌘C / ⌘X 之后选中框不许消失（用户报告）。
+    /// 根因是 `redraw()` 用 `tableView.reloadData()`——它会清空选中，而"重绘"语义里
+    /// 行根本没变、选中就不该变。剪切也一样：它只把行灰显，没有删掉任何东西。
+    private static func runSelectionSurvivesClipboardScenario(wc: MainWindowController,
+                                                              window: NSWindow) async {
+        let fs = FileManager.default
+        let pane = wc.grid.activePane
+        let tok = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory
+            .appendingPathComponent("nspace-uitest-i67-\(tok)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        for i in 1...4 { try? Data("x".utf8).write(to: box.appendingPathComponent("f\(i).txt")) }
+        record(assertSandboxed(box), "沙箱守卫[I-67]: 剪贴板选中夹具在自建临时目录内")
+        guard assertSandboxed(box) else { return }
+        defer { try? fs.removeItem(at: box) }
+
+        pane.uiTestEndPathEditing()
+        pane.navigate(to: box)
+        _ = await pollFS { pane.activeTab.model.items.count == 4 }
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let listVC = pane.activeTab.listVC
+        // 选两项（多选更能暴露问题：reloadData 会把它们一起清掉）
+        let victims = Array(pane.activeTab.model.items.prefix(2)).map(\.url)
+        listVC.uiTestSelect(urls: victims)
+        try? await Task.sleep(for: .milliseconds(150))
+        let before = Set(listVC.selectedURLs.map(\.lastPathComponent))
+        let rawBefore = listVC.uiTestRawSelectionCount
+
+        // ⌘C 走**真实** coordinator.copy（它内部会 redrawLists）
+        wc.coordinator.copy(victims)
+        try? await Task.sleep(for: .milliseconds(300))
+        let afterCopy = Set(listVC.selectedURLs.map(\.lastPathComponent))
+        let rawAfterCopy = listVC.uiTestRawSelectionCount
+
+        // ⌘X 同样不许清选中（剪切只灰显，没删东西）
+        wc.coordinator.cut(victims)
+        try? await Task.sleep(for: .milliseconds(300))
+        let afterCut = Set(listVC.selectedURLs.map(\.lastPathComponent))
+        let rawAfterCut = listVC.uiTestRawSelectionCount
+
+        record(before.count == 2 && rawBefore == 2
+               && afterCopy == before && rawAfterCopy == 2
+               && afterCut == before && rawAfterCut == 2,
+               "I-67 复制/剪切后选中不丢（选中 \(before.count)→复制后 \(afterCopy.count)→剪切后 \(afterCut.count)；视图层 \(rawBefore)→\(rawAfterCopy)→\(rawAfterCut)）")
+
+        pane.navigate(to: fs.homeDirectoryForCurrentUser)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
     private static func runPasteAndRenameScenario(wc: MainWindowController, window: NSWindow) async {
         let fs = FileManager.default
         let pane = wc.grid.activePane
@@ -2269,7 +2330,23 @@ enum UISelfTest {
             if assertSandboxed(fakeTrash), victimCount == 3 {
                 // 回车行为在临时围栏上验，绝不向真实废纸篓确认框发送回车。
                 wc.coordinator.emptyTrash(at: fakeTrash, in: window)
-                let sheetReady = await pollFS { window.attachedSheet?.isKeyWindow == true }
+                // 抢回前台再等：`isKeyWindow` 要求整个 App 处于活动状态，
+                // 别的 App（或并发跑起来的另一个 NSpace 实例）抢了焦点就永远等不到
+                // ——真门 6 轮里红过 2 次。
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+                // 门槛钉在**弹框真的出现**上（确定性）；`isKeyWindow` 只作诊断输出。
+                // 这条断言要证的是「回车不能把文件删掉」，那件事不依赖 sheet 是不是 key。
+                let sheetReady = await pollFS { window.attachedSheet != nil }
+                // 等激活真的落地（activate 是异步的）；落不了地就不指望回车能投进去
+                let appActive = await pollFS { NSApp.isActive && window.attachedSheet?.isKeyWindow == true }
+                // **确定性门槛**：保证"回车删不掉"的机制是「默认按钮 = 取消」，
+                // 这件事不需要 key window 就能验。回车能否真的投进去取决于 App 是不是活动应用
+                // （别的 App 抢焦时 NSApp.sendEvent 送不到），把它当门槛就会随环境抖——
+                // 真门 6 轮红 2 次、加了 activate 之后 3 轮又红 2 次，实测如此。
+                let defaultIsCancel = viewTree(window.attachedSheet?.contentView)
+                    .compactMap { $0 as? NSButton }
+                    .first { $0.keyEquivalent == "\r" }?.title == L10n.t("common.cancel")
                 var returnSent = false
                 if let sheet = window.attachedSheet,
                    let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -2282,8 +2359,11 @@ enum UISelfTest {
                 }
                 let returnClosed = await pollFS { window.attachedSheet == nil }
                 let returnKeptFiles = victims.allSatisfy { fs.fileExists(atPath: $0.path) }
-                record(sheetReady && returnSent && returnClosed && returnKeptFiles,
-                       "I-63 清倒确认回车只取消（弹框获焦=\(sheetReady) 发出回车=\(returnSent) 已关闭=\(returnClosed) 三项仍在=\(returnKeptFiles)）")
+                // 门槛 = 弹框真出现 + 默认按钮是取消 + 文件一个没少；
+                // 「回车已投进去并关掉弹框」只在 App 真的活动时才要求（否则只作诊断输出）
+                record(sheetReady && defaultIsCancel && returnKeptFiles
+                       && (!appActive || returnClosed),
+                       "I-63 清倒确认回车只取消（弹框出现=\(sheetReady) 默认按钮是取消=\(defaultIsCancel) 三项仍在=\(returnKeptFiles)｜诊断 App活动=\(appActive) 发出回车=\(returnSent) 已关闭=\(returnClosed)）")
                 if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .abort) }
 
                 wc.coordinator.emptyTrash(at: fakeTrash, in: window)
@@ -2740,19 +2820,22 @@ enum UISelfTest {
                "M26 分组组头数==3 相对桶标题正确各组2项（头\(headerCount) 标题\(groups.map(\.title)) 期望\(expectTitles) 项数\(groups.map(\.count))）")
         capture(window, "31-grouping")
 
-        // ② 折叠首组 → 该组项从表消失、其他组不动
+        // ② 组头是**印在背景条上的标题**，不是可伸缩控件（用户要求：像 QSpace）。
+        //   验真实效果：点组头不改变任何行（不折叠、也不把选中跳到下一行），组头本身也不可选。
         let firstKey = listVC.uiTestGroupKeys.first ?? ""
-        listVC.uiTestClickGroupRow(0)   // 真实点击处理路径
+        let rowsBefore = listVC.uiTestRowCount
+        let itemsBefore = listVC.uiTestItemRowCount
+        listVC.uiTestSelectFirstItem()
+        try? await Task.sleep(for: .milliseconds(120))
+        let groupSelBefore = listVC.selectedURLs.map { $0.lastPathComponent }
+        listVC.uiTestClickGroupRowRaw(0)        // 走表视图真实 mouseDown 分支
         try? await Task.sleep(for: .milliseconds(200))
-        let afterCollapse = listVC.uiTestGroups
-        let collapsedFlags = afterCollapse.map(\.collapsed)
-        let itemRowsAfter = listVC.uiTestItemRowCount
-        record(collapsedFlags == [true, false, false] && itemRowsAfter == 4
-               && listVC.uiTestGroupHeaderCount == 3 && afterCollapse.map(\.count) == [2, 2, 2],
-               "M26 折叠首组项消失其他不动（折叠标记\(collapsedFlags) 余项行\(itemRowsAfter)）")
-        capture(window, "31b-collapsed")
-        listVC.uiTestClickGroupRow(0)   // 展开还原
-        try? await Task.sleep(for: .milliseconds(150))
+        let groupSelAfter = listVC.selectedURLs.map { $0.lastPathComponent }
+        record(listVC.uiTestRowCount == rowsBefore && listVC.uiTestItemRowCount == itemsBefore
+               && listVC.uiTestGroupHeaderCount == 3 && groupSelBefore == groupSelAfter && !groupSelBefore.isEmpty
+               && listVC.uiTestGroupHeaderIsBackgroundBar,
+               "M26 组头是背景条不可折叠（行数 \(rowsBefore)→\(listVC.uiTestRowCount) 项行 \(itemsBefore)→\(listVC.uiTestItemRowCount) 选中 \(groupSelBefore)→\(groupSelAfter) 有底色=\(listVC.uiTestGroupHeaderIsBackgroundBar)）")
+        capture(window, "31b-group-bar")
         let expandedBack = listVC.uiTestItemRowCount == 6
 
         // ③ 仅显示此组 → 表中仅剩该组行且过滤提示可见；显示全部还原
@@ -2789,12 +2872,10 @@ enum UISelfTest {
             record(iconVC.uiTestSectionCount == 3 && Set(iTitles) == Set(expectTitles),
                    "M26v2 图标视图分组 section==3 相对桶标题正确（\(iTitles)）")
             capture(window, "31d-icon-grouping")
-            iconVC.uiTestToggleFirstGroup()
-            try? await Task.sleep(for: .milliseconds(200))
-            record(iconVC.uiTestCollapsedCount == 1 && iconVC.uiTestSectionCount == 3,
-                   "M26v2 图标视图折叠首组（collapsed=\(iconVC.uiTestCollapsedCount) section=\(iconVC.uiTestSectionCount)）")
-            iconVC.uiTestToggleFirstGroup()   // 展开还原
-            try? await Task.sleep(for: .milliseconds(150))
+            // 图标视图同样：组头是背景条，不折叠（不留"一半可折一半不可折"的分裂状态）
+            record(iconVC.uiTestSectionCount == 3 && iconVC.uiTestGroupHeaderIsBackgroundBar
+                   && !iconVC.uiTestGroupHeaderIsClickable,
+                   "M26v2 图标视图组头是背景条不可折叠（section=\(iconVC.uiTestSectionCount) 有底色=\(iconVC.uiTestGroupHeaderIsBackgroundBar) 可点=\(iconVC.uiTestGroupHeaderIsClickable)）")
             iconVC.uiTestFilterFirstGroup()
             try? await Task.sleep(for: .milliseconds(200))
             let iFilterOK = iconVC.uiTestSectionCount == 1 && iconVC.uiTestFilterPillVisible

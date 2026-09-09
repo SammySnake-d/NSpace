@@ -177,8 +177,16 @@ final class FileColumnViewController: NSViewController {
     }
 
     /// 仅重绘（剪切灰显变化）
+    /// 仅重绘（剪切灰显变化）。
+    /// **不能用 reloadData()**：它会把选中清空，而"重绘"语义里行没变、选中就不该变
+    /// （用户报告：⌘C 之后选中框消失）。按行/列重载会保留选中。
     func redraw() {
-        columns.forEach { $0.tableView.reloadData() }
+        for col in columns {
+            let tv = col.tableView
+            guard tv.numberOfRows > 0, tv.numberOfColumns > 0 else { continue }
+            tv.reloadData(forRowIndexes: IndexSet(integersIn: 0..<tv.numberOfRows),
+                          columnIndexes: IndexSet(integersIn: 0..<tv.numberOfColumns))
+        }
     }
 
     /// 按 URL 集恢复选中（视图模式切换迁移）：落在叶列，装载完成后应用

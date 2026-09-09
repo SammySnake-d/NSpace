@@ -109,6 +109,7 @@ private final class ConflictSheetController: NSObject {
     private let dstLabel = NSTextField(labelWithString: "")
     private let applyFolderCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private var mergeButton: NSButton?
+    private var keepBothButton: NSButton?
 
     static func present(_ conflicts: [FileConflict],
                         completion: @escaping ([URL: ConflictDecision]?) -> Void) {
@@ -155,6 +156,7 @@ private final class ConflictSheetController: NSObject {
         configureRow(icon: dstIcon, label: dstLabel, title: L10n.t("conflict.existing"), url: conflict.existing)
         // 合并仅对「双方都是目录」有意义；文件冲突禁用（保持三按钮布局一致，禁用即诚实不可点）
         mergeButton?.isEnabled = conflict.bothDirectories
+        keepBothButton?.isEnabled = true   // 文件与文件夹都可以改名共存
         // checkbox 每次面板出现（每文件夹）重置为未勾——勾选是对"这一次这个文件夹"的显式批量选择
         applyFolderCheck.state = .off
     }
@@ -173,6 +175,9 @@ private final class ConflictSheetController: NSObject {
 
     @objc private func onReplace() { apply(.replace) }
     @objc private func onMerge() { apply(.mergeFolders) }
+    /// 两者保留：自动改名共存（`文件 2.txt`）。引擎侧 `.keepBoth` 早就实现了
+    /// （含批内撞名去重），旧版只是没给按钮——用户报告"只有合并、取消，没有改名"。
+    @objc private func onKeepBoth() { apply(.keepBoth) }
     @objc private func onCancel() { machine.cancel(); finish(nil) }
 
     private func apply(_ d: ConflictDecision) {
@@ -211,8 +216,9 @@ private final class ConflictSheetController: NSObject {
         // 三按钮：取消 / 合并 / 替换（右对齐，替换为默认=回车）
         let cancelB = makeButton("conflict.cancel", #selector(onCancel)); cancelB.keyEquivalent = "\u{1b}"
         let mergeB = makeButton("conflict.merge", #selector(onMerge)); mergeButton = mergeB
+        let keepBothB = makeButton("conflict.keepBoth", #selector(onKeepBoth)); keepBothButton = keepBothB
         let replaceB = makeButton("conflict.replace", #selector(onReplace)); replaceB.keyEquivalent = "\r"
-        let buttonStack = NSStackView(views: [cancelB, mergeB, replaceB])
+        let buttonStack = NSStackView(views: [cancelB, mergeB, keepBothB, replaceB])
         buttonStack.orientation = .horizontal
         buttonStack.spacing = 8
 

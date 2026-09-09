@@ -173,7 +173,8 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     // 分组视图态（M26 v2）：section↔model 下标映射的唯一真源，别处严禁散落 index 算术。
     // 不分组时为单 section 全量（identity 映射）；分组时每 section 一组。
     private var sections: [FileGrouping.Group] = []
-    private var collapsedGroups: Set<String> = []
+    // 折叠已取消（用户要求：分组头印在背景条上，不是可伸缩控件）。
+    // 保留一个恒空集合会留下"看着能折其实不能"的半截实现，所以整块拿掉。
     private var groupFilterKey: String?
     private let filterPill = FilterPillButton(frame: .zero)
 
@@ -393,11 +394,10 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         flowLayout.invalidateLayout()
     }
 
-    /// section+item 下标 → model.items 下标（折叠 section 无可见项 → nil）
+    /// section+item 下标 → model.items 下标
     private func modelIndex(at ip: IndexPath) -> Int? {
         guard sections.indices.contains(ip.section) else { return nil }
         let sec = sections[ip.section]
-        if groupingActive, collapsedGroups.contains(sec.key) { return nil }
         guard sec.indices.indices.contains(ip.item) else { return nil }
         return sec.indices[ip.item]
     }
@@ -407,10 +407,9 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         return model.items[i]
     }
 
-    /// model 下标 → indexPath（在折叠/被过滤 section 内 → nil）
+    /// model 下标 → indexPath（在被过滤掉的 section 内 → nil）
     private func indexPath(forModelIndex idx: Int) -> IndexPath? {
         for (s, sec) in sections.enumerated() {
-            if groupingActive, collapsedGroups.contains(sec.key) { continue }
             if let pos = sec.indices.firstIndex(of: idx) { return IndexPath(item: pos, section: s) }
         }
         return nil
@@ -442,11 +441,6 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         rebuildAndReloadPreservingSelection()
     }
 
-    private func toggleGroup(key: String) {
-        if collapsedGroups.contains(key) { collapsedGroups.remove(key) } else { collapsedGroups.insert(key) }
-        rebuildAndReloadPreservingSelection()
-    }
-
     private func applyGroupFilter(key: String) { groupFilterKey = key; rebuildAndReloadPreservingSelection() }
     @objc private func clearGroupFilter(_ sender: Any?) { groupFilterKey = nil; rebuildAndReloadPreservingSelection() }
     @objc private func groupFilterOnly(_ sender: NSMenuItem) {
@@ -458,8 +452,17 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     /// UISelfTest（M26 v2）：可见 section 数（分组开=组数；关=1）
     var uiTestSectionCount: Int { sections.count }
     var uiTestGroupTitles: [String] { sections.map(\.title) }
-    var uiTestCollapsedCount: Int { collapsedGroups.count }
-    func uiTestToggleFirstGroup() { if let k = sections.first?.key { toggleGroup(key: k) } }
+    /// 组头真有底色（"印在背景条上"）
+    var uiTestGroupHeaderIsBackgroundBar: Bool {
+        let h = IconGroupHeaderView(frame: .zero)
+        guard let bg = h.layer?.backgroundColor else { return false }
+        return bg.alpha > 0.01
+    }
+    /// 组头是否还接单击（折叠已取消 → 必须为 false）
+    var uiTestGroupHeaderIsClickable: Bool {
+        IconGroupHeaderView.instancesRespond(to: #selector(NSView.mouseDown(with:)))
+            && IconGroupHeaderView.uiTestOverridesMouseDown
+    }
     func uiTestFilterFirstGroup() { if let k = sections.first?.key { applyGroupFilter(key: k) } }
     func uiTestClearFilter() { groupFilterKey = nil; rebuildAndReloadPreservingSelection() }
 
@@ -739,7 +742,6 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
 
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
         guard sections.indices.contains(section) else { return 0 }
-        if groupingActive, collapsedGroups.contains(sections[section].key) { return 0 }
         return sections[section].indices.count
     }
 
@@ -754,18 +756,18 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
         return item
     }
 
-    /// 分组组头（悬浮 section header）：折叠三角 + 「2026年8月」 + 项数；点击折叠、右键过滤（M26 v2）
+    /// 分组组头：印在背景条上的「2026年8月」+ 项数。不可折叠（用户要求：不要伸缩），
+    /// 右键仍可按组过滤（那是另一件事，没被取消）。
     func collectionView(_ collectionView: NSCollectionView,
                         viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind,
                         at indexPath: IndexPath) -> NSView {
         let header = collectionView.makeSupplementaryView(
             ofKind: kind, withIdentifier: IconGroupHeaderView.reuseID, for: indexPath) as! IconGroupHeaderView
         guard groupingActive, sections.indices.contains(indexPath.section) else {
-            header.configure(title: "", count: 0, collapsed: false); return header
+            header.configure(title: "", count: 0); return header
         }
         let g = sections[indexPath.section]
-        header.configure(title: g.title, count: g.indices.count, collapsed: collapsedGroups.contains(g.key))
-        header.onToggle = { [weak self] in self?.toggleGroup(key: g.key) }
+        header.configure(title: g.title, count: g.indices.count)
         header.menuProvider = { [weak self] in self?.buildGroupMenu(key: g.key) }
         return header
     }
@@ -889,36 +891,32 @@ extension FileIconGridViewController: @preconcurrency QLPreviewPanelDataSource, 
     }
 }
 
-/// 图标视图分组组头（NSCollectionView section header，M26 v2）：折叠三角 + 「2026年8月」 + 项数。
-/// 整块可点击切折叠（onToggle）；右键出「仅显示此组/显示全部组」过滤菜单（menuProvider）。
+/// 图标视图分组组头（NSCollectionView section header，M26 v2）：
+/// 印在背景条上的「2026年8月」+ 项数。**不可折叠**（用户要求：像 QSpace，不要伸缩）——
+/// 去掉了折叠三角与整块点击，一个长得像按钮却什么都不做的箭头比没有箭头更糟。
+/// 右键仍出「仅显示此组/显示全部组」过滤菜单（那是另一件事，没被取消）。
 @MainActor
 final class IconGroupHeaderView: NSView {
     static let reuseID = NSUserInterfaceItemIdentifier("iconGroupHeader")
 
-    var onToggle: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
 
-    private let chevron = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        chevron.contentTintColor = .secondaryLabelColor
-        chevron.translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)  // tabular-nums
         countLabel.textColor = .secondaryLabelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
-        for v in [chevron, titleLabel, countLabel] { addSubview(v) }
+        for v in [titleLabel, countLabel] { addSubview(v) }
         NSLayoutConstraint.activate([
-            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 12),
-            chevron.heightAnchor.constraint(equalToConstant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -929,15 +927,17 @@ final class IconGroupHeaderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
-    func configure(title: String, count: Int, collapsed: Bool) {
-        chevron.image = NSImage.officialSymbol(collapsed ? "chevron.right" : "chevron.down",
-                                               fallback: collapsed ? "arrowtriangle.right.fill"
-                                                                    : "arrowtriangle.down.fill",
-                                               accessibility: title)
+    func configure(title: String, count: Int) {
         titleLabel.stringValue = title
         countLabel.stringValue = L10n.f("group.count", count)
     }
 
-    override func mouseDown(with event: NSEvent) { onToggle?() }
     override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
+
+    /// 自测口径：本类是否自己覆写了 mouseDown（折叠取消后必须为 false）。
+    /// 直接判"有没有这个方法"没用——NSView 本来就有；要判的是**本类**有没有覆写。
+    static var uiTestOverridesMouseDown: Bool {
+        class_getInstanceMethod(IconGroupHeaderView.self, #selector(NSView.mouseDown(with:)))
+            != class_getInstanceMethod(NSView.self, #selector(NSView.mouseDown(with:)))
+    }
 }
