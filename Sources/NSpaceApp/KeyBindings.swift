@@ -27,6 +27,7 @@ enum KeyBindings {
         Entry(id: "cycleWorkspace", titleKey: "menu.nextWorkspace", defaultKey: "\t", defaultMods: [.control]),
         Entry(id: "cycleWorkspaceBack", titleKey: "menu.prevWorkspace", defaultKey: "\t", defaultMods: [.control, .shift]),
         Entry(id: "newFolder", titleKey: "menu.newFolder", defaultKey: "n", defaultMods: [.command, .shift]),
+        Entry(id: "newFile", titleKey: "menu.newFile", defaultKey: "n", defaultMods: [.command, .option]),
         Entry(id: "quickLook", titleKey: "menu.quickLook", defaultKey: " ", defaultMods: []),
         Entry(id: "getInfo", titleKey: "menu.getInfo", defaultKey: "i", defaultMods: [.command]),
         Entry(id: "duplicate", titleKey: "menu.duplicate", defaultKey: "d", defaultMods: [.command]),

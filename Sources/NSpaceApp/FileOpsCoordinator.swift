@@ -65,9 +65,11 @@ final class FileOpsCoordinator {
         Toast.show(String(format: L10n.t("toast.cutN"), urls.count), in: grid?.view.window)
     }
 
-    func paste(into directory: URL) {
+    func paste(into directory: URL, revealIn list: FileRevealTarget? = nil) {
         let urls = readPasteboardURLs()
-        guard !urls.isEmpty else { NSSound.beep(); return }
+        // 剪贴板里没有文件时，把**内容**粘成一个新文件（文本/图片/PDF/RTF）。
+        // 旧版直接 beep——用户从浏览器或截图复制的东西在这儿完全落不了地。
+        guard !urls.isEmpty else { pasteContentAsNewFile(into: directory, revealIn: list); return }
         // 剪切态且粘贴项恰为被剪切集 → 移动；否则复制
         let isMove = !cutURLs.isEmpty && urls.allSatisfy { cutURLs.contains($0) }
         // M27-B：同目录复制粘贴不再静默退化为"制作副本"——走正常 copy 触发自源冲突，
@@ -76,6 +78,44 @@ final class FileOpsCoordinator {
         run(spec) { [weak self] _ in
             if isMove { self?.cutURLs = []; self?.redrawLists() }
         }
+    }
+
+    /// 剪贴板内容 → 新文件。类型优先级：PNG → TIFF → PDF → RTF → 纯文本。
+    /// 内容不在本层落盘（BG-1）：随 `newFile` Command 交给内核，由 LocalOps 写。
+    /// pasteboard 可注入（自测走私有板，不碰用户真实剪贴板）。
+    func pasteContentAsNewFile(into directory: URL, revealIn list: FileRevealTarget? = nil,
+                               from pasteboard: NSPasteboard = .general) {
+        guard let payload = Self.contentPayload(from: pasteboard) else {
+            NSSound.beep()
+            Toast.show(L10n.t("toast.pasteNothing"), in: grid?.view.window)
+            return
+        }
+        run(OperationSpec(kind: .newFile, sources: [], destination: directory,
+                          newName: payload.name, contents: payload.data)) { [weak self] receipt in
+            guard let self, let url = receipt?.createdURLs.first else { return }
+            // 落地后在列表里选中它。rename: false——名字是按内容类型推导的，
+            // 直接弹重命名框会打断"粘完就用"的动作
+            list?.prepareReveal(url, rename: false)
+            Toast.show(L10n.f("toast.pastedAsFile", url.lastPathComponent),
+                       in: self.grid?.view.window)
+        }
+    }
+
+    /// 从剪贴板取「内容 + 建议文件名」。纯函数（pasteboard 入参），可确定性单测。
+    nonisolated static func contentPayload(from pb: NSPasteboard) -> (name: String, data: Data)? {
+        // 顺序即优先级：图片类先于文本，否则从浏览器复制的图片会退化成一段 HTML 文本
+        let candidates: [(NSPasteboard.PasteboardType, String)] = [
+            (.png, "png"), (.tiff, "tiff"), (.pdf, "pdf"), (.rtf, "rtf"),
+        ]
+        for (type, ext) in candidates {
+            if let d = pb.data(forType: type), !d.isEmpty {
+                return (L10n.t("paste.imageBaseName") + "." + ext, d)
+            }
+        }
+        if let s = pb.string(forType: .string), !s.isEmpty {
+            return (L10n.t("paste.textBaseName") + ".txt", Data(s.utf8))
+        }
+        return nil
     }
 
     /// 拷贝路径。pasteboard 可注入：默认写系统剪贴板（产品行为），自测注入私有板——

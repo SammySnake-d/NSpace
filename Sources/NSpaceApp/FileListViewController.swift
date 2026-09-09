@@ -27,7 +27,9 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     var onContentChange: (() -> Void)?
 
     let tableView = FocusReportingTableView()   // internal：UISelfTest I-26 列头排序断言需驱动 sortDescriptors
-    private let scrollView = NSScrollView()
+    private let scrollView = BlankAreaScrollView()
+    /// 列表底部恒留的空白高度（4pt 阶梯）：专门接"空白处右键"
+    static let blankTailHeight: CGFloat = 40
     private let emptyLabel = NSTextField(labelWithString: "")
 
     /// 操作完成后待显露（选中/进入重命名）的目标
@@ -85,6 +87,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.onInteract = { [weak self] in self?.onInteract?() }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         tableView.onReturn = { [weak self] in self?.beginRenameSelected() }
+        // 单击已选中项 → 重命名（用户报告：只有 Enter 能触发）。谓词与延迟在表视图里，
+        // 这里只接落点；废纸篓里不给改名（改了也只是改废纸篓里那份，没意义）
+        tableView.onSingleClickRename = { [weak self] row in
+            guard let self, !TrashLocation.isInsideTrash(self.currentDirectory) else { return }
+            self.beginRename(row: row)
+        }
         tableView.onOpenSelected = { [weak self] in self?.openSelected(nil) }
         tableView.onBackspaceAction = { [weak self] in self?.handleBackspace() }
         tableView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
@@ -117,6 +125,12 @@ final class FileListViewController: NSViewController, FileRevealTarget {
         tableView.headerView?.menu = headerMenu
 
         scrollView.documentView = tableView
+        // 底部恒留一块可右键的空白（用户报告：内容铺满时「没有留出空白的位置，我没有地方点」）。
+        // 走 contentInsets 而不是加假行：表的数据源不被污染，且这块区域落在 clip view 上，
+        // 由 BlankAreaScrollView.menu(for:) 出目录级菜单。
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: Self.blankTailHeight, right: 0)
+        scrollView.onBlankMenu = { [weak self] in self?.buildMenu(clickedRow: -1) }
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         // 滚动/尺寸变化 → 重算可见行装饰请求（只对可见行发请求，滚出取消）
@@ -648,7 +662,13 @@ final class FileListViewController: NSViewController, FileRevealTarget {
     /// 放回原处（仅废纸篓内；只对台账里有记录的项有效，其余诚实置灰）
     @objc func putBackItems(_ sender: Any?) { coordinator?.putBack(selectedURLs) }
 
-    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: currentDirectory) }
+    // ---- 自测通道（I-65）----
+    /// 真实 scrollView 的底部内缩（不复刻常量：常量改了而接线没改，这条才会红）
+    var uiTestBottomInset: CGFloat { scrollView.contentInsets.bottom }
+    /// 走 BlankAreaScrollView 真实注入的回调（不直调 buildMenu，否则接线断了也验不出）
+    func uiTestBlankAreaMenu() -> NSMenu? { scrollView.onBlankMenu?() }
+
+    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: currentDirectory, revealIn: self) }
     /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
     /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
     /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。

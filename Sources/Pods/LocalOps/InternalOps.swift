@@ -53,15 +53,26 @@ extension LocalOpsNode {
         guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
             throw LocalOpsError(.external, "目标目录不可用: \(dir.lastPathComponent)", path: dir.path)
         }
-        let base = (spec.newName?.isEmpty == false) ? spec.newName! : defaultBase
-        let name = uniqueName(base: base, ext: "", in: dir)
+        let raw = (spec.newName?.isEmpty == false) ? spec.newName! : defaultBase
+        // 带内容时（⌘V 粘成新文件）名字里有扩展名，必须拆开去重：
+        // 否则 uniqueName(ext: "") 会产出「粘贴的文本.txt 2」而不是「粘贴的文本 2.txt」。
+        // 不带内容时口径完全不变（既有 newFile 断言不受影响）。
+        let name: String
+        if spec.contents != nil {
+            let ext = (raw as NSString).pathExtension
+            let stem = (raw as NSString).deletingPathExtension
+            name = uniqueName(base: stem.isEmpty ? defaultBase : stem, ext: ext, in: dir)
+        } else {
+            name = uniqueName(base: raw, ext: "", in: dir)
+        }
         let url = dir.appendingPathComponent(name)
-        context.report(.scanTotals(files: 1, bytes: 0))
+        let bytes = Int64(spec.contents?.count ?? 0)
+        context.report(.scanTotals(files: 1, bytes: bytes))
         do {
             if isDirectory {
                 try fm.createDirectory(at: url, withIntermediateDirectories: false)
             } else {
-                guard fm.createFile(atPath: url.path, contents: Data()) else {
+                guard fm.createFile(atPath: url.path, contents: spec.contents ?? Data()) else {
                     throw LocalOpsError(.external, "无法创建文件: \(name)", path: url.path)
                 }
             }
@@ -70,8 +81,8 @@ extension LocalOpsNode {
         } catch {
             throw LocalOpsError(.external, "新建失败: \(error.localizedDescription)", path: url.path)
         }
-        context.report(.progress(filesDone: 1, bytesDone: 0, currentPath: url.path))
-        return OperationReceipt(id: context.operationID, filesDone: 1, bytesDone: 0,
+        context.report(.progress(filesDone: 1, bytesDone: bytes, currentPath: url.path))
+        return OperationReceipt(id: context.operationID, filesDone: 1, bytesDone: bytes,
                                 duration: Date().timeIntervalSince(started), createdURLs: [url])
     }
 

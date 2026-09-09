@@ -39,6 +39,9 @@ enum MainMenu {
         let newFolderItem = fileMenu.addItem(withTitle: L10n.t("menu.newFolder"),
                                              action: #selector(FileListViewController.newFolderHere(_:)), keyEquivalent: "")
         KeyBindings.apply("newFolder", to: newFolderItem)
+        let newFileItem = fileMenu.addItem(withTitle: L10n.t("menu.newFile"),
+                                           action: #selector(FileListViewController.newFileHere(_:)), keyEquivalent: "")
+        KeyBindings.apply("newFile", to: newFileItem)
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: L10n.t("menu.open"),
                          action: #selector(FileListViewController.openSelected(_:)), keyEquivalent: "o")

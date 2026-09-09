@@ -171,4 +171,45 @@ import NSpaceContracts
                 context: Self.context())
         }
     }
+    // MARK: newFile 带内容（⌘V 把剪贴板内容粘成新文件，v0.19.20）
+
+    @Test func newFileWritesProvidedContents() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let payload = Data("hello from clipboard".utf8)
+        let r = try await LocalOpsNode().execute(
+            OperationSpec(kind: .newFile, sources: [], destination: dir,
+                          newName: "粘贴的文本.txt", contents: payload),
+            context: Self.context())
+        let url = try #require(r.createdURLs.first)
+        #expect(url.lastPathComponent == "粘贴的文本.txt")
+        #expect(try Data(contentsOf: url) == payload)
+        #expect(r.bytesDone == Int64(payload.count))
+    }
+
+    /// 重名时必须在**扩展名之前**加序号：`粘贴的文本 2.txt`，不是 `粘贴的文本.txt 2`
+    @Test func newFileWithContentsDedupesBeforeExtension() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let payload = Data("x".utf8)
+        let spec = OperationSpec(kind: .newFile, sources: [], destination: dir,
+                                 newName: "粘贴的文本.txt", contents: payload)
+        let first = try await LocalOpsNode().execute(spec, context: Self.context())
+        let second = try await LocalOpsNode().execute(spec, context: Self.context())
+        #expect(first.createdURLs.first?.lastPathComponent == "粘贴的文本.txt")
+        #expect(second.createdURLs.first?.lastPathComponent == "粘贴的文本 2.txt",
+                "实得 \(second.createdURLs.first?.lastPathComponent ?? "nil")")
+    }
+
+    /// 不带内容时命名口径**一分不变**（既有 newFile 行为不许被这次改动带偏）
+    @Test func newFileWithoutContentsKeepsLegacyNaming() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let r = try await LocalOpsNode().execute(
+            OperationSpec(kind: .newFile, sources: [], destination: dir, newName: "未命名"),
+            context: Self.context())
+        #expect(r.createdURLs.first?.lastPathComponent == "未命名")
+        #expect(r.bytesDone == 0)
+        #expect(try Data(contentsOf: r.createdURLs[0]).isEmpty)
+    }
 }

@@ -90,6 +90,12 @@
 "menu.rename" = "重命名";
 "menu.duplicate" = "制作副本";
 "menu.moveToTrash" = "移到废纸篓";
+"menu.newFile" = "新建文件";
+"settings.search.placeholder" = "搜索设置项…";
+"toast.pasteNothing" = "剪贴板里没有可粘贴的内容";
+"toast.pastedAsFile" = "已粘贴为 %@";
+"paste.textBaseName" = "粘贴的文本";
+"paste.imageBaseName" = "粘贴的图片";
 "menu.newFolder" = "新建文件夹";
 "menu.getInfo" = "显示简介";
 "menu.openInTerminal" = "在终端打开";

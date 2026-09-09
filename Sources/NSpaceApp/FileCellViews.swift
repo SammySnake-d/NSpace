@@ -39,6 +39,30 @@ final class FocusReportingTableView: NSTableView {
     /// 用于区分"纯单击已选中行"(需抢先收敛) 与"拖拽多选"(选中保持不动)。
     var dragInitiated = false
 
+    /// 单击已选中项 → 重命名（用户报告：只有 Enter 能触发）。
+    /// `onSingleClickRename` 由 FileListViewController 接到 beginRename(row:)。
+    var onSingleClickRename: ((Int) -> Void)?
+    /// 待触发的重命名（等一个双击间隔；双击到来即作废）
+    private var pendingRenameToken = 0
+
+    /// 单击重命名的决策谓词（纯函数，可确定性单测）。
+    /// 只有「**恰好单选** + 点在那个已选中的行 + 无修饰键 + 单击」才算。
+    /// 为什么排除多选：那一手势已经归 I-43 的"抢先收敛选区"，两者抢同一个动作时收敛优先——
+    /// 收敛本身就是一次选中变更，紧接着弹出重命名框会很突兀。
+    static func shouldScheduleRename(clickedRow: Int, modifiers: NSEvent.ModifierFlags,
+                                     clickCount: Int, selectedCount: Int,
+                                     rowIsSelected: Bool, isGroupRow: Bool) -> Bool {
+        clickedRow >= 0
+            && !isGroupRow
+            && modifiers.intersection([.command, .shift, .option, .control]).isEmpty
+            && clickCount == 1
+            && selectedCount == 1
+            && rowIsSelected
+    }
+
+    /// 取消待触发的重命名（双击、导航、键盘操作都要作废它）
+    func cancelPendingRename() { pendingRenameToken += 1 }
+
     /// I-43 决策谓词（纯函数，可确定性单测）：是否需要在 super.mouseDown 后抢先把选中收敛为单选。
     /// 仅「无修饰键 + 单击(非双击) + 当前多选 + 点在已选中行」时为真——此即 AppKit 会等双击间隔的场景。
     static func shouldPreemptCollapse(clickedRow: Int, modifiers: NSEvent.ModifierFlags,
@@ -74,10 +98,34 @@ final class FocusReportingTableView: NSTableView {
             }
             return
         }
+        // 双击：作废待触发的重命名（否则先弹重命名框、再被"打开"顶掉，两个动作打架）
+        if event.clickCount >= 2 { cancelPendingRename() }
+
+        // 单击已选中项 → 重命名。必须**等满一个双击间隔**再动手：
+        // 立刻重命名的话，用户想双击进入时会先看到重命名框弹出来一下。
+        let willScheduleRename = Self.shouldScheduleRename(
+            clickedRow: row, modifiers: event.modifierFlags, clickCount: event.clickCount,
+            selectedCount: selectedRowIndexes.count,
+            rowIsSelected: selectedRowIndexes.contains(row),
+            isGroupRow: row >= 0 && isGroupRowProvider?(row) == true)
+
         super.mouseDown(with: event)
+
+        if willScheduleRename, let fire = onSingleClickRename {
+            pendingRenameToken += 1
+            let token = pendingRenameToken
+            let delay = NSEvent.doubleClickInterval
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.pendingRenameToken == token else { return }   // 期间被双击/导航作废
+                guard self.selectedRowIndexes.count == 1,
+                      self.selectedRowIndexes.contains(row) else { return }        // 选中已变，不动手
+                fire(row)
+            }
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        cancelPendingRename()
         onInteract?()
         super.rightMouseDown(with: event)
     }
@@ -103,6 +151,7 @@ final class FocusReportingTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
+        cancelPendingRename()   // 键盘一动就作废「单击待重命名」，避免打字打到一半冒出输入框
         // 纯 ⌘↑/⌘↓ 落到表 = 导航菜单未接（禁用态）——吞掉，不让默认"跳选行"顶替导航语义（I-39）；
         // 带 ⇧/⌥/⌃ 的组合（如 ⇧⌘↓ 扩选）不吞，保持系统行为
         if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
@@ -362,5 +411,19 @@ final class TextCellView: NSTableCellView {
         }
         label.attributedStringValue = s
         label.alignment = alignment
+    }
+}
+
+/// 底部留白可右键的滚动视图：`contentInsets.bottom` 让出的那条带子落在 clip view 上，
+/// 表视图收不到那儿的点击，于是事件上浮到本层——在这里出目录级菜单。
+///
+/// 为什么不用"加几行假的空行"：那会污染表的数据源，行数、选中、分组计数全要跟着说谎。
+@MainActor
+final class BlankAreaScrollView: NSScrollView {
+    /// 空白区右键 → 目录级菜单（由 FileListViewController 提供，与 clickedRow: -1 同一份）
+    var onBlankMenu: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        onBlankMenu?() ?? super.menu(for: event)
     }
 }

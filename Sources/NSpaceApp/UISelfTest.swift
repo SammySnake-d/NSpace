@@ -141,6 +141,12 @@ enum UISelfTest {
             await runBreadcrumbHitScenario(wc: wc, window: window)
 
             if focusI37 { return finish() }   // 聚焦模式：I-37 验完即收尾
+
+            // ── 场景 I-65：⌘V 粘成新文件 / 单击已选中项重命名 / 底部留白 / 新建文件快捷键 ──
+            await runPasteAndRenameScenario(wc: wc, window: window)
+
+            // ── 场景 I-66：设置项搜索框（搜得到 + 跳得到对应页）──────────────────────
+            await runSettingsSearchScenario(window: window)
             // ── 场景 M26：列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关 ─────────
             // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
             await runGroupingScenario(wc: wc, window: window)
@@ -773,11 +779,14 @@ enum UISelfTest {
         // 空白区目录菜单
         let dirMenu = FileContextMenuBuilder.menu(selection: [], directory: sandbox, target: listVC)
         let dirActions = Set(dirMenu.items.compactMap { $0.action })
+        // v0.19.20 起加了「新建文件」（用户报告：内容铺满时没有空白可右键）→ 5 项变 6 项
         let dirKey = dirActions.contains(#selector(FileListViewController.newFolderHere(_:)))
+            && dirActions.contains(#selector(FileListViewController.newFileHere(_:)))
             && dirActions.contains(#selector(FileListViewController.pasteItems(_:)))
             && dirActions.contains(#selector(FileListViewController.getInfo(_:)))
             && dirActions.contains(#selector(FileListViewController.openInTerminal(_:)))
-        record(dirMenu.items.count == 5 && dirKey, "空白区目录菜单项数=5 且含新建/粘贴/简介/终端")
+        record(dirMenu.items.count == 6 && dirKey,
+               "空白区目录菜单项数=6 且含新建文件夹/新建文件/粘贴/简介/终端（实得 \(dirMenu.items.count)）")
 
         // M23-10：任务窗手动开关 → 真的可见/隐藏（不是只看没崩）；复用场景3 的 progress
         progress.toggleVisible(nil)
@@ -1961,6 +1970,155 @@ enum UISelfTest {
         }
     }
 
+    /// 场景 I-65：五条用户报告——⌘V 把剪贴板内容粘成新文件、单击已选中项触发重命名、
+    /// 列表底部恒留可右键的空白、新建文件有快捷键。全部验"真实效果"。
+    private static func runPasteAndRenameScenario(wc: MainWindowController, window: NSWindow) async {
+        let fs = FileManager.default
+        let pane = wc.grid.activePane
+        let tok = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory
+            .appendingPathComponent("nspace-uitest-i65-\(tok)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        record(assertSandboxed(box), "沙箱守卫[I-65]: 粘贴/重命名夹具在自建临时目录内")
+        guard assertSandboxed(box) else { return }
+        defer { try? fs.removeItem(at: box) }
+
+        // ① 剪贴板推导：图片优先于文本。浏览器复制图片时剪贴板里**同时**有 PNG 和一段 HTML
+        //   文本，文本优先会让用户得到一个 .txt 而不是图片——顺序即优先级，必须钉住。
+        let pbImg = NSPasteboard(name: NSPasteboard.Name("nspace.uitest.i65a.\(tok)"))
+        pbImg.clearContents()
+        pbImg.setString("<img src=...>", forType: .string)
+        pbImg.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        let imgPayload = FileOpsCoordinator.contentPayload(from: pbImg)
+
+        let pbTxt = NSPasteboard(name: NSPasteboard.Name("nspace.uitest.i65b.\(tok)"))
+        pbTxt.clearContents()
+        pbTxt.setString("hello", forType: .string)
+        let txtPayload = FileOpsCoordinator.contentPayload(from: pbTxt)
+
+        let pbEmpty = NSPasteboard(name: NSPasteboard.Name("nspace.uitest.i65c.\(tok)"))
+        pbEmpty.clearContents()
+        pbEmpty.setString("", forType: .string)
+        let emptyPayload = FileOpsCoordinator.contentPayload(from: pbEmpty)
+
+        record(imgPayload?.name.hasSuffix(".png") == true
+               && imgPayload?.data == Data([0x89, 0x50, 0x4E, 0x47])
+               && txtPayload?.name.hasSuffix(".txt") == true
+               && txtPayload?.data == Data("hello".utf8)
+               && emptyPayload == nil,
+               "I-65 剪贴板推导：图片优先于文本、空内容不成文件（图=\(imgPayload?.name ?? "nil") 文=\(txtPayload?.name ?? "nil") 空=\(emptyPayload == nil ? "nil" : "非nil")）")
+
+        // ② ⌘V 真落地成新文件（走 coordinator 真实链路 → 内核 → LocalOps 写盘）
+        pane.uiTestEndPathEditing()
+        pane.navigate(to: box)
+        _ = await pollFS { pane.uiTestViewCurrentDirectory.standardizedFileURL.path
+                            == box.standardizedFileURL.path }
+        wc.coordinator.pasteContentAsNewFile(into: box, from: pbTxt)
+        let landed = await pollFS {
+            ((try? fs.contentsOfDirectory(atPath: box.path)) ?? []).contains { $0.hasSuffix(".txt") }
+        }
+        let name = ((try? fs.contentsOfDirectory(atPath: box.path)) ?? []).first { $0.hasSuffix(".txt") }
+        let body = name.flatMap { try? Data(contentsOf: box.appendingPathComponent($0)) }
+        record(landed && body == Data("hello".utf8),
+               "I-65 ⌘V 把剪贴板内容粘成新文件（落地=\(landed) 名=\(name ?? "nil") 内容一致=\(body == Data("hello".utf8))）")
+        pbImg.releaseGlobally(); pbTxt.releaseGlobally(); pbEmpty.releaseGlobally()
+
+        // ③ 单击重命名谓词（纯函数，确定性）：多选归 I-43 的收敛，不抢同一手势
+        let renameSingle = FocusReportingTableView.shouldScheduleRename(
+            clickedRow: 3, modifiers: [], clickCount: 1,
+            selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        let renameUnselected = FocusReportingTableView.shouldScheduleRename(
+            clickedRow: 3, modifiers: [], clickCount: 1,
+            selectedCount: 1, rowIsSelected: false, isGroupRow: false)
+        let renameMulti = FocusReportingTableView.shouldScheduleRename(
+            clickedRow: 3, modifiers: [], clickCount: 1,
+            selectedCount: 3, rowIsSelected: true, isGroupRow: false)
+        let renameDouble = FocusReportingTableView.shouldScheduleRename(
+            clickedRow: 3, modifiers: [], clickCount: 2,
+            selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        let renameModified = FocusReportingTableView.shouldScheduleRename(
+            clickedRow: 3, modifiers: [.command], clickCount: 1,
+            selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        let renameGroup = FocusReportingTableView.shouldScheduleRename(
+            clickedRow: 3, modifiers: [], clickCount: 1,
+            selectedCount: 1, rowIsSelected: true, isGroupRow: true)
+        record(renameSingle && !renameUnselected && !renameMulti
+               && !renameDouble && !renameModified && !renameGroup,
+               "I-65 单击重命名谓词：仅「单选+点已选中行+无修饰+单击」为真（已选=\(renameSingle) 未选=\(renameUnselected) 多选=\(renameMulti) 双击=\(renameDouble) 带修饰=\(renameModified) 组头=\(renameGroup)）")
+
+        // ④ 底部恒留可右键的空白区（内容铺满时也有地方点）。
+        //   走真实 scrollView 的 contentInsets 与真实注入的回调，不复刻常量、不直调 buildMenu。
+        window.contentView?.layoutSubtreeIfNeeded()
+        let tailOK = FileListViewController.blankTailHeight >= 24
+        let insetOK = pane.uiTestListBottomInset == FileListViewController.blankTailHeight
+        let blankMenu = pane.uiTestBlankAreaMenu()
+        let blankHasNewFile = blankMenu?.items.contains {
+            $0.action == #selector(FileListViewController.newFileHere(_:))
+        } ?? false
+        record(tailOK && insetOK && blankHasNewFile,
+               "I-65 列表底部留白可右键出新建菜单（留白 \(Int(FileListViewController.blankTailHeight))pt inset=\(Int(pane.uiTestListBottomInset)) 菜单含新建文件=\(blankHasNewFile)）")
+
+        // ⑤ 新建文件有快捷键，且不和新建文件夹撞
+        let nf = KeyBindings.display("newFile")
+        let nd = KeyBindings.display("newFolder")
+        // 未绑定时 display 返回破折号「—」**不是空串**：第一版写 !nf.isEmpty，
+        // 把 newFile 的默认绑定抽掉照样绿（假绿，反证时抓到）。要判的是"真的有键"。
+        let bound = KeyBindings.binding("newFile")
+        record(!bound.key.isEmpty && nf != "—" && nf != nd,
+               "I-65 新建文件有快捷键且不与新建文件夹冲突（新建文件=\(nf) 新建文件夹=\(nd) 真有键=\(!bound.key.isEmpty)）")
+
+        pane.navigate(to: fs.homeDirectoryForCurrentUser)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// 场景 I-66：设置窗顶部的设置项搜索——用户要"所有配置都能搜索并跳转到对应配置项"。
+    /// 索引是从**已装配的视图树**现取的，所以断言也打在真实索引与真实跳转上。
+    private static func runSettingsSearchScenario(window: NSWindow) async {
+        let sc = SettingsWindowController.shared
+        sc.showWindow(nil)
+        try? await Task.sleep(for: .milliseconds(400))
+        sc.window?.contentView?.layoutSubtreeIfNeeded()
+
+        // ① 索引真的建起来了，而且覆盖到多个页签（只覆盖一页 = 遍历没走全）
+        let idxCount = sc.uiTestSearchIndexCount
+        let texts = sc.uiTestSearchIndexTexts
+        record(idxCount >= 20 && !texts.isEmpty,
+               "I-66 设置项索引从真实视图树建起（\(idxCount) 项）")
+
+        // ② 拿索引里**真实存在**的一条去搜（不写死某个中文词——文案改了这条就该红，
+        //    但不该因为我猜错了词而红）
+        let sample = texts.first { $0.count >= 2 && $0.count <= 12 } ?? texts.first ?? ""
+        let probe = String(sample.prefix(3))
+        sc.applySearch(probe)
+        try? await Task.sleep(for: .milliseconds(150))
+        let hitCount = sc.uiTestSearchResultCount
+        let listShown = sc.uiTestSearchResultsVisible
+        record(!probe.isEmpty && hitCount > 0 && listShown,
+               "I-66 输入即出结果（搜「\(probe)」得 \(hitCount) 条，结果区可见=\(listShown)）")
+
+        // ③ 点结果 → 真的切到那一页（跳转是这条需求的核心，不能只"搜得到"）
+        let wantTab = sc.uiTestSearchResultTabIndex(0)
+        // 先故意切到别的页，否则"本来就在那一页"会让断言真空通过
+        sc.uiTestSelectTab(wantTab == 0 ? 1 : 0)
+        try? await Task.sleep(for: .milliseconds(150))
+        let before = sc.uiTestSelectedTabIndex
+        let jumped = sc.jumpToResult(0)
+        try? await Task.sleep(for: .milliseconds(250))
+        let after = sc.uiTestSelectedTabIndex
+        record(jumped && wantTab >= 0 && before != wantTab && after == wantTab,
+               "I-66 点结果跳到对应页签（点前 \(before) → 点后 \(after)，目标 \(wantTab)）")
+
+        // ④ 清空搜索 → 结果区收起（否则它会一直占着设置窗顶部）
+        sc.applySearch("")
+        try? await Task.sleep(for: .milliseconds(150))
+        record(sc.uiTestSearchResultCount == 0 && !sc.uiTestSearchResultsVisible,
+               "I-66 清空搜索后结果区收起（条数 \(sc.uiTestSearchResultCount) 可见=\(sc.uiTestSearchResultsVisible)）")
+
+        sc.window?.close()
+        window.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
     private static func runTrashNavigationScenario(wc: MainWindowController, window: NSWindow) async {
         let fs = FileManager.default
         let pane = wc.grid.activePane
@@ -2251,7 +2409,7 @@ enum UISelfTest {
             let trashSel = #selector(FileListViewController.moveToTrash(_:))
             record(a1.contains(putBackSel) && !a1.contains(trashSel)
                    && a2.contains(trashSel) && !a2.contains(putBackSel)
-                   && inTrashMenu.items.count == 5,
+                   && inTrashMenu.items.count == 6,
                    "I-63 条目菜单按位置切换放回/移入（篓内 放回=\(a1.contains(putBackSel)) 移入=\(a1.contains(trashSel))；篓外 移入=\(a2.contains(trashSel)) 放回=\(a2.contains(putBackSel))；空白菜单仍 \(inTrashMenu.items.count) 项）")
         }
     }

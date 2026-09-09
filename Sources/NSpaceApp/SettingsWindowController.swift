@@ -22,6 +22,14 @@ final class SettingsWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
+    private let searchField = NSSearchField()
+    private let resultsTable = NSTableView()
+    private let resultsScroll = NSScrollView()
+    private var resultsHeight: NSLayoutConstraint!
+    private weak var tabsRef: NSTabView?
+    private var searchIndex: [SettingsSearch.Hit] = []
+    private var hits: [SettingsSearch.Hit] = []
+
     override func showWindow(_ sender: Any?) {
         refreshFinderState()
         refreshRevealState()
@@ -55,15 +63,101 @@ final class SettingsWindowController: NSWindowController {
         finder.view = buildFinderTab()
         tabs.addTabViewItem(finder)
 
+        // 顶部设置项搜索：索引从**已装配的视图树**里现取，所以永远等于界面本身
+        tabsRef = tabs
+        searchField.placeholderString = L10n.t("settings.search.placeholder")
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.target = self
+        searchField.action = #selector(searchChanged(_:))
+        searchField.sendsSearchStringImmediately = true
+        searchField.sendsWholeSearchString = false
+
+        resultsTable.headerView = nil
+        resultsTable.rowHeight = 22
+        resultsTable.style = .inset
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("hit"))
+        col.resizingMask = .autoresizingMask
+        resultsTable.addTableColumn(col)
+        resultsTable.dataSource = self
+        resultsTable.delegate = self
+        resultsTable.target = self
+        resultsTable.action = #selector(resultClicked(_:))
+        resultsScroll.documentView = resultsTable
+        resultsScroll.hasVerticalScroller = true
+        resultsScroll.borderType = .bezelBorder
+        resultsScroll.translatesAutoresizingMaskIntoConstraints = false
+        resultsScroll.isHidden = true
+
         let content = NSView()
+        content.addSubview(searchField)
         content.addSubview(tabs)
+        content.addSubview(resultsScroll)
+        resultsHeight = resultsScroll.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            tabs.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            searchField.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            searchField.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            searchField.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+
+            resultsScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 4),
+            resultsScroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            resultsScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            resultsHeight,
+
+            tabs.topAnchor.constraint(equalTo: resultsScroll.bottomAnchor, constant: 8),
             tabs.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             tabs.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
             tabs.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
         ])
         window?.contentView = content
+        // 索引在装配之后建一次（各页 makeView 已经跑过，视图树是完整的）
+        searchIndex = SettingsSearch.index(tabs)
+    }
+
+    // MARK: 设置项搜索
+
+    @objc private func searchChanged(_ sender: Any?) {
+        applySearch(searchField.stringValue)
+    }
+
+    /// internal：自测直接驱动它，不合成键盘事件
+    func applySearch(_ query: String) {
+        hits = SettingsSearch.matches(query, in: searchIndex)
+        resultsTable.reloadData()
+        let show = !hits.isEmpty
+        resultsScroll.isHidden = !show
+        // 高度跟条数走，最多 6 行；0 = 收起（隐藏视图照样占 Auto Layout 的位）
+        resultsHeight.constant = show ? CGFloat(min(hits.count, 6)) * resultsTable.rowHeight + 4 : 0
+    }
+
+    @objc private func resultClicked(_ sender: Any?) {
+        let row = resultsTable.clickedRow >= 0 ? resultsTable.clickedRow : resultsTable.selectedRow
+        jumpToResult(row)
+    }
+
+    /// internal：自测直接驱动（切页 + 滚到可见 + 闪高亮）
+    @discardableResult
+    func jumpToResult(_ row: Int) -> Bool {
+        guard hits.indices.contains(row), let tabs = tabsRef else { return false }
+        SettingsSearch.reveal(hits[row], in: tabs)
+        return true
+    }
+
+    // ---- 自测通道（I-65）----
+    var uiTestSearchIndexCount: Int { searchIndex.count }
+    var uiTestSearchResultCount: Int { hits.count }
+    var uiTestSearchResultsVisible: Bool { !resultsScroll.isHidden }
+    var uiTestSelectedTabIndex: Int {
+        guard let tabs = tabsRef, let sel = tabs.selectedTabViewItem else { return -1 }
+        return tabs.indexOfTabViewItem(sel)
+    }
+    var uiTestSearchIndexTexts: [String] { searchIndex.map(\.text) }
+    /// 自测切页（跳转断言要先切到别的页，否则本来就在那页会真空通过）
+    func uiTestSelectTab(_ i: Int) {
+        guard let tabs = tabsRef, tabs.tabViewItems.indices.contains(i) else { return }
+        tabs.selectTabViewItem(at: i)
+    }
+    func uiTestSearchResultTabIndex(_ row: Int) -> Int {
+        hits.indices.contains(row) ? hits[row].tabIndex : -1
     }
 
     // MARK: 通用页（Preferences 外部化项全暴露）
@@ -484,5 +578,39 @@ final class GlobalHotkeyRecorderButton: NSButton {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+    }
+}
+
+
+// MARK: - 设置项搜索结果表（数据源/委托）
+
+extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int { hits.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?,
+                   row: Int) -> NSView? {
+        guard hits.indices.contains(row) else { return nil }
+        let id = NSUserInterfaceItemIdentifier("settingsHit")
+        let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView)
+            ?? {
+                let c = NSTableCellView()
+                c.identifier = id
+                let tf = NSTextField(labelWithString: "")
+                tf.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
+                tf.lineBreakMode = .byTruncatingTail
+                tf.translatesAutoresizingMaskIntoConstraints = false
+                c.addSubview(tf)
+                c.textField = tf
+                NSLayoutConstraint.activate([
+                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: 4),
+                    tf.trailingAnchor.constraint(equalTo: c.trailingAnchor, constant: -4),
+                    tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+                ])
+                return c
+            }()
+        let h = hits[row]
+        // 带上"在哪一页"——只给项名字的话，用户跳过去还得自己找是哪一页
+        cell.textField?.stringValue = "\(h.text)  ·  \(h.tabLabel)"
+        return cell
     }
 }

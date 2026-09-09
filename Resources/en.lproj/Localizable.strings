@@ -90,6 +90,12 @@
 "menu.rename" = "Rename";
 "menu.duplicate" = "Duplicate";
 "menu.moveToTrash" = "Move to Trash";
+"menu.newFile" = "New File";
+"settings.search.placeholder" = "Search settings…";
+"toast.pasteNothing" = "Nothing pasteable on the clipboard";
+"toast.pastedAsFile" = "Pasted as %@";
+"paste.textBaseName" = "Pasted Text";
+"paste.imageBaseName" = "Pasted Image";
 "menu.newFolder" = "New Folder";
 "menu.getInfo" = "Get Info";
 "menu.openInTerminal" = "Open in Terminal";

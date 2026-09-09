@@ -938,6 +938,11 @@ final class PaneViewController: NSViewController {
         coordinator?.emptyTrash(at: here, in: view.window)
     }
 
+    /// 列表底部留白（I-65）：读真实 scrollView 的 contentInsets，不复刻常量
+    var uiTestListBottomInset: CGFloat { activeTab.listVC.uiTestBottomInset }
+    /// 空白区右键菜单（走 BlankAreaScrollView 真实注入的那个回调）
+    func uiTestBlankAreaMenu() -> NSMenu? { activeTab.listVC.uiTestBlankAreaMenu() }
+
     // ---- 自测通道（I-64）----
     var uiTestEmptyTrashButtonVisible: Bool { isViewLoaded && !emptyTrashButton.isHidden }
     var uiTestEmptyTrashButtonWidth: CGFloat { emptyTrashWidth?.constant ?? -1 }

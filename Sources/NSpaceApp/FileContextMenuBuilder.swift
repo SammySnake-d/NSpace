@@ -21,6 +21,8 @@ enum FileContextMenuBuilder {
         let menu = NSMenu()
         add(menu, "menu.newFolder", #selector(FileListViewController.newFolderHere(_:)), target,
             key: "N", mods: [.command, .shift], symbol: "folder.badge.plus")
+        add(menu, "menu.newFile", #selector(FileListViewController.newFileHere(_:)), target,
+            key: "n", mods: [.command, .option], symbol: "doc.badge.plus")
         add(menu, "menu.paste", #selector(FileListViewController.pasteItems(_:)), target,
             key: "v", mods: .command, symbol: "doc.on.clipboard")
         menu.addItem(.separator())
@@ -85,8 +87,12 @@ enum FileContextMenuBuilder {
         addArchiveItems(menu, selection: selection, single: single, target: target)
         menu.addItem(.separator())
 
+        // 条目菜单也带「新建文件夹/文件」：内容铺满列表时根本找不到空白区可右键
+        // （用户报告：「没有留出空白的位置，我没有地方点」）。右键任何一行都能新建。
         add(menu, "menu.newFolder", #selector(FileListViewController.newFolderHere(_:)), target,
             key: "N", mods: [.command, .shift], symbol: "folder.badge.plus")
+        add(menu, "menu.newFile", #selector(FileListViewController.newFileHere(_:)), target,
+            key: "n", mods: [.command, .option], symbol: "doc.badge.plus")
         add(menu, "menu.getInfo", #selector(FileListViewController.getInfo(_:)), target,
             key: "i", mods: .command, symbol: "info.circle")
         add(menu, "menu.openInTerminal", #selector(FileListViewController.openInTerminal(_:)), target,

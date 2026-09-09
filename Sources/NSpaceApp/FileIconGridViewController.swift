@@ -609,7 +609,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     /// 放回原处（仅废纸篓内；只对台账里有记录的项有效，其余诚实置灰）
     @objc func putBackItems(_ sender: Any?) { coordinator?.putBack(selectedURLs) }
 
-    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: model.directory) }
+    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: model.directory, revealIn: self) }
     /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
     /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
     /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。

@@ -88,12 +88,17 @@ public struct OperationSpec: Sendable {
     public let newName: String?
     /// compress / extract 专用选项（其余 kind 恒为 nil，向后兼容）
     public let archiveOptions: ArchiveOptions?
+    /// `newFile` 专用：文件初始内容。nil = 建空文件（既有行为不变）。
+    /// 为「⌘V 把剪贴板内容粘成新文件」而加——展示层不许自己写盘（BG-1），
+    /// 内容只能随 Command 一起交给内核，由胶囊节点落地。
+    public let contents: Data?
 
     public init(kind: Kind, sources: [URL], destination: URL? = nil, newName: String? = nil,
-                archiveOptions: ArchiveOptions? = nil) {
+                archiveOptions: ArchiveOptions? = nil, contents: Data? = nil) {
         self.kind = kind; self.sources = sources
         self.destination = destination; self.newName = newName
         self.archiveOptions = archiveOptions
+        self.contents = contents
     }
 }
 
