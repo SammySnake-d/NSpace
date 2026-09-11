@@ -10,6 +10,13 @@ final class SidebarViewController: NSViewController {
     let model: SidebarModel
     var onNavigate: ((URL) -> Void)?
 
+    /// 程序化同步高亮期间不许触发导航（否则 selectRowIndexes → selectionDidChange → navigate → 又同步，成环）
+    private var suppressSelectionNavigation = false
+    /// 本次点击里选中有没有真的变过。
+    /// AppKit 顺序：选中在 mouseDown 追踪期变化 → action 在 mouseUp 发出。
+    /// 所以 action 里看到这个标志为 true，说明 selectionDidChange 已经导过航了，不重复。
+    private var selectionChangedInThisClick = false
+
     private let stashView = StashShelfView()
     /// 暂存架专区视图（UISelfTest I-07 居中度量入口；M17 §5）
     var stashShelfView: StashShelfView { stashView }
@@ -42,6 +49,10 @@ final class SidebarViewController: NSViewController {
         outline.rowSizeStyle = .small  // QSpace 式紧凑行高
         outline.dataSource = self
         outline.delegate = self
+        // 点击驱动的导航：点**已经选中**的那一行时 selection 不变，
+        // 光靠 outlineViewSelectionDidChange 接不到（用户报告：点「下载」没反应）
+        outline.target = self
+        outline.action = #selector(rowClicked(_:))
         outline.registerForDraggedTypes([.fileURL, Self.reorderType, Self.groupType])
         outline.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
         outline.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
@@ -283,9 +294,83 @@ extension SidebarViewController: NSOutlineViewDelegate {
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
-        guard let leaf = outline.item(atRow: outline.selectedRow) as? SidebarLeafNode,
+        // 程序化同步高亮时**既不导航、也不留下"选中变过"的痕迹**：
+        // 留了的话，紧接着那次真实点击会被 handleClick 的去重吞掉——
+        // 而真实 App 每次换目录都会同步一次，用户报的"点了没反应"会原样活下来。
+        // （第一版把置位写在 guard 之前，I-68 当场抓到。）
+        guard !suppressSelectionNavigation else { return }
+        selectionChangedInThisClick = true
+        navigate(row: outline.selectedRow)
+    }
+
+    /// 点击驱动的导航：**点已经选中的那一行**时 selection 不变，
+    /// `outlineViewSelectionDidChange` 根本不触发——用户报告的"点下载没反应，
+    /// 得先点别的再点回来"就是这条缺口。
+    @objc private func rowClicked(_ sender: Any?) {
+        handleClick(row: outline.clickedRow)
+    }
+
+    /// 点击落点（internal：自测直接驱动）。
+    /// **不要用合成 mouseDown 去测**：NSOutlineView 的 mouseDown 会开鼠标追踪循环，
+    /// headless 下等不到 mouseUp 永不返回——实测把整个自测挂死，连主线程上的
+    /// 180s 看门狗都一起被饿死（2026-09-11 真挂过一次）。
+    func handleClick(row: Int) {
+        defer { selectionChangedInThisClick = false }
+        guard !selectionChangedInThisClick else { return }   // 选中真变过 → selectionDidChange 已导航
+        navigate(row: row)
+    }
+
+    private func navigate(row: Int) {
+        guard row >= 0,
+              let leaf = outline.item(atRow: row) as? SidebarLeafNode,
               let url = leaf.url else { return }
         onNavigate?(url)
+    }
+
+    /// 把高亮同步到窗格当前所在目录（没有对应书签就清空高亮）。
+    /// 旧版**完全没有这个同步**：高亮只是"你上次点了谁"，用面包屑/双击换目录之后它就
+    /// 一直指着旧位置——既在撒谎，也让"再点它一次"变成无效操作。
+    func syncSelection(to url: URL?) {
+        suppressSelectionNavigation = true
+        defer { suppressSelectionNavigation = false }
+        guard let url else { outline.deselectAll(nil); return }
+        let want = url.standardizedFileURL.path
+        for row in 0..<outline.numberOfRows {
+            if let leaf = outline.item(atRow: row) as? SidebarLeafNode,
+               leaf.url?.standardizedFileURL.path == want {
+                outline.selectRowIndexes([row], byExtendingSelection: false)
+                return
+            }
+        }
+        outline.deselectAll(nil)   // 当前目录不在书签里 → 不许留着旧高亮冒充"你在这儿"
+    }
+
+    // ---- 自测通道（I-68）----
+    /// 当前高亮行对应的 URL（nil = 无高亮）
+    var uiTestSelectedURL: URL? {
+        guard outline.selectedRow >= 0,
+              let leaf = outline.item(atRow: outline.selectedRow) as? SidebarLeafNode else { return nil }
+        return leaf.url
+    }
+    /// 按 URL 找行号（-1 = 侧栏里没有这一项）
+    func uiTestRow(for url: URL) -> Int {
+        let want = url.standardizedFileURL.path
+        for row in 0..<outline.numberOfRows {
+            if let leaf = outline.item(atRow: row) as? SidebarLeafNode,
+               leaf.url?.standardizedFileURL.path == want { return row }
+        }
+        return -1
+    }
+    /// 模拟点某一行：**选中真会变**的情形走 selectRowIndexes（真实触发 selectionDidChange），
+    /// 随后补一次 handleClick——与 AppKit 的实际顺序一致（选中在 mouseDown 期变、action 在 mouseUp 发）。
+    func uiTestClickRow(_ row: Int) {
+        guard row >= 0, row < outline.numberOfRows else { return }
+        if outline.selectedRow != row { outline.selectRowIndexes([row], byExtendingSelection: false) }
+        handleClick(row: row)
+    }
+    /// 点击接线是否真的挂上了（上面那条走的是 handleClick，证明不了 action 接没接）
+    var uiTestClickWiredToOutline: Bool {
+        outline.action == #selector(rowClicked(_:)) && (outline.target as? SidebarViewController) === self
     }
 
     private func makeGroupCell() -> NSTableCellView {

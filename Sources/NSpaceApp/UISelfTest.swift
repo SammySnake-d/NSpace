@@ -150,6 +150,9 @@ enum UISelfTest {
 
             // ── 场景 I-67：复制/剪切不许清掉选中 ───────────────────────────────────
             await runSelectionSurvivesClipboardScenario(wc: wc, window: window)
+
+            // ── 场景 I-68：侧栏点一次就跳 + 高亮跟随窗格 ────────────────────────────
+            await runSidebarNavigationScenario(wc: wc, window: window)
             // ── 场景 M26：列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关 ─────────
             // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
             await runGroupingScenario(wc: wc, window: window)
@@ -2030,6 +2033,68 @@ enum UISelfTest {
                "I-67 复制/剪切后选中不丢（选中 \(before.count)→复制后 \(afterCopy.count)→剪切后 \(afterCut.count)；视图层 \(rawBefore)→\(rawAfterCopy)→\(rawAfterCut)）")
 
         pane.navigate(to: fs.homeDirectoryForCurrentUser)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// 场景 I-68：侧栏点一次就该跳（用户报告：点「下载」没反应，得先点别的再点回来）。
+    /// 两个独立缺陷：① 高亮根本不跟随窗格，一直指着"上次点了谁"；
+    /// ② 没有点击驱动的路径，点已选中行 selection 不变 → selectionDidChange 不触发。
+    private static func runSidebarNavigationScenario(wc: MainWindowController,
+                                                     window: NSWindow) async {
+        let fs = FileManager.default
+        let pane = wc.grid.activePane
+        let sidebar = wc.sidebar
+        let home = fs.homeDirectoryForCurrentUser
+        let downloads = home.appendingPathComponent("Downloads")
+        let docs = home.appendingPathComponent("Documents")
+
+        let rowDownloads = sidebar.uiTestRow(for: downloads)
+        let rowDocs = sidebar.uiTestRow(for: docs)
+        guard rowDownloads >= 0, rowDocs >= 0 else {
+            record(false, "I-68 侧栏点一次就跳（侧栏里找不到 下载/文稿 两项，无法验）")
+            return
+        }
+
+        // ① 先点「下载」进去，再用**非侧栏**的方式换目录（模拟用面包屑/双击走开）
+        pane.uiTestEndPathEditing()
+        sidebar.uiTestClickRow(rowDownloads)
+        let arrived = await pollFS { pane.uiTestCurrentURL.standardizedFileURL.path
+                                      == downloads.standardizedFileURL.path }
+        pane.navigate(to: home)
+        _ = await pollFS { pane.uiTestCurrentURL.standardizedFileURL.path
+                            == home.standardizedFileURL.path }
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // ② 高亮必须跟着窗格走：现在在 home（不是书签项）→ 不许还高亮着「下载」撒谎
+        let staleHighlight = sidebar.uiTestSelectedURL?.standardizedFileURL.path
+        record(arrived && staleHighlight != downloads.standardizedFileURL.path,
+               "I-68 换目录后侧栏高亮不再指着旧位置（到达下载=\(arrived) 当前高亮=\(staleHighlight ?? "无")）")
+
+        // ③ 点「文稿」→ 进文稿；再**原地点同一行**（此时它已被选中）→ 仍须跳转。
+        //   这一步是用户报告的正题：旧版第二次点无反应。
+        sidebar.uiTestClickRow(rowDocs)
+        let toDocs = await pollFS { pane.uiTestCurrentURL.standardizedFileURL.path
+                                     == docs.standardizedFileURL.path }
+        pane.navigate(to: home)              // 再次用非侧栏方式走开
+        _ = await pollFS { pane.uiTestCurrentURL.standardizedFileURL.path
+                            == home.standardizedFileURL.path }
+        try? await Task.sleep(for: .milliseconds(200))
+        // 强制把高亮摆回「文稿」，复现"点已选中行"这一状态
+        sidebar.syncSelection(to: docs)
+        try? await Task.sleep(for: .milliseconds(120))
+        let highlightedBefore = sidebar.uiTestSelectedURL?.standardizedFileURL.path
+        sidebar.uiTestClickRow(rowDocs)      // 点的是**已经高亮**的那一行
+        let backToDocs = await pollFS { pane.uiTestCurrentURL.standardizedFileURL.path
+                                         == docs.standardizedFileURL.path }
+        record(toDocs && highlightedBefore == docs.standardizedFileURL.path && backToDocs,
+               "I-68 点已高亮的侧栏行仍然跳转（首次进入=\(toDocs) 点前已高亮=\(highlightedBefore == docs.standardizedFileURL.path) 再点后到达=\(backToDocs)）")
+
+        // ④ 高亮真的跟随：进到书签项时必须高亮到它
+        record(sidebar.uiTestSelectedURL?.standardizedFileURL.path == docs.standardizedFileURL.path
+               && sidebar.uiTestClickWiredToOutline,
+               "I-68 停在书签目录时侧栏高亮指向它（高亮=\(sidebar.uiTestSelectedURL?.lastPathComponent ?? "无") 点击已接线=\(sidebar.uiTestClickWiredToOutline)）")
+
+        pane.navigate(to: home)
         try? await Task.sleep(for: .milliseconds(200))
     }
 
