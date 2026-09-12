@@ -297,10 +297,21 @@ final class PaneViewController: NSViewController {
 
     func openNewTab(at url: URL? = nil) {
         let target = url ?? activeTab.browser.current
+        // 新标签**继承派生它的那个标签**的视图设置（排序 / 隐藏文件 / 视图模式），同 QSpace。
+        // 旧版一律回落到全局默认偏好（从未设过 → 恒为「名称」升序）：用户在某窗格里把排序改成
+        // 「修改日期」之后每按一次 ⌘T 都得再改一次；会话文件里同一窗格十几个标签全是手动改出来的
+        // dateModified/desc，就是这条缺口的痕迹（用户报告：「new tab 左边没记住修改日期排序」）。
+        // 必须在 closeTab 之前取模板：达上限时被移除的可能正是活动标签本身。
+        let template = tabs.isEmpty ? nil : activeTab
         // 窗格标签上限（QSpace 语义）：>0 且已达上限 → 先覆盖最老（移除 index 0）再追加
         let limit = Preferences.paneTabLimit
         if limit > 0, tabs.count >= limit { closeTab(at: 0) }
-        appendTab(at: target)
+        let tab = appendTab(at: target)
+        if let template, template !== tab {
+            tab.model.sort = template.model.sort
+            tab.model.includeHidden = template.model.includeHidden
+            tab.viewMode = template.viewMode
+        }
         switchTab(to: tabs.count - 1)
         onRequestFocus?()
     }

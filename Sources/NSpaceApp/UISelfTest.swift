@@ -153,6 +153,9 @@ enum UISelfTest {
 
             // ── 场景 I-68：侧栏点一次就跳 + 高亮跟随窗格 ────────────────────────────
             await runSidebarNavigationScenario(wc: wc, window: window)
+
+            // ── 场景 I-69：新标签继承派生标签的排序/隐藏/视图模式 ───────────────────
+            await runNewTabInheritsViewSettingsScenario(wc: wc, window: window)
             // ── 场景 M26：列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关 ─────────
             // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
             await runGroupingScenario(wc: wc, window: window)
@@ -2095,6 +2098,71 @@ enum UISelfTest {
                "I-68 停在书签目录时侧栏高亮指向它（高亮=\(sidebar.uiTestSelectedURL?.lastPathComponent ?? "无") 点击已接线=\(sidebar.uiTestClickWiredToOutline)）")
 
         pane.navigate(to: home)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// 场景 I-69：⌘T 新标签必须继承派生它的那个标签的视图设置（用户报告：
+    /// 「new tab 的时候左边没记住按修改日期排序」）。旧版一律回落到全局默认偏好，
+    /// 用户在窗格里改好的排序每按一次 ⌘T 都得再改一次。
+    private static func runNewTabInheritsViewSettingsScenario(wc: MainWindowController,
+                                                              window: NSWindow) async {
+        let pane = wc.grid.activePane
+        let fs = FileManager.default
+        // 用自建夹具当当前目录：真有文件，列头指示器与排序才有意义
+        let tok = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory.appendingPathComponent("nspace-uitest-i69-\(tok)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        for i in 1...3 { try? Data("x".utf8).write(to: box.appendingPathComponent("f\(i).txt")) }
+        record(assertSandboxed(box), "沙箱守卫[I-69]: 新标签夹具在自建临时目录内")
+        guard assertSandboxed(box) else { return }
+        defer { try? fs.removeItem(at: box) }
+
+        pane.uiTestEndPathEditing()
+        pane.setViewMode(.list)
+        pane.navigate(to: box)
+        _ = await pollFS { pane.activeTab.model.items.count == 3 }
+
+        // 把当前标签改成「与全局默认相反」的一组设置：修改日期降序 + 隐藏取反 + 图标视图。
+        // 三项都与新标签的回落值不同，任何一项没继承都会红。
+        // 隐藏那一维必须取**全局默认的反**——写死 true 的话，机器上默认就开着时它恒真、验不出继承
+        // （第一版写死 true，反证时发现撤掉继承它照样 true）。
+        let hiddenDefault = Preferences.showHiddenByDefault
+        pane.uiTestSetSort(key: "dateModified", ascending: false)
+        pane.uiTestSetIncludeHidden(!hiddenDefault)
+        pane.setViewMode(.icons)
+        try? await Task.sleep(for: .milliseconds(250))
+        let tabsBefore = pane.tabs.count
+        let srcSort = pane.uiTestModelSort
+
+        pane.openNewTab()
+        _ = await pollFS { pane.tabs.count == tabsBefore + 1 }
+        try? await Task.sleep(for: .milliseconds(300))
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let newSort = pane.uiTestModelSort
+        let newHidden = pane.activeTab.model.includeHidden
+        let newMode = pane.activeTab.viewMode
+        let isNewTab = pane.activeTabIndex == tabsBefore
+        record(isNewTab && srcSort.key == "dateModified" && !srcSort.ascending
+               && newSort.key == "dateModified" && !newSort.ascending
+               && newHidden == !hiddenDefault && newMode == .icons,
+               "I-69 新标签继承排序/隐藏/视图模式（源 \(srcSort.key)/\(srcSort.ascending ? "asc" : "desc") → 新 \(newSort.key)/\(newSort.ascending ? "asc" : "desc") 隐藏=\(newHidden)(默认 \(hiddenDefault)) 模式=\(newMode) 是新标签=\(isNewTab)）")
+
+        // 列头指示器也要对（I-58 的反向同步链要在新标签上真跑到，不只是 model 字段对了）
+        pane.setViewMode(.list)
+        try? await Task.sleep(for: .milliseconds(250))
+        window.contentView?.layoutSubtreeIfNeeded()
+        let ind = pane.uiTestSortIndicator
+        record(ind?.key == "dateModified" && ind?.ascending == false,
+               "I-69 新标签列头指示器随继承的排序（指示器=\(ind.map { "\($0.key)/\($0.ascending ? "asc" : "desc")" } ?? "nil")）")
+
+        // 收尾：关掉新标签、把原标签设置还原，不影响后续场景
+        pane.closeTab(at: pane.activeTabIndex)
+        try? await Task.sleep(for: .milliseconds(150))
+        pane.uiTestSetIncludeHidden(hiddenDefault)
+        pane.uiTestSetSort(key: "name", ascending: true)
+        pane.setViewMode(.list)
+        pane.navigate(to: fs.homeDirectoryForCurrentUser)
         try? await Task.sleep(for: .milliseconds(200))
     }
 

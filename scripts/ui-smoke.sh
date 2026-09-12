@@ -292,6 +292,10 @@ require_pass "I-67 复制/剪切后选中不丢"
 require_pass "I-68 换目录后侧栏高亮不再指着旧位置"
 require_pass "I-68 点已高亮的侧栏行仍然跳转"
 require_pass "I-68 停在书签目录时侧栏高亮指向它"
+# I-69 新标签继承派生标签的排序/隐藏/视图模式（用户报告：new tab 没记住修改日期排序）
+require_pass "沙箱守卫[I-69]: 新标签夹具在自建临时目录内"
+require_pass "I-69 新标签继承排序/隐藏/视图模式"
+require_pass "I-69 新标签列头指示器随继承的排序"
 require_pass "I-64 子目录夹具放回原处"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
