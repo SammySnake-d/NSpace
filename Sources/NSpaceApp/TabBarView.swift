@@ -19,6 +19,7 @@ final class TabBarView: NSView {
 
     /// 甲板位于标题栏区（fullSizeContentView）：不覆写则点击被窗口拖拽机制吞掉（I-12）
     override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -75,6 +76,27 @@ final class TabBarView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
     }
 
+    /// 栏内任何一点，只要 x 落在某个胶囊的横向范围里就归它。
+    ///
+    /// 这条不只是"把上下 6pt 死区也算进去"——它是「点标签文字不切换」的**修复本体**（用户报告）。
+    /// 真机实测：胶囊正中的原始 hitTest 返回的是 **NSScrollView**，不是胶囊也不是标签；
+    /// 这个滚动视图在全尺寸标题栏窗口里带自动内缩，命中几何与画出来的胶囊错位
+    /// （关掉 automaticallyAdjustsContentInsets 后原始命中变成 NSStackView，仍到不了胶囊）。
+    /// NSScrollView.mouseDown 什么都不做，点击就死在那——只有快捷键能切换。
+    /// 按 x 从栏这一层直接把命中派给胶囊，绕过那层几何。反证：撤掉本方法，
+    /// 经窗口真实派发的点击 `点后活动 1→1`，用户症状原样复现。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        // 已经命中胶囊 / 加号 / 配件 → 照旧
+        if hit !== self, hit !== scroll, hit !== scroll.contentView, hit !== stack { return hit }
+        // 命中的是空白：按 x 找胶囊
+        for case let item as TabItemView in stack.arrangedSubviews where !item.isHidden {
+            let r = item.convert(item.bounds, to: self)
+            if point.x >= r.minX, point.x <= r.maxX, bounds.contains(point) { return item }
+        }
+        return hit
+    }
+
     func update(titles: [String], active: Int) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for (i, title) in titles.enumerated() {
@@ -87,6 +109,58 @@ final class TabBarView: NSView {
     }
 
     @objc private func newTab() { onNew?() }
+
+    // ---- 自测通道（I-72）----
+    /// 第 i 个胶囊在本栏坐标系里的 frame
+    func uiTestItemFrame(_ i: Int) -> NSRect? {
+        let items = stack.arrangedSubviews.compactMap { $0 as? TabItemView }
+        guard items.indices.contains(i) else { return nil }
+        return items[i].convert(items[i].bounds, to: self)
+    }
+    /// 第 i 个胶囊是否接受「第一下」点击（从别的 App 点过来不用点两次）
+    func uiTestItemAcceptsFirstMouse(_ i: Int) -> Bool {
+        let items = stack.arrangedSubviews.compactMap { $0 as? TabItemView }
+        return items.indices.contains(i) && items[i].acceptsFirstMouse(for: nil)
+    }
+    /// 在本栏坐标系的一点做**真实** hitTest，回报是否命中第 i 个胶囊（走 AppKit 派发 mouseDown 的同一条路）
+    func uiTestHitsItem(_ i: Int, at p: NSPoint) -> Bool {
+        guard let sp = superview else { return false }
+        let items = stack.arrangedSubviews.compactMap { $0 as? TabItemView }
+        guard items.indices.contains(i) else { return false }
+        return hitTest(convert(p, to: sp)) === items[i]
+    }
+    /// 把 mouseDown **直接投给 hitTest 解析出的视图**（确定性：不经 App 激活门）。
+    /// 与 AppKit 真实派发的差别只在"要不要先激活 App"那一层——那层在用户正用着机器时随机吃掉第一下，
+    /// 真门实测同一代码 3 轮 1 绿 2 红。命中解析本身（上面的 hitTest）才是修复本体。
+    func uiTestClickResolved(at p: NSPoint, in window: NSWindow) -> String {
+        guard let sp = superview, let target = hitTest(convert(p, to: sp)),
+              let ev = NSEvent.mouseEvent(with: .leftMouseDown, location: convert(p, to: nil),
+                                          modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 1) else { return "nil" }
+        target.mouseDown(with: ev)
+        return String(describing: type(of: target))
+    }
+
+    /// 经**窗口的真实事件派发**点一下（NSWindow.sendEvent → 标题栏区域判定 → hitTest →
+    /// mouseDownCanMoveWindow → 目标视图）。直接调 target.mouseDown 会绕过前面每一段——
+    /// 而用户报的"点了不切换"恰恰可能死在那几段里。用 postEvent 而不是 sendEvent：
+    /// 若 AppKit 在 down 上开了追踪循环，紧跟的 up 能让它退出，不会把自测挂死。
+    func uiTestClick(at p: NSPoint, in window: NSWindow) {
+        let loc = convert(p, to: nil)
+        let t = ProcessInfo.processInfo.systemUptime
+        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: loc, modifierFlags: [],
+                                            timestamp: t, windowNumber: window.windowNumber, context: nil,
+                                            eventNumber: 0, clickCount: 1, pressure: 1),
+              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: loc, modifierFlags: [],
+                                          timestamp: t + 0.05, windowNumber: window.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 0) else { return }
+        // 直接交给窗口派发，不经 NSApp：自测跑在用户正在使用的机器上，App 常不是活动应用，
+        // NSApp 那层会把第一下点击当"激活"吃掉（真门实测同一代码一轮 1→0、两轮 1→1）。
+        // window.sendEvent 仍走 NSThemeFrame 标题栏区判定 → hitTest → mouseDownCanMoveWindow → 目标视图。
+        window.sendEvent(down)
+        window.sendEvent(up)
+    }
 
     /// 设置尾部配件（版本徽章）；传 nil 清空。配件填满 accessoryHost，其宽度随配件内容。
     func setTrailingAccessory(_ view: NSView?) {
@@ -177,6 +251,12 @@ private final class TabItemView: NSView {
     override func mouseExited(with event: NSEvent) {
         closeButton.isHidden = true
     }
+
+    /// 从别的 App 点过来的**第一下**就要切换（Safari 标签同款）。默认 false 时第一下只激活窗口、
+    /// 不派发 mouseDown——用户在别的 App 里看完东西回来点标签，"点了没反应"、再点一下才动。
+    /// （注：我一度认定是胶囊里的 NSTextField 吞掉了点击——真机 hitTest 实测标签是穿透的，
+    /// 那条根因不成立，对应改动已撤。）
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         onSelect?()

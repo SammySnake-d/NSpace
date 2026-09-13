@@ -419,6 +419,7 @@ final class PaneViewController: NSViewController {
         // 扰乱新窗口的建窗与焦点时序（I-52 外部打开落错窗即由此确定性复现）。同 restore(from:) 的既有守卫。
         if isViewLoaded, !pathEditor.isHidden { endPathEditing() }
         tabBar.update(titles: tabs.map { displayName($0.browser.current) }, active: activeTabIndex)
+        setTabBarVisible(Self.paneTabBarVisible)   // 标签数变了 → 重算可见性
         breadcrumb.setURL(activeTab.browser.current)
         syncEmptyTrashButton()
         onLocationChange?(activeTab.browser.current)
@@ -597,8 +598,11 @@ final class PaneViewController: NSViewController {
 
     /// 窗格标签栏显隐（菜单"显示窗格标签栏"驱动全部窗格）
     func setTabBarVisible(_ visible: Bool) {
-        tabBar.isHidden = !visible
-        tabBarHeight?.constant = visible ? 22 : 0
+        // 偏好关着也不许把**多个**标签藏起来：用户按 ⌥⌘T 新建成功却"没反应"
+        // （标签落在 0pt 高的栏里）——一个看不见的标签就是 bug。偏好只决定单标签时是否显示。
+        let effective = visible || tabs.count > 1
+        tabBar.isHidden = !effective
+        tabBarHeight?.constant = effective ? 22 : 0
     }
 
     // MARK: 视图模式切换（M9：⌘1 图标 / ⌘2 列表 / ⌘3 分栏；选中按 URL 集迁移）
@@ -953,6 +957,10 @@ final class PaneViewController: NSViewController {
     var uiTestListBottomInset: CGFloat { activeTab.listVC.uiTestBottomInset }
     /// 空白区右键菜单（走 BlankAreaScrollView 真实注入的那个回调）
     func uiTestBlankAreaMenu() -> NSMenu? { activeTab.listVC.uiTestBlankAreaMenu() }
+
+    // ---- 自测通道（I-71）----
+    var uiTestPaneTabBarVisible: Bool { isViewLoaded && !tabBar.isHidden }
+    var uiTestPaneTabBarHeight: CGFloat { tabBarHeight?.constant ?? -1 }
 
     // ---- 自测通道（I-64）----
     var uiTestEmptyTrashButtonVisible: Bool { isViewLoaded && !emptyTrashButton.isHidden }

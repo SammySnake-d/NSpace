@@ -156,6 +156,9 @@ enum UISelfTest {
 
             // ── 场景 I-69：新标签继承派生标签的排序/隐藏/视图模式 ───────────────────
             await runNewTabInheritsViewSettingsScenario(wc: wc, window: window)
+
+            // ── 场景 I-70/71/72：⌘T 新工作区继承 / ⌥⌘T 标签栏可见 / 工作区标签条可点 ────
+            await runWorkspaceTabScenario(wc: wc, window: window)
             // ── 场景 M26：列表「年/月」分组 + 折叠 + 组过滤 + 跨排序选中保持 + 开关 ─────────
             // 铁律：只动自建 nspace-uitest-m26-* 夹具（assertSandboxed 守卫）；6 文件造 3 个不同年月。
             await runGroupingScenario(wc: wc, window: window)
@@ -1317,8 +1320,15 @@ enum UISelfTest {
                 dpane.activeTab.listVC.tableView.deselectAll(nil)
                 try? await Task.sleep(for: .milliseconds(120))
                 dpane.uiTestBeginPathEditing(seed: apk.path)
-                try? await Task.sleep(for: .milliseconds(30))
-                if let fe = editor.currentEditor() as? NSTextView,
+                // 字段编辑器是**异步**装上去的：原来只 sleep 30ms 就取 currentEditor，
+                // 拿不到时下面整块 keyDown 被静默跳过——路径压根没敲进去，
+                // 断言却只报「选中数=0」，读不出是没敲进去还是没选中。真门三轮抖红一次即此。
+                var fieldEditor: NSTextView?
+                for _ in 0..<20 {
+                    if let fe = editor.currentEditor() as? NSTextView { fieldEditor = fe; break }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                if let fe = fieldEditor,
                    let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                            timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil,
@@ -1335,7 +1345,7 @@ enum UISelfTest {
                     }
                 }
                 record(sameDirOK,
-                       "I-54 粘贴当前目录内的文件 → 原地选中（不因'目录没变'丢掉 pending 选中，选中数=\(dpane.activeTab.listVC.selectedURLs.count)）")
+                       "I-54 粘贴当前目录内的文件 → 原地选中（不因'目录没变'丢掉 pending 选中，选中数=\(dpane.activeTab.listVC.selectedURLs.count) 编辑器就绪=\(fieldEditor != nil)）")
 
                 // ⑩ 粘贴不弹补全 popup。这是 bug2 的第二个真因：popup 会接管事件循环并吃掉紧随其后的
                 // 那次 Enter（去采纳候选而非导航）。PathCompleter 只列目录——粘文件夹路径必有候选必弹，
@@ -2166,6 +2176,126 @@ enum UISelfTest {
         try? await Task.sleep(for: .milliseconds(200))
     }
 
+    /// 按快捷键进：① 在**真实已装配的主菜单**里找出这个键等价物绑到的菜单项（验「绑定表 → 菜单项」），
+    /// ② 把它的 action 沿**被测窗口**的响应链派发（验「菜单项 → 响应链 → 行为」）。
+    /// 不用 NSApp.sendEvent / performKeyEquivalent：那条路沿 **key 窗口**找目标，而自测跑在
+    /// 用户正在使用的机器上，App 常常不是活动应用、key 窗口为 nil——实测「键被接住=true 但
+    /// 被测窗口纹丝不动」。`tryToPerform` 与既有 I-57 同一口径，不依赖激活状态。
+    private static func pressMenuShortcut(_ key: String, mods: NSEvent.ModifierFlags,
+                                          window: NSWindow) -> (found: Bool, delivered: Bool) {
+        func find(_ menu: NSMenu) -> NSMenuItem? {
+            for item in menu.items {
+                if item.keyEquivalent == key,
+                   item.keyEquivalentModifierMask.intersection([.command, .option, .shift, .control])
+                    == mods.intersection([.command, .option, .shift, .control]) { return item }
+                if let sub = item.submenu, let hit = find(sub) { return hit }
+            }
+            return nil
+        }
+        guard let main = NSApp.mainMenu, let item = find(main), let action = item.action else {
+            return (false, false)
+        }
+        window.makeFirstResponder(window.initialFirstResponder ?? window.contentView)
+        return (true, window.tryToPerform(action, with: item))
+    }
+
+    /// 场景 I-70/71/72（用户报告三条，且我上一轮修在了错误的键上——这次每条都从用户按的那个键进）：
+    /// I-70 ⌘T 新工作区必须复制当前工作区（布局 + 每个窗格的 排序/隐藏/视图模式），不回落全局默认；
+    /// I-71 ⌥⌘T 新窗格标签必须**看得见**（标签栏默认隐藏 → 建成功却"没反应"）；
+    /// I-72 工作区标签条点文字要能切换、整行高度可点（NSTextField 吞 mouseDown 是根因）。
+    private static func runWorkspaceTabScenario(wc: MainWindowController, window: NSWindow) async {
+        let fs = FileManager.default
+        let tok = String(UUID().uuidString.prefix(8))
+        let box = fs.temporaryDirectory.appendingPathComponent("nspace-uitest-i70-\(tok)", isDirectory: true)
+        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
+        for i in 1...3 { try? Data("x".utf8).write(to: box.appendingPathComponent("w\(i).txt")) }
+        record(assertSandboxed(box), "沙箱守卫[I-70]: 工作区夹具在自建临时目录内")
+        guard assertSandboxed(box) else { return }
+        defer { try? fs.removeItem(at: box) }
+
+        // 用双栏让"每个窗格都继承"有意义
+        wc.grid.apply(layout: .dualH)
+        try? await Task.sleep(for: .milliseconds(250))
+        let p0 = wc.grid.visiblePanes[0], p1 = wc.grid.visiblePanes[1]
+        for p in [p0, p1] {
+            p.uiTestEndPathEditing()
+            p.navigate(to: box)
+        }
+        _ = await pollFS { p0.activeTab.model.items.count == 3 && p1.activeTab.model.items.count == 3 }
+        // 两个窗格设成**不同**的非默认排序：单靠一个"全局默认"抄不出这两组值
+        let hiddenDefault = Preferences.showHiddenByDefault
+        p0.uiTestSetSort(key: "dateModified", ascending: false); p0.uiTestSetIncludeHidden(!hiddenDefault)
+        p1.uiTestSetSort(key: "size", ascending: true)
+        wc.grid.setActivePane(0)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // ── I-70：⌘T 走真实菜单键等价物 ──
+        let wsBefore = wc.workspaces.count
+        let press = pressMenuShortcut("t", mods: [.command], window: window)
+        _ = await pollFS { wc.workspaces.count == wsBefore + 1 }
+        try? await Task.sleep(for: .milliseconds(400))
+        let n0 = wc.grid.visiblePanes.count > 0 ? wc.grid.visiblePanes[0] : nil
+        let n1 = wc.grid.visiblePanes.count > 1 ? wc.grid.visiblePanes[1] : nil
+        let s0 = n0?.uiTestModelSort, s1 = n1?.uiTestModelSort
+        let layoutKept = wc.grid.layout == .dualH
+        let inherited = s0?.key == "dateModified" && s0?.ascending == false
+            && n0?.activeTab.model.includeHidden == !hiddenDefault
+            && s1?.key == "size" && s1?.ascending == true
+        record(press.found && press.delivered && wc.workspaces.count == wsBefore + 1 && layoutKept && inherited,
+               "I-70 ⌘T 新工作区复制当前工作区（菜单有⌘T项=\(press.found) 经响应链送达=\(press.delivered) 工作区 \(wsBefore)→\(wc.workspaces.count) 布局保持双栏=\(layoutKept) 左 \(s0.map { "\($0.key)/\($0.ascending ? "asc" : "desc")" } ?? "nil") 隐藏=\(n0?.activeTab.model.includeHidden ?? false)(默认 \(hiddenDefault)) 右 \(s1.map { "\($0.key)/\($0.ascending ? "asc" : "desc")" } ?? "nil")）")
+
+        // ── I-72：工作区标签条——点文字能切、整行高度可点 ──
+        let bar = wc.deck.workspaceTabBar
+        window.contentView?.layoutSubtreeIfNeeded(); bar.layoutSubtreeIfNeeded()
+        let activeWS = wc.workspaces.activeIndex
+        let targetWS = activeWS == 0 ? 1 : 0          // 点一个**非活动**的工作区
+        if let f = bar.uiTestItemFrame(targetWS) {
+            let onText = NSPoint(x: f.midX, y: f.midY)                // 文字正中（旧版被 NSTextField 吞掉）
+            let onEdge = NSPoint(x: f.midX, y: 1)                      // 行顶缘（旧版是死区 → 拖窗口）
+            let hitText = bar.uiTestHitsItem(targetWS, at: onText)
+            let hitEdge = bar.uiTestHitsItem(targetWS, at: onEdge)
+            // 门槛：命中解析到胶囊 + 把 mouseDown 投给解析出的视图真切换 + 接受第一下。
+            // 窗口级真实派发只作诊断：它多经一层 App 激活门，用户正用着机器时随机吃掉第一下（真门 3 轮 1 绿 2 红）。
+            let hitType = bar.uiTestClickResolved(at: onText, in: window)
+            try? await Task.sleep(for: .milliseconds(350))
+            let switched = wc.workspaces.activeIndex == targetWS
+            let firstMouse = bar.uiTestItemAcceptsFirstMouse(targetWS)
+            // 诊断：窗口级派发能不能把它切回去
+            bar.uiTestClick(at: NSPoint(x: (bar.uiTestItemFrame(activeWS)?.midX ?? 0), y: f.midY), in: window)
+            try? await Task.sleep(for: .milliseconds(350))
+            let windowDispatchSwitchedBack = wc.workspaces.activeIndex == activeWS
+            if !windowDispatchSwitchedBack { wc.switchWorkspace(to: activeWS) }   // 诊断不影响后续状态
+            record(hitText && hitEdge && switched && firstMouse,
+                   "I-72 工作区标签条点文字即切换且整行可点（文字处命中=\(hitText) 行顶缘命中=\(hitEdge) 命中视图=\(hitType) 点后活动 \(activeWS)→\(targetWS)=\(switched) 接受第一下=\(firstMouse)｜诊断 窗口级派发切回=\(windowDispatchSwitchedBack)）")
+        } else {
+            record(false, "I-72 工作区标签条点文字即切换且整行可点（取不到第 \(targetWS) 个胶囊）")
+        }
+
+        // ── I-71：⌥⌘T 新窗格标签必须看得见 ──
+        let pane = wc.grid.activePane
+        let tabsBefore = pane.tabs.count
+        let barVisibleBefore = pane.uiTestPaneTabBarVisible
+        let press2 = pressMenuShortcut("t", mods: [.command, .option], window: window)
+        _ = await pollFS { pane.tabs.count == tabsBefore + 1 }
+        try? await Task.sleep(for: .milliseconds(300))
+        window.contentView?.layoutSubtreeIfNeeded()
+        let barVisibleAfter = pane.uiTestPaneTabBarVisible
+        let barH = pane.uiTestPaneTabBarHeight
+        record(press2.found && press2.delivered && pane.tabs.count == tabsBefore + 1 && barVisibleAfter && barH >= 20,
+               "I-71 ⌥⌘T 新窗格标签后标签栏可见（菜单有⌥⌘T项=\(press2.found) 经响应链送达=\(press2.delivered) 标签 \(tabsBefore)→\(pane.tabs.count) 栏可见 \(barVisibleBefore)→\(barVisibleAfter) 栏高 \(Int(barH))）")
+
+        // 收尾：关掉新建的窗格标签与工作区，还原布局
+        if pane.tabs.count > 1 { pane.closeTab(at: pane.activeTabIndex) }
+        while wc.workspaces.count > wsBefore { wc.closeWorkspace(at: wc.workspaces.count - 1) }
+        try? await Task.sleep(for: .milliseconds(200))
+        wc.grid.apply(layout: .single)
+        let home = fs.homeDirectoryForCurrentUser
+        let hp = wc.grid.activePane
+        hp.uiTestSetIncludeHidden(hiddenDefault); hp.uiTestSetSort(key: "name", ascending: true)
+        hp.navigate(to: home)
+        try? await Task.sleep(for: .milliseconds(200))
+    }
+
     private static func runPasteAndRenameScenario(wc: MainWindowController, window: NSWindow) async {
         let fs = FileManager.default
         let pane = wc.grid.activePane
@@ -2473,13 +2603,22 @@ enum UISelfTest {
                 let sheetReady = await pollFS { window.attachedSheet != nil }
                 // 等激活真的落地（activate 是异步的）；落不了地就不指望回车能投进去
                 let appActive = await pollFS { NSApp.isActive && window.attachedSheet?.isKeyWindow == true }
-                // **确定性门槛**：保证"回车删不掉"的机制是「默认按钮 = 取消」，
-                // 这件事不需要 key window 就能验。回车能否真的投进去取决于 App 是不是活动应用
-                // （别的 App 抢焦时 NSApp.sendEvent 送不到），把它当门槛就会随环境抖——
-                // 真门 6 轮红 2 次、加了 activate 之后 3 轮又红 2 次，实测如此。
-                let defaultIsCancel = viewTree(window.attachedSheet?.contentView)
-                    .compactMap { $0 as? NSButton }
-                    .first { $0.keyEquivalent == "\r" }?.title == L10n.t("common.cancel")
+                // **确定性门槛**：保证"回车删不掉"的机制是键位本身，不需要 key window 就能验。
+                // 回车能否真的投进去取决于 App 是不是活动应用（别的 App 抢焦时 NSApp.sendEvent
+                // 送不到），把它当门槛就会随环境抖——真门 6 轮红 2 次、加了 activate 之后
+                // 3 轮又红 2 次，实测如此。
+                //
+                // 读法必须是**按钮自己的 keyEquivalent**，不能读 window.defaultButtonCell：
+                // 后者是绘制期旧 API，设了它并不会把 "\r" 搬到取消按钮上。曾经绿过是因为
+                // sheet 当时是 key 窗口、AppKit 顺手同步了一次；App 非活动时同步不发生，
+                // 于是回车仍绑在「清空」上——真门三轮稳定复现，那是真缺陷不是假红。
+                let sheetButtons = viewTree(window.attachedSheet?.contentView).compactMap { $0 as? NSButton }
+                let confirmKey = sheetButtons.first { $0.title == L10n.t("alert.emptyTrash.confirm") }?
+                    .keyEquivalent
+                let cancelKey = sheetButtons.first { $0.title == L10n.t("common.cancel") }?.keyEquivalent
+                // 「清空」身上没有回车 且 Esc 落在「取消」上。前者是安全不变量本体；
+                // 后者钉住出口仍在——否则把两个键都摘光也能满足前者，弹框就只剩点按钮能关。
+                let enterHarmless = confirmKey != nil && confirmKey != "\r" && cancelKey == "\u{1b}"
                 var returnSent = false
                 if let sheet = window.attachedSheet,
                    let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -2492,11 +2631,10 @@ enum UISelfTest {
                 }
                 let returnClosed = await pollFS { window.attachedSheet == nil }
                 let returnKeptFiles = victims.allSatisfy { fs.fileExists(atPath: $0.path) }
-                // 门槛 = 弹框真出现 + 默认按钮是取消 + 文件一个没少；
-                // 「回车已投进去并关掉弹框」只在 App 真的活动时才要求（否则只作诊断输出）
-                record(sheetReady && defaultIsCancel && returnKeptFiles
-                       && (!appActive || returnClosed),
-                       "I-63 清倒确认回车只取消（弹框出现=\(sheetReady) 默认按钮是取消=\(defaultIsCancel) 三项仍在=\(returnKeptFiles)｜诊断 App活动=\(appActive) 发出回车=\(returnSent) 已关闭=\(returnClosed)）")
+                // 门槛 = 弹框真出现 + 回车不绑在「清空」上（Esc 出口仍在）+ 文件一个没少；
+                // 「回车已投进去并关掉弹框」不再要求——键位改成 Esc 取消后回车本就无响应
+                record(sheetReady && enterHarmless && returnKeptFiles,
+                       "I-63 清倒确认回车不触发清空（弹框出现=\(sheetReady) 回车无害=\(enterHarmless) 三项仍在=\(returnKeptFiles)｜诊断 App活动=\(appActive) 发出回车=\(returnSent) 已关闭=\(returnClosed) 清空键=\(confirmKey?.isEmpty == true ? "空" : (confirmKey ?? "?")) 取消键=Esc:\(cancelKey == "\u{1b}")）")
                 if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .abort) }
 
                 wc.coordinator.emptyTrash(at: fakeTrash, in: window)
@@ -2684,9 +2822,13 @@ enum UISelfTest {
         let buttons = viewTree(sheet?.contentView).compactMap { $0 as? NSButton }
         let cancel = buttons.first { $0.title == L10n.t("common.cancel") }
         let confirm = buttons.first { $0.title == L10n.t("alert.emptyTrash.confirm") }
-        let defaultCancel = cancel != nil && sheet?.defaultButtonCell === cancel?.cell
-        record(presented && defaultCancel && confirm?.hasDestructiveAction == true,
-               "I-64 真点「清倒」打开本窗确认，默认取消（弹框=\(presented) 默认取消=\(defaultCancel)）")
+        // 判据是**按钮自己的 keyEquivalent**，不是 sheet.defaultButtonCell：
+        // 后者是绘制期旧 API，只在 sheet 成为 key 窗口时才被 AppKit 同步，
+        // App 非活动时读到的是陈旧值——而「回车不清空」这件事必须无条件成立。
+        // 「取消」占第一按钮位后 AppKit 按标题给了它 Escape，回车于是不绑任何按钮（实测）。
+        let enterHarmless = confirm?.keyEquivalent != "\r" && cancel?.keyEquivalent == "\u{1b}"
+        record(presented && enterHarmless && confirm?.hasDestructiveAction == true,
+               "I-64 真点「清倒」打开本窗确认，回车不触发清空（弹框=\(presented) 回车无害=\(enterHarmless) 清空键=\(confirm?.keyEquivalent.isEmpty == true ? "空" : "有") 取消键=Esc:\(cancel?.keyEquivalent == "\u{1b}")）")
         if let sheet { capture(sheet, "31b-trash-confirmation") }
 
         let cancelled = cancel != nil

@@ -335,6 +335,17 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         grid.activePane.editPath(sender)
     }
 
+    /// ⌥⌘T / ⌥⌘W 窗格标签：焦点在侧栏、地址栏、甲板时 firstResponder 不在任何窗格里，
+    /// 链到不了 PaneViewController——用户报告「按了新建标签页没有反应」的另一半原因
+    /// （前一半是标签栏默认隐藏、建了看不见）。收口到活动窗格。
+    @objc func newTab(_ sender: Any?) {
+        grid.activePane.newTab(sender)
+    }
+
+    @objc func closeActiveTab(_ sender: Any?) {
+        grid.activePane.closeActiveTab(sender)
+    }
+
     // MARK: 工作区标签（M17：自管 WorkspaceManager；⌘T/⌘W/循环 + 标签条钮都走这里）
 
     /// 切换前把 grid 实时快照回灌活动槽（否则切走的工作区丢失未落盘编辑）
@@ -353,16 +364,24 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
 
     @objc func newWorkspaceTab(_ sender: Any?) {
         snapshotIntoActive()
-        let dir = grid.activePane.activeTab.browser.current
+        // ⌘T 新工作区 = **复制当前工作区**：同一布局，每个可见窗格各带一个标签，
+        // 继承该窗格活动标签的 路径 / 排序 / 隐藏 / 视图模式（同 QSpace「新建标签」）。
+        // 旧版只播种一个窗格、只抄路径，排序等全部回落到全局默认偏好（从未设过 → 恒为「名称」）；
+        // 其余窗格由窗格池的旧标签补位——于是"右窗格记住了修改日期、左窗格没有"
+        // （用户报告，且我上一轮修的是 ⌥⌘T 那条路，验的不是这个键）。
+        let current = grid.sessionWindow()
         let fresh = SessionWindow(
-            layoutRaw: Preferences.defaultLayoutRaw,
-            panes: [SessionPane(tabs: [SessionTab(path: dir.path,
-                                                  sortKey: Preferences.defaultSortKey,
-                                                  sortAscending: Preferences.defaultSortAscending,
-                                                  includeHidden: Preferences.showHiddenByDefault,
-                                                  viewMode: Preferences.defaultViewModeRaw)],
-                                activeTabIndex: 0)],
-            activePaneIndex: 0)
+            layoutRaw: current.layoutRaw,
+            panes: grid.visiblePanes.map { pane in
+                let t = pane.activeTab
+                return SessionPane(tabs: [SessionTab(path: t.browser.current.path,
+                                                     sortKey: t.model.sort.key.rawValue,
+                                                     sortAscending: t.model.sort.ascending,
+                                                     includeHidden: t.model.includeHidden,
+                                                     viewMode: t.viewMode.rawValue)],
+                                   activeTabIndex: 0)
+            },
+            activePaneIndex: current.activePaneIndex)
         workspaces.append(fresh, limit: Preferences.workspaceTabLimit)
         grid.restoreSession(workspaces.activeState)
         refreshWorkspaceTabs()

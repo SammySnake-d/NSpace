@@ -147,13 +147,21 @@ final class FileOpsCoordinator {
         alert.alertStyle = .critical
         alert.messageText = L10n.f("alert.emptyTrash.title", victims.count)
         alert.informativeText = L10n.t("alert.emptyTrash.body")
-        alert.addButton(withTitle: L10n.t("alert.emptyTrash.confirm"))
+        // 回车绝不能触发清空：不可逆操作不许一路回车就执行。
+        // 实现靠**把取消放在第一按钮位**，而不是 `alert.window.defaultButtonCell = 取消.cell`
+        // ——后者是绘制期旧 API，不会把 "\r" 从「清空」搬到「取消」上；App 非活动、
+        // sheet 不是 key 窗口时 AppKit 那次同步根本不发生，默认键仍在「清空」上
+        // （真门三轮稳定复现）。那不是断言读不到，是安全不变量当时就不成立。
+        //
+        // 换位后的真实键位（实测读数，不是推测）：AppKit 按**标题**认出「取消」并给它
+        // Escape，这条规则压过「第一按钮拿 Return」——于是回车不绑任何按钮、Esc 取消。
+        // 刻意保持这样：一个按钮只能绑一个键，而 Esc 是取消弹框的通用手势，
+        // 回车在破坏性弹框里本就该无响应。
         alert.addButton(withTitle: L10n.t("common.cancel"))
-        // 破坏性按钮标红 + 默认落在「取消」上：不可逆操作不许一路回车就执行
-        alert.buttons.first?.hasDestructiveAction = true
-        alert.window.defaultButtonCell = alert.buttons[1].cell as? NSButtonCell
+        alert.addButton(withTitle: L10n.t("alert.emptyTrash.confirm"))
+        alert.buttons[1].hasDestructiveAction = true
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
+            guard response == .alertSecondButtonReturn else { return }
             self?.performEmptyTrash(at: trash, victims: victims)
         }
     }
