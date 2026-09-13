@@ -2,16 +2,16 @@ import AppKit
 import NSpaceContracts
 import SessionStore
 
-/// 窗格内容视图模式（M9：每窗格每标签独立；⌘1 图标 / ⌘2 列表 / ⌘3 分栏）
+/// 窗格内容视图模式（M9：每窗格独立；⌘1 图标 / ⌘2 列表 / ⌘3 分栏）
 enum PaneViewMode: Int {
     case icons, list, columns
 }
 
-/// 窗格：标签栏 + 地址栏（面包屑⟷编辑器）+ 内容视图；每标签独立浏览器与历史。
+/// 窗格：地址栏（面包屑⟷编辑器）+ 内容视图；一个窗格一个浏览上下文（独立浏览器与历史）。
 /// 多实例由 PaneGridController 编排；活动窗格高亮由 setActive 驱动
 @MainActor
 final class PaneViewController: NSViewController {
-    /// 一个标签 = 独立浏览状态 + 独立目录模型 + 独立内容视图（隐藏标签零后台工作）。
+    /// 浏览上下文 = 独立浏览状态 + 独立目录模型 + 独立内容视图。
     /// class 语义（M9）：viewMode 可变；图标/分栏视图懒创建——不切换就不付构造成本。
     /// 三视图共享同一 DirectoryViewModel（onUpdate 多播）；分栏的列加载自管（局部 DirectoryReader）
     final class Tab {
@@ -29,9 +29,14 @@ final class PaneViewController: NSViewController {
         }
     }
 
-    private(set) var tabs: [Tab] = []
-    private(set) var activeTabIndex = 0
-    var activeTab: Tab { tabs[activeTabIndex] }
+    /// 这个窗格唯一的浏览上下文。
+    ///
+    /// v0.19.26 起窗格内不再有多标签（M13 的「每窗格多标签」退役）。Optional 只为满足
+    /// init 顺序——`installTab` 里的回调要捕获已完成初始化的 self；装好之后恒非空。
+    private var tab: Tab?
+    /// 当前浏览上下文。名字沿用 `activeTab`：多标签没了但"这个窗格正在浏览的那个上下文"
+    /// 的语义没变，且全仓两百余处调用点因此一行不用改。
+    var activeTab: Tab { tab! }
 
     /// 位置变化上抛（窗口标题）
     var onLocationChange: ((URL) -> Void)?
@@ -40,23 +45,14 @@ final class PaneViewController: NSViewController {
     /// 计数/选中变化上抛（甲板据此重验动作按钮 enabled；M17）
     var onStatusChange: (() -> Void)?
 
-    /// 文件操作桥：下传每个标签的内容视图（右键菜单/快捷键经此发 OperationSpec）
+    /// 文件操作桥：下传内容视图（右键菜单/快捷键经此发 OperationSpec）
     var coordinator: FileOpsCoordinator? {
         didSet {
-            for tab in tabs {
-                tab.listVC.coordinator = coordinator
-                tab.iconVC?.coordinator = coordinator
-                tab.columnVC?.coordinator = coordinator
-            }
+            guard let tab else { return }
+            tab.listVC.coordinator = coordinator
+            tab.iconVC?.coordinator = coordinator
+            tab.columnVC?.coordinator = coordinator
         }
-    }
-
-    private let tabBar = TabBarView()
-    private var tabBarHeight: NSLayoutConstraint?
-    /// 窗格标签栏默认隐藏（M13：主标签在窗口级；QSpace 同款可选项）
-    static var paneTabBarVisible: Bool {
-        get { UserDefaults.standard.bool(forKey: "showPaneTabBar") }
-        set { UserDefaults.standard.set(newValue, forKey: "showPaneTabBar") }
     }
     private let breadcrumb = BreadcrumbBar()
     /// 「清倒」按钮：**只在窗格显示废纸篓根时出现**，同原生访达那颗。
@@ -79,17 +75,13 @@ final class PaneViewController: NSViewController {
 
     init(directory: URL) {
         super.init(nibName: nil, bundle: nil)
-        appendTab(at: directory)
+        installTab(at: directory)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
     override func loadView() {
-        tabBar.onSelect = { [weak self] i in self?.switchTab(to: i) }
-        tabBar.onClose = { [weak self] i in self?.closeTab(at: i) }
-        tabBar.onNew = { [weak self] in self?.openNewTab() }
-
         // onRequestFocus 先于动作：多窗格布局下点非活动窗格的地址栏，
         // 旧版只导航不激活，窗口标题/甲板动作钮校验/状态栏全停在旧窗格上
         // （列表/图标/分栏视图早就经 onInteract 报了活，只有地址栏漏了）
@@ -186,22 +178,14 @@ final class PaneViewController: NSViewController {
 
         let root = NSView()
         root.wantsLayer = true
-        for sub in [tabBar, addressArea, separator, contentContainer, statusBar] {
+        for sub in [addressArea, separator, contentContainer, statusBar] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(sub)
         }
-        let tabHeight = tabBar.heightAnchor.constraint(
-            equalToConstant: Self.paneTabBarVisible ? 22 : 0)
-        tabBarHeight = tabHeight
-        tabBar.isHidden = !Self.paneTabBarVisible
         NSLayoutConstraint.activate([
-            tabHeight,
-            // fullSizeContentView 下内容延伸到标题栏底下：标签栏必须锚 safeArea 顶，否则被工具栏遮住
-            tabBar.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
-            tabBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-
-            addressArea.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            // fullSizeContentView 下内容延伸到标题栏底下：顶部控件必须锚 safeArea 顶，
+            // 否则被工具栏遮住（窗格标签栏退役后这个顶由地址栏接手）
+            addressArea.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             addressArea.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             addressArea.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             addressArea.heightAnchor.constraint(equalToConstant: 24),
@@ -221,13 +205,22 @@ final class PaneViewController: NSViewController {
         refreshChrome()
     }
 
-    // MARK: 标签管理
+    // MARK: 浏览上下文
 
+    /// 装上这个窗格的浏览上下文（替换既有的，旧的彻底拆流）。
     @discardableResult
-    private func appendTab(at url: URL) -> Tab {
+    private func installTab(at url: URL) -> Tab {
+        if let old = tab {
+            old.model.stopWatching()      // 换上下文：不留任何后台监听
+            quiesceContent(of: old)       // 三视图在飞任务全取消
+            for vc in [old.listVC as NSViewController?, old.iconVC, old.columnVC].compactMap({ $0 }) {
+                vc.view.removeFromSuperview()
+                vc.removeFromParent()
+            }
+        }
         let browser = BrowserState(url: url)
         let model = DirectoryViewModel(directory: url)
-        // 外部化默认偏好：新标签按设置初始化（隐藏文件/默认排序键与升降序/文件夹置顶/视图模式）
+        // 外部化默认偏好：按设置初始化（隐藏文件/默认排序键与升降序/文件夹置顶/视图模式）
         model.includeHidden = Preferences.showHiddenByDefault
         let defaultSortKey = SortSpec.Key(rawValue: Preferences.defaultSortKey) ?? .name
         model.sort = SortSpec(key: defaultSortKey, ascending: Preferences.defaultSortAscending,
@@ -237,7 +230,7 @@ final class PaneViewController: NSViewController {
         listVC.onNavigate = { [weak self] target in self?.navigate(to: target) }
         listVC.onNavigateBack = { [weak self] in self?.goBack(nil) }
         listVC.onInteract = { [weak self] in self?.onRequestFocus?() }
-        // 状态栏数据源：快照应用/选中变化 → 仅当该标签仍是活动标签时刷新计数
+        // 状态栏数据源：快照应用/选中变化 → 仅当该上下文仍是当前的才刷新计数
         listVC.onContentChange = { [weak self, weak listVC] in
             guard let self, self.activeTab.listVC === listVC else { return }
             self.updateStatusCounts()
@@ -246,10 +239,10 @@ final class PaneViewController: NSViewController {
             guard let self, self.activeTab.listVC === listVC else { return }
             self.updateStatusCounts()
         }
-        let tab = Tab(browser: browser, model: model, listVC: listVC)
-        tab.viewMode = PaneViewMode(rawValue: Preferences.defaultViewModeRaw) ?? .list
-        tabs.append(tab)
-        return tab
+        let fresh = Tab(browser: browser, model: model, listVC: listVC)
+        fresh.viewMode = PaneViewMode(rawValue: Preferences.defaultViewModeRaw) ?? .list
+        tab = fresh
+        return fresh
     }
 
     /// 懒创建图标网格视图（共享同一 model；回调语义与列表一致）
@@ -260,11 +253,11 @@ final class PaneViewController: NSViewController {
         vc.onNavigate = { [weak self] target in self?.navigate(to: target) }
         vc.onInteract = { [weak self] in self?.onRequestFocus?() }
         vc.onContentChange = { [weak self, weak tab] in
-            guard let self, let tab, tabs.contains(where: { $0 === tab }), self.activeTab === tab else { return }
+            guard let self, let tab, self.tab === tab else { return }
             self.updateStatusCounts()
         }
         vc.onSelectionChange = { [weak self, weak tab] in
-            guard let self, let tab, self.tabs.contains(where: { $0 === tab }), self.activeTab === tab else { return }
+            guard let self, let tab, self.tab === tab else { return }
             self.updateStatusCounts()
         }
         tab.iconVC = vc
@@ -279,7 +272,7 @@ final class PaneViewController: NSViewController {
         vc.onNavigate = { [weak self] target in self?.navigate(to: target) }
         vc.onInteract = { [weak self] in self?.onRequestFocus?() }
         vc.onSelectionChange = { [weak self, weak tab] in
-            guard let self, let tab, self.tabs.contains(where: { $0 === tab }), self.activeTab === tab else { return }
+            guard let self, let tab, self.tab === tab else { return }
             self.updateStatusCounts()
         }
         tab.columnVC = vc
@@ -295,61 +288,9 @@ final class PaneViewController: NSViewController {
         }
     }
 
-    func openNewTab(at url: URL? = nil) {
-        let target = url ?? activeTab.browser.current
-        // 新标签**继承派生它的那个标签**的视图设置（排序 / 隐藏文件 / 视图模式），同 QSpace。
-        // 旧版一律回落到全局默认偏好（从未设过 → 恒为「名称」升序）：用户在某窗格里把排序改成
-        // 「修改日期」之后每按一次 ⌘T 都得再改一次；会话文件里同一窗格十几个标签全是手动改出来的
-        // dateModified/desc，就是这条缺口的痕迹（用户报告：「new tab 左边没记住修改日期排序」）。
-        // 必须在 closeTab 之前取模板：达上限时被移除的可能正是活动标签本身。
-        let template = tabs.isEmpty ? nil : activeTab
-        // 窗格标签上限（QSpace 语义）：>0 且已达上限 → 先覆盖最老（移除 index 0）再追加
-        let limit = Preferences.paneTabLimit
-        if limit > 0, tabs.count >= limit { closeTab(at: 0) }
-        let tab = appendTab(at: target)
-        if let template, template !== tab {
-            tab.model.sort = template.model.sort
-            tab.model.includeHidden = template.model.includeHidden
-            tab.viewMode = template.viewMode
-        }
-        switchTab(to: tabs.count - 1)
-        onRequestFocus?()
-    }
-
-    func closeTab(at index: Int) {
-        guard tabs.count > 1, tabs.indices.contains(index) else { return }
-        let tab = tabs.remove(at: index)
-        tab.model.stopWatching()          // 关标签：彻底拆流，不留任何后台监听
-        quiesceContent(of: tab)           // 三视图在飞任务全取消
-        let vcs: [NSViewController?] = [tab.listVC, tab.iconVC, tab.columnVC]
-        for vc in vcs.compactMap({ $0 }) {
-            vc.view.removeFromSuperview()
-            vc.removeFromParent()
-        }
-        if activeTabIndex >= tabs.count { activeTabIndex = tabs.count - 1 }
-        else if index <= activeTabIndex, activeTabIndex > 0 { activeTabIndex -= 1 }
-        mountActiveTab()
-        refreshChrome()
-    }
-
-    func switchTab(to index: Int) {
-        guard tabs.indices.contains(index), index != activeTabIndex else {
-            refreshChrome(); return
-        }
-        activeTabIndex = index
-        mountActiveTab()
-        refreshChrome()
-        onRequestFocus?()
-    }
-
     private func mountActiveTab() {
         contentContainer.subviews.forEach { $0.removeFromSuperview() }
-        // 北极星：隐藏标签全部挂起（watcher 真停 + 在飞装饰/列加载取消），只有活动标签活着
-        for (i, tab) in tabs.enumerated() where i != activeTabIndex {
-            tab.model.suspend()
-            quiesceContent(of: tab)
-        }
-        // 活动标签的非当前模式视图同样静默（切走的视图不留任何在飞任务）
+        // 非当前模式的视图静默（切走的视图不留任何在飞任务）——北极星零后台功耗
         quiesceContent(of: activeTab, keep: activeTab.viewMode)
         let vc = contentVC(for: activeTab)
         if vc.parent !== self { addChild(vc) }
@@ -391,17 +332,15 @@ final class PaneViewController: NSViewController {
 
     // MARK: 窗格级挂起/恢复（PaneGridController 布局切换时调用——北极星零后台功耗）
 
-    /// 布局切走本窗格：所有标签挂起（活动标签也挂），装饰/列加载请求全取消
+    /// 布局切走本窗格：浏览上下文挂起，装饰/列加载请求全取消
     func suspendPane() {
         guard !isPaneSuspended else { return }
         isPaneSuspended = true
-        for tab in tabs {
-            tab.model.suspend()
-            quiesceContent(of: tab)
-        }
+        activeTab.model.suspend()
+        quiesceContent(of: activeTab)
     }
 
-    /// 布局切回本窗格：只恢复活动标签（其余标签保持挂起，等切换时再恢复）
+    /// 布局切回本窗格：恢复浏览上下文的 watcher 与当前模式视图
     func resumePane() {
         guard isPaneSuspended else { return }
         isPaneSuspended = false
@@ -418,8 +357,6 @@ final class PaneViewController: NSViewController {
         // 此时 pathEditor.isHidden 还是 NSView 默认的 false，会误判成"正在编辑"并把 loadView 提前逼出来，
         // 扰乱新窗口的建窗与焦点时序（I-52 外部打开落错窗即由此确定性复现）。同 restore(from:) 的既有守卫。
         if isViewLoaded, !pathEditor.isHidden { endPathEditing() }
-        tabBar.update(titles: tabs.map { displayName($0.browser.current) }, active: activeTabIndex)
-        setTabBarVisible(Self.paneTabBarVisible)   // 标签数变了 → 重算可见性
         breadcrumb.setURL(activeTab.browser.current)
         syncEmptyTrashButton()
         onLocationChange?(activeTab.browser.current)
@@ -575,11 +512,7 @@ final class PaneViewController: NSViewController {
         return statusBar.selectionPillVisible
     }
 
-    private func displayName(_ url: URL) -> String {
-        url.path == "/" ? "/" : url.lastPathComponent
-    }
-
-    // MARK: 导航（唯一入口：历史/地址栏/内容/标签标题四方同步）
+    // MARK: 导航（唯一入口：历史/地址栏/内容三方同步）
 
     func navigate(to url: URL) {
         coordinator?.recordAccess(url)   // M28：进入文件夹 = 一次使用记账（搜索按习惯排序用）
@@ -594,15 +527,6 @@ final class PaneViewController: NSViewController {
             activeTab.columnVC?.showDirectory(activeTab.browser.current)
         }
         refreshChrome()
-    }
-
-    /// 窗格标签栏显隐（菜单"显示窗格标签栏"驱动全部窗格）
-    func setTabBarVisible(_ visible: Bool) {
-        // 偏好关着也不许把**多个**标签藏起来：用户按 ⌥⌘T 新建成功却"没反应"
-        // （标签落在 0pt 高的栏里）——一个看不见的标签就是 bug。偏好只决定单标签时是否显示。
-        let effective = visible || tabs.count > 1
-        tabBar.isHidden = !effective
-        tabBarHeight?.constant = effective ? 22 : 0
     }
 
     // MARK: 视图模式切换（M9：⌘1 图标 / ⌘2 列表 / ⌘3 分栏；选中按 URL 集迁移）
@@ -652,38 +576,30 @@ final class PaneViewController: NSViewController {
     // MARK: 会话快照/恢复（M11；SessionStore 契约）
 
     func sessionPane() -> SessionPane {
-        let sessionTabs = tabs.map { tab in
-            SessionTab(path: tab.browser.current.path,
-                       sortKey: tab.model.sort.key.rawValue,
-                       sortAscending: tab.model.sort.ascending,
-                       includeHidden: tab.model.includeHidden,
-                       viewMode: tab.viewMode.rawValue)
-        }
-        return SessionPane(tabs: sessionTabs, activeTabIndex: activeTabIndex)
+        SessionPane(tab: SessionTab(path: activeTab.browser.current.path,
+                                    sortKey: activeTab.model.sort.key.rawValue,
+                                    sortAscending: activeTab.model.sort.ascending,
+                                    includeHidden: activeTab.model.includeHidden,
+                                    viewMode: activeTab.viewMode.rawValue))
     }
 
-    /// 按快照重建标签（丢弃 init 占位标签；路径已消失回退个人目录——容错矩阵）
+    /// 按快照重建浏览上下文（路径已消失回退个人目录——容错矩阵）
     func restoreSession(_ pane: SessionPane) {
-        guard !pane.tabs.isEmpty else { return }
-        for tab in tabs { tab.model.stopWatching() }
-        tabs.removeAll()
         let fm = FileManager.default
-        for st in pane.tabs {
-            var isDir: ObjCBool = false
-            let url = (fm.fileExists(atPath: st.path, isDirectory: &isDir) && isDir.boolValue)
-                ? URL(fileURLWithPath: st.path)
-                : fm.homeDirectoryForCurrentUser
-            let tab = appendTab(at: url)
-            if let key = SortSpec.Key(rawValue: st.sortKey) {
-                tab.model.sort = SortSpec(key: key, ascending: st.sortAscending,
-                                          foldersFirst: tab.model.sort.foldersFirst)
-            }
-            tab.model.includeHidden = st.includeHidden
-            if let raw = st.viewMode, let vm = PaneViewMode(rawValue: raw) {
-                tab.viewMode = vm
-            }
+        let st = pane.tab
+        var isDir: ObjCBool = false
+        let url = (fm.fileExists(atPath: st.path, isDirectory: &isDir) && isDir.boolValue)
+            ? URL(fileURLWithPath: st.path)
+            : fm.homeDirectoryForCurrentUser
+        let fresh = installTab(at: url)
+        if let key = SortSpec.Key(rawValue: st.sortKey) {
+            fresh.model.sort = SortSpec(key: key, ascending: st.sortAscending,
+                                        foldersFirst: fresh.model.sort.foldersFirst)
         }
-        activeTabIndex = min(max(0, pane.activeTabIndex), tabs.count - 1)
+        fresh.model.includeHidden = st.includeHidden
+        if let raw = st.viewMode, let vm = PaneViewMode(rawValue: raw) {
+            fresh.viewMode = vm
+        }
         if isViewLoaded {
             mountActiveTab()
             refreshChrome()
@@ -828,7 +744,7 @@ final class PaneViewController: NSViewController {
     private func revealFile(_ fileURL: URL) {
         // 目标是隐藏文件、而当前又没在显示隐藏文件：用户是**明确点名**要这个文件的，
         // 不打开显示就只会跳到父目录、什么都不选中，在用户眼里就是"回车了没反应"。
-        // 为该标签打开显示隐藏（每标签独立，⌘⇧. 随时可关掉），让用户真看得到自己要的东西。
+        // 为该窗格打开显示隐藏（每窗格独立，⌘⇧. 随时可关掉），让用户真看得到自己要的东西。
         if Self.isHiddenItem(fileURL), !activeTab.model.includeHidden {
             activeTab.model.includeHidden = true
         }
@@ -958,10 +874,6 @@ final class PaneViewController: NSViewController {
     /// 空白区右键菜单（走 BlankAreaScrollView 真实注入的那个回调）
     func uiTestBlankAreaMenu() -> NSMenu? { activeTab.listVC.uiTestBlankAreaMenu() }
 
-    // ---- 自测通道（I-71）----
-    var uiTestPaneTabBarVisible: Bool { isViewLoaded && !tabBar.isHidden }
-    var uiTestPaneTabBarHeight: CGFloat { tabBarHeight?.constant ?? -1 }
-
     // ---- 自测通道（I-64）----
     var uiTestEmptyTrashButtonVisible: Bool { isViewLoaded && !emptyTrashButton.isHidden }
     var uiTestEmptyTrashButtonWidth: CGFloat { emptyTrashWidth?.constant ?? -1 }
@@ -985,17 +897,6 @@ final class PaneViewController: NSViewController {
         navigate(to: FileManager.default.homeDirectoryForCurrentUser)
     }
 
-    @objc func newTab(_ sender: Any?) {
-        openNewTab()
-    }
-
-    @objc func closeActiveTab(_ sender: Any?) {
-        if tabs.count > 1 {
-            closeTab(at: activeTabIndex)
-        } else {
-            view.window?.performClose(sender)
-        }
-    }
 
     // 视图模式菜单（显示 > 为图标/为列表/为分栏）
     @objc func viewAsIcons(_ sender: Any?) { setViewMode(.icons) }

@@ -198,6 +198,9 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     var sidebarColumnFrame: NSRect { sidebarWrap.frame }
     var contentColumnFrame: NSRect { contentColumn.frame }
     var workspaceCount: Int { workspaces.count }
+    /// 自测通道（I-73）：工作区标题按序——验"到上限时外部打开没把最老那个顶掉"，
+    /// 光数个数不够（顶掉最老再追加一个，个数是不变的）。
+    var uiTestWorkspaceTitles: [String] { workspaces.titles() }
 
     /// 窗口关闭时由 AppDelegate 调用（事件监视器必须显式拆除）
     func teardown() {
@@ -335,17 +338,6 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         grid.activePane.editPath(sender)
     }
 
-    /// ⌥⌘T / ⌥⌘W 窗格标签：焦点在侧栏、地址栏、甲板时 firstResponder 不在任何窗格里，
-    /// 链到不了 PaneViewController——用户报告「按了新建标签页没有反应」的另一半原因
-    /// （前一半是标签栏默认隐藏、建了看不见）。收口到活动窗格。
-    @objc func newTab(_ sender: Any?) {
-        grid.activePane.newTab(sender)
-    }
-
-    @objc func closeActiveTab(_ sender: Any?) {
-        grid.activePane.closeActiveTab(sender)
-    }
-
     // MARK: 工作区标签（M17：自管 WorkspaceManager；⌘T/⌘W/循环 + 标签条钮都走这里）
 
     /// 切换前把 grid 实时快照回灌活动槽（否则切走的工作区丢失未落盘编辑）
@@ -363,26 +355,42 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     }
 
     @objc func newWorkspaceTab(_ sender: Any?) {
+        openWorkspaceTab(at: nil)
+    }
+
+    /// 新建工作区标签 = **复制当前工作区**：同一布局，每个可见窗格继承它当前的
+    /// 路径 / 排序 / 隐藏 / 视图模式。`directory` 非空时只把**活动窗格**换到那个目录
+    /// （外部打开走这条：v0.19.26 起它落在工作区标签上，不再往窗格里塞看不见的标签）。
+    ///
+    /// `allowEvictingOldest` 为 false 时，已达工作区上限就**不新建**、改为把活动窗格就地导航过去：
+    /// 外部打开由别的 App 触发，不该因为对方点了「在访达中显示」就把用户排在最前的工作区顶掉。
+    ///
+    /// 旧版 ⌘T 只播种一个窗格、只抄路径，排序等全部回落到全局默认偏好（从未设过 → 恒为「名称」）；
+    /// 其余窗格由窗格池的旧内容补位——于是"右窗格记住了修改日期、左窗格没有"（用户报告）。
+    func openWorkspaceTab(at directory: URL?, allowEvictingOldest: Bool = true) {
         snapshotIntoActive()
-        // ⌘T 新工作区 = **复制当前工作区**：同一布局，每个可见窗格各带一个标签，
-        // 继承该窗格活动标签的 路径 / 排序 / 隐藏 / 视图模式（同 QSpace「新建标签」）。
-        // 旧版只播种一个窗格、只抄路径，排序等全部回落到全局默认偏好（从未设过 → 恒为「名称」）；
-        // 其余窗格由窗格池的旧标签补位——于是"右窗格记住了修改日期、左窗格没有"
-        // （用户报告，且我上一轮修的是 ⌥⌘T 那条路，验的不是这个键）。
+        let limit = Preferences.workspaceTabLimit
+        if !allowEvictingOldest, limit > 0, workspaces.count >= limit {
+            if let directory { grid.activePane.navigate(to: directory) }
+            refreshWorkspaceTabs()
+            focusActivePane()
+            syncDeck()
+            (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+            return
+        }
         let current = grid.sessionWindow()
+        let activeIndex = current.activePaneIndex
+        // 直接拿窗格现态造快照（而不是另手抄一遍字段）：PaneGridController.restoreSession
+        // 靠「目标态 == 现态」判定跳过重建，两处字段一旦漂开，那条跳过就会失效而且没人察觉。
         let fresh = SessionWindow(
             layoutRaw: current.layoutRaw,
-            panes: grid.visiblePanes.map { pane in
-                let t = pane.activeTab
-                return SessionPane(tabs: [SessionTab(path: t.browser.current.path,
-                                                     sortKey: t.model.sort.key.rawValue,
-                                                     sortAscending: t.model.sort.ascending,
-                                                     includeHidden: t.model.includeHidden,
-                                                     viewMode: t.viewMode.rawValue)],
-                                   activeTabIndex: 0)
+            panes: grid.visiblePanes.enumerated().map { i, pane in
+                var sp = pane.sessionPane()
+                if i == activeIndex, let directory { sp.tab.path = directory.path }
+                return sp
             },
-            activePaneIndex: current.activePaneIndex)
-        workspaces.append(fresh, limit: Preferences.workspaceTabLimit)
+            activePaneIndex: activeIndex)
+        workspaces.append(fresh, limit: limit)
         grid.restoreSession(workspaces.activeState)
         refreshWorkspaceTabs()
         focusActivePane()
@@ -460,14 +468,6 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     func workspaceSnapshot() -> SessionWorkspaces {
         snapshotIntoActive()
         return SessionWorkspaces(workspaces: workspaces.states, activeWorkspace: workspaces.activeIndex)
-    }
-
-    @objc func togglePaneTabBar(_ sender: Any?) {
-        PaneViewController.paneTabBarVisible.toggle()
-        // 广播到全部窗口
-        for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
-            wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
-        }
     }
 
     // MARK: Tab 键循环窗格焦点 + ⌃⇥ 循环工作区（文本编辑中放行）

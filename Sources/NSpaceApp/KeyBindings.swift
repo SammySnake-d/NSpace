@@ -14,9 +14,7 @@ enum KeyBindings {
     /// 常用命令注册表（设置窗按此渲染；新增可配快捷键 = 加一行）
     static let registry: [Entry] = [
         Entry(id: "newTab", titleKey: "menu.newWorkspace", defaultKey: "t", defaultMods: [.command]),
-        Entry(id: "newPaneTab", titleKey: "menu.newPaneTab", defaultKey: "t", defaultMods: [.command, .option]),
         Entry(id: "closeTab", titleKey: "menu.closeWorkspace", defaultKey: "w", defaultMods: [.command]),
-        Entry(id: "closePaneTab", titleKey: "menu.closePaneTab", defaultKey: "w", defaultMods: [.command, .option]),
         // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆；M19 从菜单硬编码迁入注册表，可改键）
         Entry(id: "copyToOtherPane", titleKey: "menu.copyToOtherPane", defaultKey: "\u{F708}", defaultMods: []),
         Entry(id: "moveToOtherPane", titleKey: "menu.moveToOtherPane", defaultKey: "\u{F709}", defaultMods: []),
@@ -47,7 +45,6 @@ enum KeyBindings {
         Entry(id: "searchHere", titleKey: "menu.searchHere", defaultKey: "f", defaultMods: [.command]),
         Entry(id: "searchGlobal", titleKey: "menu.searchGlobal", defaultKey: "f", defaultMods: [.command, .shift]),
         Entry(id: "toggleSidebar", titleKey: "menu.toggleSidebar", defaultKey: "s", defaultMods: [.command, .option]),
-        Entry(id: "togglePaneTabBar", titleKey: "menu.togglePaneTabBar", defaultKey: "", defaultMods: []),
         // 视图模式（I-13：从硬编码 ⌘1/2/3 迁入注册表；默认让位给工作区数字直达 → ⌥⌘1/2/3，可改）
         Entry(id: "viewAsIcons", titleKey: "menu.viewAsIcons", defaultKey: "1", defaultMods: [.command, .option]),
         Entry(id: "viewAsList", titleKey: "menu.viewAsList", defaultKey: "2", defaultMods: [.command, .option]),

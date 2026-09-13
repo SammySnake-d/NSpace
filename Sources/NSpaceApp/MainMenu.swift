@@ -28,8 +28,6 @@ enum MainMenu {
         fileMenu.addItem(withTitle: L10n.t("menu.newWindow"), action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
         let newTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newWorkspace"), action: #selector(MainWindowController.newWorkspaceTab(_:)), keyEquivalent: "")
         KeyBindings.apply("newTab", to: newTabItem)
-        let paneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newPaneTab"), action: #selector(PaneViewController.newTab(_:)), keyEquivalent: "")
-        KeyBindings.apply("newPaneTab", to: paneTabItem)
         let nextWsItem = fileMenu.addItem(withTitle: L10n.t("menu.nextWorkspace"),
                                           action: #selector(MainWindowController.nextWorkspace(_:)), keyEquivalent: "")
         KeyBindings.apply("nextWorkspace", to: nextWsItem)
@@ -71,8 +69,6 @@ enum MainMenu {
         // ⌘W 分层关闭（I-21）：路由到 AppDelegate.closeTopmost——浮层优先，主窗才关工作区标签
         let closeTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWorkspace"), action: #selector(AppDelegate.closeTopmost(_:)), keyEquivalent: "")
         KeyBindings.apply("closeTab", to: closeTabItem)
-        let closePaneTabItem = fileMenu.addItem(withTitle: L10n.t("menu.closePaneTab"), action: #selector(PaneViewController.closeActiveTab(_:)), keyEquivalent: "")
-        KeyBindings.apply("closePaneTab", to: closePaneTabItem)
         let closeWinItem = fileMenu.addItem(withTitle: L10n.t("menu.closeWindow"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         closeWinItem.keyEquivalentModifierMask = [.command, .shift]
 
@@ -126,9 +122,6 @@ enum MainMenu {
                                            action: #selector(MainWindowController.toggleSidebar(_:)),
                                            keyEquivalent: "")
         KeyBindings.apply("toggleSidebar", to: sidebarItem)
-        let paneBarItem = viewMenu.addItem(withTitle: L10n.t("menu.togglePaneTabBar"),
-                         action: #selector(MainWindowController.togglePaneTabBar(_:)), keyEquivalent: "")
-        KeyBindings.apply("togglePaneTabBar", to: paneBarItem)
         viewMenu.addItem(.separator())
         let hiddenItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleHidden"),
                                           action: #selector(FileListViewController.toggleHiddenFiles(_:)),

@@ -7,7 +7,7 @@
 **在 macOS 27 上提供一个日常可完全替代 Finder/QSpace 的多窗格文件管理器，且空闲 CPU ≈ 0%。**
 
 - 用户逃离 QSpace 的原因是卡顿与高 CPU；本产品的第一验收物是性能：万级条目目录秒开顺滑、4 窗格空闲时 `top` 采样 CPU ≈ 0%。
-- 核心体验闭环：多窗格布局(1/2H/2V/3/4) + 每窗格多标签 + 面包屑地址栏 + 左侧书签栏 + 暂存架 + 空格 Quick Look + 完整文件操作（队列/进度/冲突/撤销）+ 双击走系统默认打开方式 + 可设为默认文件夹处理程序。
+- 核心体验闭环：多窗格布局(1/2H/2V/3/4) + 窗口级工作区标签 + 面包屑地址栏 + 左侧书签栏 + 暂存架 + 空格 Quick Look + 完整文件操作（队列/进度/冲突/撤销）+ 双击走系统默认打开方式 + 可设为默认文件夹处理程序。
 - 反目标（v1 不做）：批量重命名、压缩引擎、哈希、文件夹同步、网络盘、工作区快捷键、着色规则——全部靠新胶囊零侵入后补。
 
 ## 用户故事与验收样例 (User Stories & Acceptance Examples)
@@ -59,12 +59,12 @@ pending ──开始──▶ scanning ──发现冲突──▶ awaitingConfl
 - 终态：`completed` / `failed` / `cancelled`，不可再转移；取消是协作式（节点在 copyfile 回调查 `Task.isCancelled` 返回 `COPYFILE_QUIT`）。
 - `awaitingConflict` 通过 `CheckedContinuation` 挂起，冲突面板回填决议（替换/跳过/两者保留/合并 + 应用到全部）后恢复。
 
-### 3.2 目录浏览状态机（每标签 BrowserState）
+### 3.2 目录浏览状态机（每窗格 BrowserState）
 
 ```
 idle ──navigate(url)──▶ loading(gen=N) ──snapshot(gen=N)──▶ loaded ──FSEvent──▶ loading(gen=N+1)
                               │ snapshot(gen<N) 到达 → 丢弃（代际防过期覆盖）
-loaded ──标签隐藏──▶ suspended（挂起 watcher/缩略图，记录 mtime）──标签显示──▶ mtime 变则 loading，否则 loaded
+loaded ──窗格切走/工作区切走──▶ suspended（挂起 watcher/缩略图，记录 mtime）──切回──▶ mtime 变则 loading，否则 loaded
 ```
 
 ### 3.3 行内重命名（FG-6 乐观回滚）
@@ -126,7 +126,7 @@ enum ConflictDecision: Sendable { case replace, skip, keepBoth, mergeFolders }
 enum ErrorClass: Sendable { case logic /*内部逻辑错,禁重试*/, transient /*系统抖动,可重试*/, external /*权限/卷不可用,提示用户*/ }
 ```
 
-存储契约：`~/Library/Application Support/NSpace/{bookmarks,stash,session,frecency}.json`，Codable + 临时文件原子替换；stash 项存 URL bookmark `Data`（抗改名）；session 结构 = 窗口→frame/布局→窗格→标签→(路径/视图模式/排序/选中集)；frecency 结构 = path→(count/lastAccess)。
+存储契约：`~/Library/Application Support/NSpace/{bookmarks,stash,session,frecency}.json`，Codable + 临时文件原子替换；stash 项存 URL bookmark `Data`（抗改名）；session 结构 = 窗口→工作区→frame/布局→窗格→(路径/视图模式/排序/选中集)；frecency 结构 = path→(count/lastAccess)。
 
 ## 前置条件 (Preconditions)
 
@@ -159,7 +159,7 @@ enum ErrorClass: Sendable { case logic /*内部逻辑错,禁重试*/, transient 
 
 - **无真实功能则删界面元素**：不留死按钮/占位菜单；空态/加载骨架/禁用态是功能，不得删。
 - **就地闭环**：一切错误与冲突在发生位置原位呈现（横幅/面板/行内标红），严禁模态白屏或跳页。
-- **后台零功耗**：非活动标签/窗格挂起 watcher、取消缩略图、零轮询——这是北极星，不是优化项。
+- **后台零功耗**：非活动工作区/窗格挂起 watcher、取消缩略图、零轮询——这是北极星，不是优化项。
 - **Finder 肌肉记忆**：⌘1/2/3 视图、⌘⇧. 隐藏、⌘⌫ 废纸篓、空格 QL、⌘L 路径、⌘[/⌘] 历史、⌘↑ 上层；深浅色全自动跟随。
 - **中文为主双语**：所有 UI 串过 L10n，zh-Hans 为 base。
 - **4pt 网格**：自绘控件（面包屑/标签栏/暂存架）间距对齐 4pt 标尺。
@@ -171,7 +171,7 @@ enum ErrorClass: Sendable { case logic /*内部逻辑错,禁重试*/, transient 
 - [ ] `swift test` 全绿（L-plan）；每胶囊有 `nspace-probe` 子命令可单独驱动（L-readonly / L-irreversible 于 /tmp 夹具树）
 - [ ] `./scripts/run.sh` 启动：浏览家目录、/usr/bin 万级条目秒开顺滑滚动
 - [ ] 双击 zip → Bandizip（系统默认打开方式）；双击文件夹窗格内导航
-- [ ] 四宫格布局 + 每窗格多标签 + Tab 焦点循环 + 活动窗格高亮
+- [ ] 四宫格布局 + 窗口级工作区标签 + Tab 焦点循环 + 活动窗格高亮
 - [ ] 面包屑点击/chevron 子目录跳转/⌘L 补全/拖文件到分段
 - [ ] 侧边栏书签拖入-排序-重命名-删除，卷推出，iCloud Drive 可浏览
 - [ ] 暂存架拖入→批量复制/移动/AirDrop，重启保留

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 每标签浏览状态：当前位置 + 前进/后退历史栈（spec 数据契约 session 结构的运行态）
+/// 每窗格浏览状态：当前位置 + 前进/后退历史栈（spec 数据契约 session 结构的运行态）
 @MainActor
 final class BrowserState {
     private(set) var current: URL

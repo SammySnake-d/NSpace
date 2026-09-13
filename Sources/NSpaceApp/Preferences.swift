@@ -12,13 +12,13 @@ enum Preferences {
         set { d.set(newValue, forKey: "defaultLayout") }
     }
 
-    /// 新标签页的默认视图模式（icons=0/list=1/columns=2）
+    /// 新窗格的默认视图模式（icons=0/list=1/columns=2）
     static var defaultViewModeRaw: Int {
         get { d.object(forKey: "defaultViewMode") as? Int ?? 1 }  // list
         set { d.set(newValue, forKey: "defaultViewMode") }
     }
 
-    /// 新标签默认显示隐藏文件
+    /// 新窗格默认显示隐藏文件
     static var showHiddenByDefault: Bool {
         get { d.bool(forKey: "showHiddenByDefault") }
         set { d.set(newValue, forKey: "showHiddenByDefault") }
@@ -120,33 +120,28 @@ enum Preferences {
         set { d.set(newValue, forKey: "doubleClickBlank") }
     }
 
-    /// 新标签默认排序键（name/dateModified/size/kind；只对新标签生效）
+    /// 新窗格默认排序键（name/dateModified/size/kind；只对新建的窗格生效）
     static var defaultSortKey: String {
         get { d.string(forKey: "defaultSortKey") ?? "name" }
         set { d.set(newValue, forKey: "defaultSortKey") }
     }
 
-    /// 新标签默认升序（默认 true）
+    /// 新窗格默认升序（默认 true）
     static var defaultSortAscending: Bool {
         get { d.object(forKey: "defaultSortAscending") as? Bool ?? true }
         set { d.set(newValue, forKey: "defaultSortAscending") }
     }
 
-    /// 窗格标签上限（0=不限制；>0 时新建标签超限覆盖最老——移除 index 0 再追加，QSpace 语义）
-    static var paneTabLimit: Int {
-        get { d.integer(forKey: "paneTabLimit") }  // 未设=0=不限制
-        set { d.set(newValue, forKey: "paneTabLimit") }
-    }
-
     /// 工作区标签上限（0=不限制；>0 时新建工作区超限覆盖最老——移除 index 0，同 QSpace 语义）。
-    /// 语义层级：paneTabLimit 管窗格内标签，workspaceTabLimit 管窗口内工作区（M17）
+    /// v0.19.26 起这是唯一的标签上限：窗格内多标签已退役。
     static var workspaceTabLimit: Int {
         get { d.integer(forKey: "workspaceTabLimit") }  // 未设=0=不限制
         set { d.set(newValue, forKey: "workspaceTabLimit") }
     }
 
-    /// 外部 open-URL 打开目录的落点："newTab"（默认，现行为=开新窗/工作区标签）/
-    /// "activePane"（已有窗口时在活动窗格新建窗格标签定位，不每次开新窗）
+    /// 外部 open-URL 打开目录的落点："newWindow"=每次开新窗；
+    /// 其余值（默认 "newTab"，含旧值 "activePane"）=复用现有窗口新建**工作区标签**，
+    /// 活动窗格落到目标目录。v0.19.26 前是往活动窗格里新建窗格标签——那层已退役。
     static var externalOpenTarget: String {
         get { d.string(forKey: "externalOpenTarget") ?? "newTab" }
         set { d.set(newValue, forKey: "externalOpenTarget") }

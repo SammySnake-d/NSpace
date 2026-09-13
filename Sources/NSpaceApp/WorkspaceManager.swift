@@ -33,9 +33,7 @@ final class WorkspaceManager {
 
     static func title(of w: SessionWindow) -> String {
         let pane = w.panes.indices.contains(w.activePaneIndex) ? w.panes[w.activePaneIndex] : w.panes.first
-        let path = pane.flatMap { p -> String? in
-            p.tabs.indices.contains(p.activeTabIndex) ? p.tabs[p.activeTabIndex].path : p.tabs.first?.path
-        }
+        let path = pane?.tab.path
         guard let path, !path.isEmpty else { return "—" }
         return path == "/" ? "/" : (path as NSString).lastPathComponent
     }
@@ -52,7 +50,7 @@ final class WorkspaceManager {
         mru.insert(index, at: 0)
     }
 
-    /// 追加新工作区并置为活动；limit>0 且超限则覆盖最老（移除 index 0，同 paneTabLimit 语义）。
+    /// 追加新工作区并置为活动；limit>0 且超限则覆盖最老（移除 index 0，QSpace 语义）。
     func append(_ w: SessionWindow, limit: Int) {
         states.append(w)
         if limit > 0, states.count > limit {

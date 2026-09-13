@@ -175,7 +175,7 @@ final class FileListViewController: NSViewController, FileRevealTarget {
             filterPill.heightAnchor.constraint(equalToConstant: 20),
         ])
         view = root
-        syncSortIndicatorFromModel()   // I-58：首次装载即挂上指示器（新窗格/新标签不再显示成"名称"）
+        syncSortIndicatorFromModel()   // I-58：首次装载即挂上指示器（新窗格不再显示成"名称"）
         model.reload()
     }
 

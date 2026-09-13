@@ -43,7 +43,7 @@ enum PaneLayout: Int, CaseIterable {
 }
 
 /// 窗格网格 + 焦点协调：窗格池懒建、切布局保状态、Tab 循环焦点、活动窗格高亮。
-/// 切走的窗格 hidden-not-destroyed（标签/历史/滚动位置全保留）
+/// 切走的窗格 hidden-not-destroyed（浏览上下文/历史/滚动位置全保留）
 @MainActor
 final class PaneGridController: NSViewController {
     private(set) var layout: PaneLayout = .single
@@ -246,10 +246,6 @@ final class PaneGridController: NSViewController {
         setActivePane(next)
     }
 
-    /// 全部窗格（含隐藏池）应用标签栏显隐
-    func setPaneTabBarsVisible(_ visible: Bool) {
-        for pane in pool { pane.setTabBarVisible(visible) }
-    }
 
     // MARK: 会话快照/恢复（M11）
 
@@ -263,6 +259,11 @@ final class PaneGridController: NSViewController {
         _ = view  // 先强制 loadView（窗格池就位）
         if let l = PaneLayout(rawValue: w.layoutRaw) { apply(layout: l) }
         for (pane, sp) in zip(visiblePanes, w.panes) {
+            // 目标态与窗格现态**逐字段相同** → 不重建：保住浏览历史 / 选中 / 滚动位置。
+            // 「新建工作区 = 复制当前工作区」会拿现态原样造快照，只有活动窗格可能换路径；
+            // 无条件 installTab 会把用户根本没碰的那些窗格连 BrowserState 一起换新——
+            // 切回去 ⌘[ 后退失灵、选中消失、列表滚回顶部。外部打开默认走这条，每次都中。
+            guard pane.sessionPane() != sp else { continue }
             pane.restoreSession(sp)
         }
         setActivePane(min(max(0, w.activePaneIndex), layout.paneCount - 1))

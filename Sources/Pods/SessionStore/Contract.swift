@@ -21,13 +21,40 @@ public struct SessionTab: Sendable, Codable, Equatable {
     }
 }
 
+/// 一个窗格 = 一个浏览上下文。
+///
+/// v0.19.26 起窗格内不再有多标签（M13 的「每窗格多标签」退役：产品定位只认窗口级工作区标签，
+/// 而窗格标签栏默认隐藏、建出来的标签用户看不见，外部打开又一直往里堆——用户报告
+/// 「⌥⌘T 没反应」「这个好像没什么作用」）。外部打开改落到工作区标签，那一层本来就可见可关。
 public struct SessionPane: Sendable, Codable, Equatable {
-    public var tabs: [SessionTab]
-    public var activeTabIndex: Int
+    public var tab: SessionTab
 
-    public init(tabs: [SessionTab], activeTabIndex: Int) {
-        self.tabs = tabs
-        self.activeTabIndex = activeTabIndex
+    public init(tab: SessionTab) {
+        self.tab = tab
+    }
+
+    private enum CodingKeys: String, CodingKey { case tab, tabs, activeTabIndex }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // 先试新结构
+        if let t = try? c.decode(SessionTab.self, forKey: .tab) {
+            self.tab = t
+            return
+        }
+        // 旧结构（窗格内多标签）一次性迁移：只留当时的**活动**标签，其余丢弃。
+        // 不展开成多个工作区——用户会话里最多的一个窗格有 5 个标签，全展开会炸出二十几个
+        // 工作区，那不是"删掉这层"该有的结果。
+        let tabs = try c.decode([SessionTab].self, forKey: .tabs)
+        let idx = (try? c.decode(Int.self, forKey: .activeTabIndex)) ?? 0
+        // 空数组是不可能状态（旧实现保证每窗格至少一个标签）；真遇上给空路径，
+        // 由上层「会话恢复时路径已消失 → 回退个人目录」接住（spec.md §风险表）。
+        self.tab = tabs.indices.contains(idx) ? tabs[idx] : (tabs.first ?? SessionTab(path: ""))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(tab, forKey: .tab)
     }
 }
 

@@ -206,8 +206,6 @@ final class SettingsWindowController: NSWindowController {
                               action: #selector(showHiddenChanged(_:)))
         let folders = checkRow("settings.foldersFirst", checked: Preferences.foldersFirst,
                                action: #selector(foldersFirstChanged(_:)))
-        let paneBar = checkRow("menu.togglePaneTabBar", checked: PaneViewController.paneTabBarVisible,
-                               action: #selector(paneBarChanged(_:)))
 
         let note = NSTextField(wrappingLabelWithString: L10n.t("settings.applyNote"))
         note.font = .systemFont(ofSize: 11)
@@ -240,7 +238,7 @@ final class SettingsWindowController: NSWindowController {
         hotkeyNote.textColor = .tertiaryLabelColor
 
         let stack = NSStackView(views: [layoutRow, viewRow, termRow,
-                                        NSBox.separatorLine(), hidden, folders, paneBar,
+                                        NSBox.separatorLine(), hidden, folders,
                                         NSBox.separatorLine(), hotkeyRow, hotkeyNote,
                                         NSBox.separatorLine(), restoreSeeds,
                                         NSBox.separatorLine(), autoUpdate, autoDownload, checkUpdate,
@@ -272,13 +270,6 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func foldersFirstChanged(_ sender: NSButton) {
         Preferences.foldersFirst = sender.state == .on
-    }
-
-    @objc private func paneBarChanged(_ sender: NSButton) {
-        PaneViewController.paneTabBarVisible = sender.state == .on
-        for case let wc as MainWindowController in NSApp.windows.compactMap(\.windowController) {
-            wc.grid.setPaneTabBarsVisible(PaneViewController.paneTabBarVisible)
-        }
     }
 
     @objc private func autoDownloadUpdatesChanged(_ sender: NSButton) {

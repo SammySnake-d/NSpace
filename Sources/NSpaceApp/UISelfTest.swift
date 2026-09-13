@@ -51,6 +51,12 @@ enum UISelfTest {
             if let spec = env["NSPACE_UITEST_SETFRAME"] {
                 let parts = spec.split(separator: ",").compactMap { Double($0) }
                 if parts.count == 2 {
+                    // 全部主窗口共用同一个 windowFrame.uitest 键：只要还有第二个窗口，
+                    // 它在本进程退出前触发一次 frame 变化就会把刚写好的值覆盖掉
+                    // （实测三轮复现一次「期望 900x520 实得 600x400」——600x400 正是新窗默认尺寸）。
+                    // 落盘这一趟只留被测窗口，去掉这个竞态；断的是仪器，不碰产品的持久化路径。
+                    for w in NSApp.windows
+                    where (w.windowController is MainWindowController) && w !== window { w.close() }
                     window.setFrame(NSRect(x: 120, y: 120, width: parts[0], height: parts[1]),
                                     display: true)
                     // 显式走自管持久化（模拟用户拖拽结束的落盘路径）
@@ -154,8 +160,6 @@ enum UISelfTest {
             // ── 场景 I-68：侧栏点一次就跳 + 高亮跟随窗格 ────────────────────────────
             await runSidebarNavigationScenario(wc: wc, window: window)
 
-            // ── 场景 I-69：新标签继承派生标签的排序/隐藏/视图模式 ───────────────────
-            await runNewTabInheritsViewSettingsScenario(wc: wc, window: window)
 
             // ── 场景 I-70/71/72：⌘T 新工作区继承 / ⌥⌘T 标签栏可见 / 工作区标签条可点 ────
             await runWorkspaceTabScenario(wc: wc, window: window)
@@ -668,16 +672,6 @@ enum UISelfTest {
                && samePath(pane.activeTab.browser.current, pathBefore),
                "I-39 ⌘↓ 落表视图被吞不跳选（守卫真实生效）")
 
-        // M23-4：新建窗格标签 → 标签数+1 且活动路径正确；关闭 → 复原
-        let tabsBefore = pane.tabs.count
-        pane.openNewTab(at: child)
-        try? await Task.sleep(for: .milliseconds(250))
-        record(pane.tabs.count == tabsBefore + 1 && samePath(pane.activeTab.browser.current, child),
-               "新建窗格标签 → 标签数+1 且活动路径正确（\(pane.tabs.count)）")
-        pane.closeActiveTab(nil)
-        try? await Task.sleep(for: .milliseconds(200))
-        record(pane.tabs.count == tabsBefore, "关闭窗格标签 → 标签数复原（\(pane.tabs.count)）")
-
         // M23-5：显示隐藏文件开关 → 真实翻转模型状态
         let h0 = pane.activeTab.model.includeHidden
         pane.activeTab.listVC.toggleHiddenFiles(nil)
@@ -687,16 +681,6 @@ enum UISelfTest {
         try? await Task.sleep(for: .milliseconds(150))
         let h2 = pane.activeTab.model.includeHidden
         record(h1 == !h0 && h2 == h0, "显示隐藏文件开关真实翻转模型状态")
-
-        // M23-6：显示/隐藏窗格标签栏 → 真实翻转控制状态（净零复原）
-        let p0 = PaneViewController.paneTabBarVisible
-        wc.togglePaneTabBar(nil)
-        try? await Task.sleep(for: .milliseconds(150))
-        let p1 = PaneViewController.paneTabBarVisible
-        wc.togglePaneTabBar(nil)
-        try? await Task.sleep(for: .milliseconds(150))
-        let p2 = PaneViewController.paneTabBarVisible
-        record(p1 == !p0 && p2 == p0, "窗格标签栏开关真实翻转控制状态")
 
         // M23-7：新建文件夹/制作副本/重命名/移到废纸篓 → 真跑 coordinator/kernel + 断言文件系统结果
         // 铁律（用户 2026-08-26）：每个 mutating 操作前先过沙箱守卫，守卫失败即跳过（绝不误伤真实文件）
@@ -1337,7 +1321,10 @@ enum UISelfTest {
                     fe.keyDown(with: ev)
                 }
                 var sameDirOK = false
-                for _ in 0..<15 {
+                // 轮询窗口 1.5s → 4s：选中的落地要等目录**异步**读完再走 pending reveal，
+                // 机器忙时读盘拖长就假红（编辑器就绪=true、选中数=0 那一次即此）。
+                // 窗口长短不改变断言内容，只是不拿机器负载当判据。
+                for _ in 0..<40 {
                     try? await Task.sleep(for: .milliseconds(100))
                     if samePath(dpane.uiTestCurrentURL, folder),
                        dpane.activeTab.listVC.selectedURLs.contains(where: { samePath($0, apk) }) {
@@ -1799,20 +1786,18 @@ enum UISelfTest {
                 let winsAfterQueue = mainWins()
                 record(queuedAfter == queuedBefore + 1 && winsAfterQueue == before,
                        "I-60 会话未就绪的外部打开只排队不开窗（队列 \(queuedBefore)→\(queuedAfter)，窗口 \(before)→\(winsAfterQueue)）")
-                // ② 冲刷后落地：队列清空，且仍不开新窗（走"现有窗口新标签"分支）
-                let tabsBefore = wc.grid.activePane.tabs.count
+                // ② 冲刷后落地：队列清空，且仍不开新窗（走"现有窗口新工作区标签"分支）
+                let wsBefore = wc.workspaceCount
                 delegate.uiTestFlushPendingExternalOpens()
                 _ = await pollFS { delegate.uiTestPendingExternalOpenCount == 0 }
                 try? await Task.sleep(for: .milliseconds(400))
                 let winsAfterFlush = mainWins()
-                let tabsAfter = wc.grid.activePane.tabs.count
+                let wsAfter = wc.workspaceCount
                 record(delegate.uiTestPendingExternalOpenCount == 0
-                         && winsAfterFlush == before && tabsAfter == tabsBefore + 1,
-                       "I-60 冲刷后落到现有窗口新标签（窗口 \(before)→\(winsAfterFlush)，标签 \(tabsBefore)→\(tabsAfter)）")
-                // 收尾：关掉本场景开的标签
-                while wc.grid.activePane.tabs.count > tabsBefore {
-                    wc.grid.activePane.closeTab(at: wc.grid.activePane.tabs.count - 1)
-                }
+                         && winsAfterFlush == before && wsAfter == wsBefore + 1,
+                       "I-60 冲刷后落到现有窗口新工作区标签（窗口 \(before)→\(winsAfterFlush)，工作区 \(wsBefore)→\(wsAfter)）")
+                // 收尾：关掉本场景开的工作区
+                while wc.workspaceCount > wsBefore { wc.closeActiveWorkspace(nil) }
                 try? await Task.sleep(for: .milliseconds(200))
             }
         }
@@ -2111,71 +2096,6 @@ enum UISelfTest {
         try? await Task.sleep(for: .milliseconds(200))
     }
 
-    /// 场景 I-69：⌘T 新标签必须继承派生它的那个标签的视图设置（用户报告：
-    /// 「new tab 的时候左边没记住按修改日期排序」）。旧版一律回落到全局默认偏好，
-    /// 用户在窗格里改好的排序每按一次 ⌘T 都得再改一次。
-    private static func runNewTabInheritsViewSettingsScenario(wc: MainWindowController,
-                                                              window: NSWindow) async {
-        let pane = wc.grid.activePane
-        let fs = FileManager.default
-        // 用自建夹具当当前目录：真有文件，列头指示器与排序才有意义
-        let tok = String(UUID().uuidString.prefix(8))
-        let box = fs.temporaryDirectory.appendingPathComponent("nspace-uitest-i69-\(tok)", isDirectory: true)
-        try? fs.createDirectory(at: box, withIntermediateDirectories: true)
-        for i in 1...3 { try? Data("x".utf8).write(to: box.appendingPathComponent("f\(i).txt")) }
-        record(assertSandboxed(box), "沙箱守卫[I-69]: 新标签夹具在自建临时目录内")
-        guard assertSandboxed(box) else { return }
-        defer { try? fs.removeItem(at: box) }
-
-        pane.uiTestEndPathEditing()
-        pane.setViewMode(.list)
-        pane.navigate(to: box)
-        _ = await pollFS { pane.activeTab.model.items.count == 3 }
-
-        // 把当前标签改成「与全局默认相反」的一组设置：修改日期降序 + 隐藏取反 + 图标视图。
-        // 三项都与新标签的回落值不同，任何一项没继承都会红。
-        // 隐藏那一维必须取**全局默认的反**——写死 true 的话，机器上默认就开着时它恒真、验不出继承
-        // （第一版写死 true，反证时发现撤掉继承它照样 true）。
-        let hiddenDefault = Preferences.showHiddenByDefault
-        pane.uiTestSetSort(key: "dateModified", ascending: false)
-        pane.uiTestSetIncludeHidden(!hiddenDefault)
-        pane.setViewMode(.icons)
-        try? await Task.sleep(for: .milliseconds(250))
-        let tabsBefore = pane.tabs.count
-        let srcSort = pane.uiTestModelSort
-
-        pane.openNewTab()
-        _ = await pollFS { pane.tabs.count == tabsBefore + 1 }
-        try? await Task.sleep(for: .milliseconds(300))
-        window.contentView?.layoutSubtreeIfNeeded()
-
-        let newSort = pane.uiTestModelSort
-        let newHidden = pane.activeTab.model.includeHidden
-        let newMode = pane.activeTab.viewMode
-        let isNewTab = pane.activeTabIndex == tabsBefore
-        record(isNewTab && srcSort.key == "dateModified" && !srcSort.ascending
-               && newSort.key == "dateModified" && !newSort.ascending
-               && newHidden == !hiddenDefault && newMode == .icons,
-               "I-69 新标签继承排序/隐藏/视图模式（源 \(srcSort.key)/\(srcSort.ascending ? "asc" : "desc") → 新 \(newSort.key)/\(newSort.ascending ? "asc" : "desc") 隐藏=\(newHidden)(默认 \(hiddenDefault)) 模式=\(newMode) 是新标签=\(isNewTab)）")
-
-        // 列头指示器也要对（I-58 的反向同步链要在新标签上真跑到，不只是 model 字段对了）
-        pane.setViewMode(.list)
-        try? await Task.sleep(for: .milliseconds(250))
-        window.contentView?.layoutSubtreeIfNeeded()
-        let ind = pane.uiTestSortIndicator
-        record(ind?.key == "dateModified" && ind?.ascending == false,
-               "I-69 新标签列头指示器随继承的排序（指示器=\(ind.map { "\($0.key)/\($0.ascending ? "asc" : "desc")" } ?? "nil")）")
-
-        // 收尾：关掉新标签、把原标签设置还原，不影响后续场景
-        pane.closeTab(at: pane.activeTabIndex)
-        try? await Task.sleep(for: .milliseconds(150))
-        pane.uiTestSetIncludeHidden(hiddenDefault)
-        pane.uiTestSetSort(key: "name", ascending: true)
-        pane.setViewMode(.list)
-        pane.navigate(to: fs.homeDirectoryForCurrentUser)
-        try? await Task.sleep(for: .milliseconds(200))
-    }
-
     /// 按快捷键进：① 在**真实已装配的主菜单**里找出这个键等价物绑到的菜单项（验「绑定表 → 菜单项」），
     /// ② 把它的 action 沿**被测窗口**的响应链派发（验「菜单项 → 响应链 → 行为」）。
     /// 不用 NSApp.sendEvent / performKeyEquivalent：那条路沿 **key 窗口**找目标，而自测跑在
@@ -2183,6 +2103,17 @@ enum UISelfTest {
     /// 被测窗口纹丝不动」。`tryToPerform` 与既有 I-57 同一口径，不依赖激活状态。
     private static func pressMenuShortcut(_ key: String, mods: NSEvent.ModifierFlags,
                                           window: NSWindow) -> (found: Bool, delivered: Bool) {
+        guard let item = menuItem(for: key, mods: mods), let action = item.action else {
+            return (false, false)
+        }
+        window.makeFirstResponder(window.initialFirstResponder ?? window.contentView)
+        return (true, window.tryToPerform(action, with: item))
+    }
+
+    /// 在已装配的主菜单里按键等价物找菜单项，**只查不执行**。
+    /// 退役证明要的就是这个：pressMenuShortcut 会把找到的 action 真派发出去，
+    /// 而"这个键还绑着什么"恰恰是未知的——真跑一下等于在自测里执行一个我们并不想执行的命令。
+    private static func menuItem(for key: String, mods: NSEvent.ModifierFlags) -> NSMenuItem? {
         func find(_ menu: NSMenu) -> NSMenuItem? {
             for item in menu.items {
                 if item.keyEquivalent == key,
@@ -2192,16 +2123,13 @@ enum UISelfTest {
             }
             return nil
         }
-        guard let main = NSApp.mainMenu, let item = find(main), let action = item.action else {
-            return (false, false)
-        }
-        window.makeFirstResponder(window.initialFirstResponder ?? window.contentView)
-        return (true, window.tryToPerform(action, with: item))
+        guard let main = NSApp.mainMenu else { return nil }
+        return find(main)
     }
 
     /// 场景 I-70/71/72（用户报告三条，且我上一轮修在了错误的键上——这次每条都从用户按的那个键进）：
     /// I-70 ⌘T 新工作区必须复制当前工作区（布局 + 每个窗格的 排序/隐藏/视图模式），不回落全局默认；
-    /// I-71 ⌥⌘T 新窗格标签必须**看得见**（标签栏默认隐藏 → 建成功却"没反应"）；
+    /// I-71 ⌥⌘T / ⌥⌘W 已随窗格内多标签退役，钉住菜单里不再有它们；
     /// I-72 工作区标签条点文字要能切换、整行高度可点（NSTextField 吞 mouseDown 是根因）。
     private static func runWorkspaceTabScenario(wc: MainWindowController, window: NSWindow) async {
         let fs = FileManager.default
@@ -2271,21 +2199,17 @@ enum UISelfTest {
             record(false, "I-72 工作区标签条点文字即切换且整行可点（取不到第 \(targetWS) 个胶囊）")
         }
 
-        // ── I-71：⌥⌘T 新窗格标签必须看得见 ──
-        let pane = wc.grid.activePane
-        let tabsBefore = pane.tabs.count
-        let barVisibleBefore = pane.uiTestPaneTabBarVisible
-        let press2 = pressMenuShortcut("t", mods: [.command, .option], window: window)
-        _ = await pollFS { pane.tabs.count == tabsBefore + 1 }
-        try? await Task.sleep(for: .milliseconds(300))
-        window.contentView?.layoutSubtreeIfNeeded()
-        let barVisibleAfter = pane.uiTestPaneTabBarVisible
-        let barH = pane.uiTestPaneTabBarHeight
-        record(press2.found && press2.delivered && pane.tabs.count == tabsBefore + 1 && barVisibleAfter && barH >= 20,
-               "I-71 ⌥⌘T 新窗格标签后标签栏可见（菜单有⌥⌘T项=\(press2.found) 经响应链送达=\(press2.delivered) 标签 \(tabsBefore)→\(pane.tabs.count) 栏可见 \(barVisibleBefore)→\(barVisibleAfter) 栏高 \(Int(barH))）")
+        // ── I-71：⌥⌘T / ⌥⌘W 已随窗格内多标签一起退役 ──
+        // 只删旧断言不留证据的话，哪天这两个键被重新接上也没人会知道。这条钉住"菜单里真的没有了"：
+        // pressMenuShortcut 的 found 直接查**已装配的主菜单**里有没有绑这个键等价物的项。
+        // 只查不执行：这两个键现在绑的是"什么都没有"，可要是哪天被绑上别的命令，
+        // 真派发一次就等于在自测里执行一个我们并不想执行的动作。
+        let paneTabItem = menuItem(for: "t", mods: [.command, .option])
+        let paneCloseItem = menuItem(for: "w", mods: [.command, .option])
+        record(paneTabItem == nil && paneCloseItem == nil,
+               "I-71 窗格内多标签已退役：⌥⌘T/⌥⌘W 不再绑任何菜单项（⌥⌘T 命中=\(paneTabItem?.title ?? "无") ⌥⌘W 命中=\(paneCloseItem?.title ?? "无")）")
 
-        // 收尾：关掉新建的窗格标签与工作区，还原布局
-        if pane.tabs.count > 1 { pane.closeTab(at: pane.activeTabIndex) }
+        // 收尾：关掉新建的工作区，还原布局
         while wc.workspaces.count > wsBefore { wc.closeWorkspace(at: wc.workspaces.count - 1) }
         try? await Task.sleep(for: .milliseconds(200))
         wc.grid.apply(layout: .single)
@@ -3374,7 +3298,7 @@ enum UISelfTest {
             try? await Task.sleep(for: .milliseconds(100))
             let snap = await delegate.sessionStore.load()
             let paths = (snap?.windows ?? [])
-                .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }.map { $0.path }
+                .flatMap { $0.workspaces }.flatMap { $0.panes }.map { $0.tab.path }
             if paths.contains(box.path) || paths.contains(box.standardizedFileURL.path) { hit = true; break }
         }
         record(hit, "I-47 导航即落盘：会话记住导航目录（隔离 session 含 \(box.lastPathComponent)=\(hit)）")
@@ -3391,7 +3315,7 @@ enum UISelfTest {
             try? await Task.sleep(for: .milliseconds(100))
             let snap2 = await delegate.sessionStore.load()
             let tab = (snap2?.windows ?? [])
-                .flatMap { $0.workspaces }.flatMap { $0.panes }.flatMap { $0.tabs }
+                .flatMap { $0.workspaces }.flatMap { $0.panes }.map { $0.tab }
                 .first { $0.path == box.path || $0.path == box.standardizedFileURL.path }
             lastKey = tab?.sortKey
             lastAsc = tab?.sortAscending
@@ -3426,13 +3350,16 @@ enum UISelfTest {
         _ = await pollFS { mainWins() == 1 }
         try? await Task.sleep(for: .milliseconds(100))
 
-        // 默认「现有窗口新标签」：窗口数不变、活动窗格标签 +1
+        // 默认「现有窗口新工作区标签」：窗口数不变、工作区 +1、活动窗格落到目标目录。
+        // v0.19.26 起落点从窗格标签改成工作区标签（窗格内多标签退役）——路径这一维是新加的：
+        // 只数"工作区 +1"验不出它开在**哪儿**，而落错目录正是这次改动最可能出的错。
         Preferences.externalOpenTarget = "newTab"
-        let w0 = mainWins(); let t0 = wc.grid.activePane.tabs.count
+        let w0 = mainWins(); let ws0 = wc.workspaceCount
         delegate.application(NSApp, open: [box])
-        _ = await pollFS { wc.grid.activePane.tabs.count == t0 + 1 }
-        record(mainWins() == w0 && wc.grid.activePane.tabs.count == t0 + 1,
-               "I-52 外部打开默认「新标签」：复用现有窗口不弹新窗（窗口 \(w0)→\(mainWins())，标签 \(t0)→\(wc.grid.activePane.tabs.count)）")
+        _ = await pollFS { wc.workspaceCount == ws0 + 1 }
+        let landed = await pollFS { samePath(wc.grid.activePane.uiTestCurrentURL, box) }
+        record(mainWins() == w0 && wc.workspaceCount == ws0 + 1 && landed,
+               "I-52 外部打开默认「新工作区标签」：复用现有窗口不弹新窗（窗口 \(w0)→\(mainWins())，工作区 \(ws0)→\(wc.workspaceCount)，落到目标目录=\(landed)）")
 
         // 「新窗口」：窗口数 +1
         Preferences.externalOpenTarget = "newWindow"
@@ -3440,11 +3367,88 @@ enum UISelfTest {
         delegate.application(NSApp, open: [box])
         _ = await pollFS { mainWins() == w1 + 1 }
         record(mainWins() == w1 + 1, "I-52 外部打开「新窗口」：弹新窗（窗口 \(w1)→\(mainWins())）")
+        for w in NSApp.windows where (w.windowController is MainWindowController) && w !== hostWindow { w.close() }
+        hostWindow.makeKeyAndOrderFront(nil)
+        while wc.workspaceCount > ws0 { wc.closeActiveWorkspace(nil) }
+        try? await Task.sleep(for: .milliseconds(200))
 
-        // 收尾：复原偏好 + 关掉多开的窗口（保留宿主窗）+ 关掉本场景加的标签（回进入前态）+ 清夹具
+        // ── I-73：外部打开不许践踏其余窗格 / 不许顶掉用户的工作区 / 同目录多文件只开一个 ──
+        // 这三条都是「落点从窗格标签改成工作区标签」引出的新风险（对抗审查抓到）：
+        // 工作区标签比窗格标签重得多——它复制整套布局，一不留神就把别的窗格连同
+        // 浏览历史/选中/滚动位置一起重建，或者因为上限把用户最老的工作区挤掉。
+        Preferences.externalOpenTarget = "newTab"
+        let f1 = box.appendingPathComponent("i73-a.txt")
+        let f2 = box.appendingPathComponent("i73-b.txt")
+        try? Data("a".utf8).write(to: f1)
+        try? Data("b".utf8).write(to: f2)
+
+        // ① 非活动窗格的选中必须活下来（双栏：右窗格选中一个文件，再从外部打开到左窗格）
+        let layout0 = wc.grid.layout
+        wc.grid.apply(layout: .dualH)
+        try? await Task.sleep(for: .milliseconds(300))
+        let other = wc.grid.visiblePanes.count > 1 ? wc.grid.visiblePanes[1] : nil
+        var otherKept = false
+        var otherSelBefore: [URL] = []
+        if let other {
+            other.setViewMode(.list)
+            other.navigate(to: box)
+            _ = await pollFS { other.activeTab.model.items.count >= 2 }
+            other.activeTab.listVC.select(urls: [f1])
+            try? await Task.sleep(for: .milliseconds(200))
+            otherSelBefore = other.activeTab.listVC.selectedURLs
+            wc.grid.setActivePane(0)
+            try? await Task.sleep(for: .milliseconds(150))
+            delegate.application(NSApp, open: [box])
+            _ = await pollFS { wc.workspaceCount > ws0 }
+            try? await Task.sleep(for: .milliseconds(400))
+            // 同一个窗格对象仍在、且选中没被清空 —— 证明它没有被重建
+            let now = wc.grid.visiblePanes.count > 1 ? wc.grid.visiblePanes[1] : nil
+            otherKept = now === other && !otherSelBefore.isEmpty
+                && now?.activeTab.listVC.selectedURLs.map(\.path) == otherSelBefore.map(\.path)
+        }
+        record(otherKept,
+               "I-73 外部打开不重建其余窗格：非活动窗格选中保住（选中 \(otherSelBefore.count) 项，保住=\(otherKept)）")
+        while wc.workspaceCount > ws0 { wc.closeActiveWorkspace(nil) }
+        wc.grid.apply(layout: layout0)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        // ② 同目录的多个文件只开**一个**工作区（一次 reveal 五个附件不该炸出五个）
+        // 同时是**外部打开「文件」**这条日常路径的唯一覆盖（I-52/I-60 都只开目录）：
+        // 投的是文件，落点必须是它的父目录，而且那个文件要被选中——
+        // 用户点「在访达中显示」要的就是"帮我把它指出来"，只到目录等于没做完。
+        let wsMerge0 = wc.workspaceCount
+        delegate.application(NSApp, open: [f1, f2])
+        _ = await pollFS { wc.workspaceCount == wsMerge0 + 1 }
+        let revealed = await pollFS {
+            samePath(wc.grid.activePane.uiTestCurrentURL, box)
+                && wc.grid.activePane.activeTab.listVC.selectedURLs.contains { samePath($0, f1) }
+        }
+        let merged = wc.workspaceCount == wsMerge0 + 1
+        record(merged && revealed,
+               "I-73 同目录多文件外部打开只开一个工作区且选中目标文件（工作区 \(wsMerge0)→\(wc.workspaceCount)，投 2 个同目录文件，落目录+选中=\(revealed)）")
+        while wc.workspaceCount > ws0 { wc.closeActiveWorkspace(nil) }
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // ③ 到达工作区上限时，外部打开不许顶掉最老的那个（别的 App 触发的动作不该销毁用户状态）
+        let limit0 = Preferences.workspaceTabLimit
+        let wsBase = wc.workspaceCount
+        Preferences.workspaceTabLimit = wsBase + 1
+        wc.openWorkspaceTab(at: nil)                       // 主动 ⌘T 填到上限
+        try? await Task.sleep(for: .milliseconds(300))
+        let atLimit = wc.workspaceCount
+        let oldestBefore = wc.uiTestWorkspaceTitles.first
+        delegate.application(NSApp, open: [box])
+        try? await Task.sleep(for: .milliseconds(600))
+        let oldestAfter = wc.uiTestWorkspaceTitles.first
+        let noEvict = wc.workspaceCount == atLimit && oldestBefore != nil && oldestAfter == oldestBefore
+        record(noEvict,
+               "I-73 到工作区上限时外部打开不顶掉最老的（上限 \(Preferences.workspaceTabLimit) 工作区 \(atLimit)→\(wc.workspaceCount) 最老 \(oldestBefore ?? "nil")→\(oldestAfter ?? "nil")）")
+        Preferences.workspaceTabLimit = limit0
+
+        // 收尾：复原偏好 + 关掉多开的窗口（保留宿主窗）+ 关掉本场景加的工作区 + 清夹具
         Preferences.externalOpenTarget = prev
         for w in NSApp.windows where (w.windowController is MainWindowController) && w !== hostWindow { w.close() }
-        while wc.grid.activePane.tabs.count > t0 { wc.grid.activePane.closeTab(at: wc.grid.activePane.tabs.count - 1) }
+        while wc.workspaceCount > ws0 { wc.closeActiveWorkspace(nil) }
         hostWindow.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .milliseconds(200))
         if assertSandboxed(box) { try? fs.removeItem(at: box) }

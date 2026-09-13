@@ -61,7 +61,6 @@
 |---|---|---|---|
 | 新建窗口（⌘N） | `AppDelegate.newWindow` → `openWindow` | 可 | 排除（多开真实窗口污染场景；关窗重开已由场景 6 覆盖同一 openWindow 路径） |
 | 新建工作区（⌘T） | `MainWindowController.newWorkspaceTab` | 可 | 已有（⌘T 新建工作区 → 2） |
-| 新建窗格标签（⌥⌘T） | `PaneViewController.newTab` | 可 | 新增（新建窗格标签 → 标签数+1 且活动路径正确） |
 | 下一个/上一个工作区 | `MainWindowController.next/previousWorkspace` | 可 | 已有（⌘W MRU 回退隐含 cycle；工作区计数） |
 | 新建文件夹（⇧⌘N） | `FileListViewController.newFolderHere` → coordinator.newFolder | 可（/tmp 沙箱真跑） | 新增（新建文件夹真实落盘） |
 | 打开（⌘O） | `FileListViewController.openSelected` → NSWorkspace/导航 | 半（文件走外部 App） | 排除（外部 App 打开，手测；目录导航由导航断言覆盖） |
@@ -73,7 +72,6 @@
 | 复制到另一窗格（F5） | `FileListViewController.copyToOtherPane` | 可（需双窗格；走 transfer） | 排除（与拖放/暂存架共用 transfer 提交路径，已由暂存/FS 覆盖；单独 F5 手测） |
 | 移到另一窗格（F6） | `FileListViewController.moveToOtherPane` | 可（需双窗格） | 排除（同上，手测） |
 | 关闭工作区（⌘W） | `AppDelegate.closeTopmost` 分层 | 可 | 已有（⌘W 分层 + MRU + 主窗未误关） |
-| 关闭窗格标签（⌥⌘W） | `PaneViewController.closeActiveTab` | 可 | 新增（关闭窗格标签 → 标签数复原，随新建断言一并验） |
 | 关闭窗口（⇧⌘W） | `NSWindow.performClose` | 可 | 已有（场景 6 关最后窗口后 Dock 重开有窗） |
 
 ### 编辑菜单
@@ -90,7 +88,6 @@
 | 为图标/列表/分栏（⌥⌘1/2/3） | `PaneViewController.viewAsIcons/List/Columns` → setViewMode | 可 | 已有（窗口尺寸不变 ×3）+ **新增（对应视图真在层级里且可见 ×3）** |
 | 布局 单/双列/双行/三列/四宫格（⌃⌘1..5） | `MainWindowController.applyLayout` → grid.apply | 可 | 已有（5 布局窗口尺寸不变）+ **新增（single 真 1 窗格 / quad 真 4 窗格）** |
 | 显示/隐藏侧栏（⌥⌘S） | `MainWindowController.toggleSidebar` | 可 | 已有（折叠后再点可真展开：宽≥160 且非 hidden） |
-| 显示/隐藏窗格标签栏 | `MainWindowController.togglePaneTabBar` | 可 | 新增（切换 → 窗格标签栏 isHidden/高度真实翻转） |
 | 显示隐藏文件（⇧⌘.） | `FileListViewController.toggleHiddenFiles` → model.includeHidden | 可 | 新增（切换 → model.includeHidden 真实翻转） |
 | 刷新（⌘R） | `FileListViewController.refresh` → model.reload | 可（不崩） | 排除（重读盘无稳定可断言差异，手测；纳入右键无冲突） |
 
@@ -181,7 +178,7 @@
 
 | 页 | 类型 | 关键控件（部分） | 读写键 | 断言状态 |
 |---|---|---|---|---|
-| 通用 | 控制器私有 `buildGeneralTab` | 默认布局/视图/终端 popup、显示隐藏/文件夹置顶/窗格标签 checkbox、恢复种子/检查更新按钮、自动检查更新 | `Preferences.*` | 排除（私有方法+单例依赖，无法独立取视图；但整窗构建由 ⌘W 分层已有断言旁证存活） |
+| 通用 | 控制器私有 `buildGeneralTab` | 默认布局/视图/终端 popup、显示隐藏/文件夹置顶 checkbox、恢复种子/检查更新按钮、自动检查更新 | `Preferences.*` | 排除（私有方法+单例依赖，无法独立取视图；但整窗构建由 ⌘W 分层已有断言旁证存活） |
 | 快捷键 | 控制器私有 `buildShortcutsTab` | 每注册表项一行 `ShortcutRecorderButton` + 重置钮 | `kb.<id>` | 排除（私有方法；注册表默认绑定由 KeyBindings 断言覆盖） |
 | 归档 extra0 | `ArchiveSettingsPage.makeView()` | 格式 popup、保留原件/建包裹/保留压缩包 checkbox、说明标签 | `Preferences.archive*/extract*` | 新增（归档页 makeView 无约束歧义 + 含 popup 与 checkbox 关键控件） |
 | 使用习惯 extra1 | `BehaviorSettingsPage.makeView()` | Enter/拖放 radio、Backspace/排序/标签上限/打开落点 popup、双击空白 checkbox | `Preferences.enter/backspace/drag/sort/*Limit/externalOpenTarget` | 新增（使用习惯页 makeView 无约束歧义 + 关键控件存在） |

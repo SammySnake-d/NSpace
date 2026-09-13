@@ -161,7 +161,7 @@ NSpace 是一台原生 macOS 专业文件工具，视觉标准 = **Finder 的材
 
 - **左列（全高侧栏）**：`NSVisualEffectView(.sidebar)`，顶部让出 36pt（红绿灯行 + 顶距，`stashView.top = 36`）→ 暂存架专区 148pt（恒高，空/满不跳变）→ 发丝分隔 → 书签/iCloud/位置的 source-list outline（行高 `.small`，QSpace 式紧凑）。宽度经手写 `NSSplitView` 管理（min 160 / max 320 / 可折叠）。
 - **右列（内容列）**：顶部自绘甲板 `TopDeckView` = `NSVisualEffectView(.titlebar)` 内**两行**——工作区标签条 28pt + 发丝线 + 图标工具条 36pt + 发丝线；甲板下是窗格矩阵（`PaneGridController`），最底状态栏。**弃用 `NSToolbar`** 整条顶栏自绘（M17 决策）。
-- **每窗格自带地址栏**：窗格 = 标签栏（默认隐藏，`showPaneTabBar`）+ 地址栏 24pt（面包屑⟷路径编辑）+ 发丝分隔 + 内容视图 + 底部状态栏 24pt。
+- **每窗格自带地址栏**：窗格 = 地址栏 24pt（面包屑⟷路径编辑）+ 发丝分隔 + 内容视图 + 底部状态栏 24pt。标签只有一层，在甲板上（工作区标签条）。
 - **窗口结构**：无标题栏（`titleVisibility=.hidden`、`titlebarAppearsTransparent`、`.fullSizeContentView`、`toolbar=nil`）；红绿灯保持系统默认位置（左列顶部行内）。**侧栏折叠时**标签行 leading 让位 80pt 给红绿灯（`trafficLightInset`，仅折叠态）。甲板空白处 `performDrag` 拖窗、双击按系统 `AppleActionOnDoubleClick` 缩放。
 
 ### 4pt 网格阶梯（确定性网格）

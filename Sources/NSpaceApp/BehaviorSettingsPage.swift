@@ -1,7 +1,7 @@
 import AppKit
 
-/// 使用习惯设置页（QSpace 对齐子集）：Enter/Backspace/拖放/双击空白/默认排序/窗格标签上限，
-/// 以及底部"打开模式"小节（外部 open-URL 落点）。全部项经 Preferences 外部化，即时生效于新标签/新操作。
+/// 使用习惯设置页（QSpace 对齐子集）：Enter/Backspace/拖放/双击空白/默认排序/工作区标签上限，
+/// 以及底部"打开模式"小节（外部 open-URL 落点）。全部项经 Preferences 外部化，即时生效于新窗格/新操作。
 @MainActor
 final class BehaviorSettingsPage: NSObject, SettingsPage {
     var pageTitleKey: String { "settings.tab.behavior" }
@@ -45,13 +45,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
 
         let sortRow = makeSortRow()
 
-        let tabLimitRow = popupRow("settings.behavior.tabLimit",
-            optionKeys: ["settings.behavior.tabLimit.none", "settings.behavior.tabLimit.5",
-                         "settings.behavior.tabLimit.10", "settings.behavior.tabLimit.20"],
-            selectedTag: tabLimitValues.firstIndex(of: Preferences.paneTabLimit) ?? 0,
-            action: #selector(tabLimitChanged(_:)))
         let tabLimitNote = note("settings.behavior.tabLimit.note")
-
         // I-17：工作区标签上限（M17 新增外部化键，同超限覆盖最老语义）
         let wsLimitRow = popupRow("settings.behavior.wsTabLimit",
             optionKeys: ["settings.behavior.tabLimit.none", "settings.behavior.tabLimit.5",
@@ -69,7 +63,7 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
 
         let stack = NSStackView(views: [
             enterRow, backspaceRow, dragRow, blank, grouping, smartSearch, sortRow,
-            NSBox.separatorLine(), tabLimitRow, wsLimitRow, tabLimitNote,
+            NSBox.separatorLine(), wsLimitRow, tabLimitNote,
             NSBox.separatorLine(), openHeader, openRow, openNote,
         ])
         stack.orientation = .vertical
@@ -227,12 +221,6 @@ final class BehaviorSettingsPage: NSObject, SettingsPage {
 
     @objc private func sortOrderChanged(_ sender: NSPopUpButton) {
         Preferences.defaultSortAscending = sender.selectedTag() == 0  // 0=升序 1=降序
-    }
-
-    @objc private func tabLimitChanged(_ sender: NSPopUpButton) {
-        let t = sender.selectedTag()
-        guard tabLimitValues.indices.contains(t) else { return }
-        Preferences.paneTabLimit = tabLimitValues[t]
     }
 
     @objc private func wsTabLimitChanged(_ sender: NSPopUpButton) {

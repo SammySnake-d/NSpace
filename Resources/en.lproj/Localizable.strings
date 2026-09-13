@@ -172,9 +172,6 @@
 "status.selectedPill" = "%ld selected · %@";
 "status.selectedCount" = "%ld selected";
 "status.available" = "%@ available";
-"menu.newPaneTab" = "New Pane Tab";
-"menu.closePaneTab" = "Close Pane Tab";
-"menu.togglePaneTabBar" = "Show/Hide Pane Tab Bar";
 "menu.quickLook" = "Quick Look";
 /* M12 Search */
 "menu.searchHere" = "Search in Current Folder";
@@ -290,17 +287,16 @@
 "settings.behavior.sort.kind" = "Kind";
 "settings.behavior.sort.asc" = "Ascending";
 "settings.behavior.sort.desc" = "Descending";
-"settings.behavior.tabLimit" = "Pane Tab Limit";
 "settings.behavior.tabLimit.none" = "No Limit";
 "settings.behavior.tabLimit.5" = "5";
 "settings.behavior.tabLimit.10" = "10";
 "settings.behavior.tabLimit.20" = "20";
-"settings.behavior.tabLimit.note" = "When the limit is exceeded, a new pane tab replaces the oldest one.";
+"settings.behavior.tabLimit.note" = "When the limit is exceeded, a new workspace replaces the oldest one.";
 "settings.behavior.openSection" = "Open Mode";
 "settings.behavior.openTarget" = "Open External Folders To";
-"settings.behavior.openTarget.newTab" = "New Tab (existing window)";
+"settings.behavior.openTarget.newTab" = "New Workspace Tab (existing window)";
 "settings.behavior.openTarget.newWindow" = "New Window";
-"settings.behavior.openTarget.note" = "Where folders land when opened via `open`, or when a browser / other app reveals a file. Default “New Tab (existing window)” reuses the current window — adds a pane tab and selects the item — instead of spawning a new window each time. “New Window” opens a fresh window every time.";
+"settings.behavior.openTarget.note" = "Where folders land when opened via `open`, or when a browser / other app reveals a file. Default “New Workspace Tab (existing window)” reuses the current window — adds a workspace tab in the top bar and selects the item — instead of spawning a new window each time. “New Window” opens a fresh window every time.";
 "settings.tab.permissions" = "Permissions";
 "settings.perm.fdaTitle" = "Full Disk Access";
 "settings.perm.granted" = "Full Disk Access granted ✓";

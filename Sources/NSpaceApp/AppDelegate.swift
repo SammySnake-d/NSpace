@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// restoreSessionOrDefault 是 async（要 await 读 session.json），而 application(_:open:)
     /// 由 LaunchServices 同步早到——NSpace 未运行时被"在访达中显示"拉起，请求会在零窗口时刻抵达，
     /// activeMainWindowController() 返回 nil，于是掉进开新窗分支；随后会话恢复再开自己的窗，
-    /// 用户看到的就是"明明设了新标签，却多冒一个窗"。这里先排队，恢复完再按正常落点处理。
+    /// 用户看到的就是"明明设了新标签页，却多冒一个窗"。这里先排队，恢复完再按正常落点处理。
     private var pendingExternalOpens: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -178,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// open-URL 路由：目录 → 开窗定位；文件 → 父目录 + 选中该文件（替代 Finder 的入口）。
-    /// 打开模式（externalOpenTarget）：activePane 且已有窗口 → 复用活动窗格新建窗格标签定位。
+    /// 打开模式（externalOpenTarget）：非 newWindow 且已有窗口 → 复用该窗口新建工作区标签定位。
     func application(_ application: NSApplication, open urls: [URL]) {
         var fileURLs: [URL] = []
         for url in urls {
@@ -212,23 +212,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pendingExternalOpens.append(contentsOf: urls)
             return
         }
+        // 先按**父目录归并**再落地：一次「在访达中显示」常常带来同目录的好几个文件
+        // （微信选 5 个附件、浏览器多文件下载）。逐个 URL 各开一个落点的话，
+        // v0.19.26 起每个落点都是一整套布局的复制，四宫格下就是 20 次窗格重建。
+        // 同目录只开一个，落点数从"文件数"降回"目录数"。
+        var dirOrder: [URL] = []
+        var picks: [URL: URL] = [:]     // 目录 → 该目录下第一个要选中的文件（目录自身=nil 落点）
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
             let directory = isDir.boolValue ? url : url.deletingLastPathComponent()
-            let selecting: URL? = isDir.boolValue ? nil : url
+            if !dirOrder.contains(directory) { dirOrder.append(directory) }
+            if !isDir.boolValue, picks[directory] == nil { picks[directory] = url }
+        }
+        for directory in dirOrder {
+            let selecting = picks[directory]
             if Preferences.externalOpenTarget != "newWindow", let wc = activeMainWindowController() {
-                // 现有窗口新标签（默认，用户点名）：复用活动窗口的活动窗格，新建窗格标签定位（文件则显露选中）。
-                // 非 "newWindow"（含默认 newTab 与旧值 activePane）皆复用；无现有窗口时自然落到下方开新窗。
-                let pane = wc.grid.activePane
-                pane.openNewTab(at: directory)
-                if let selecting { pane.reveal(selecting) }
+                // 现有窗口新建**工作区标签**（默认，用户点名）：复用活动窗口，活动窗格落到目标目录。
+                // v0.19.26 前这里走 pane.openNewTab —— 往窗格里塞一个标签，而窗格标签栏默认隐藏，
+                // 于是每次外部打开都在看不见的地方堆一个（用户会话里一个窗格堆到了 5 个），
+                // 既关不掉也回不去。工作区标签条本来就常显、带关闭钮，落这儿才可见可关。
+                //
+                // allowEvictingOldest: false —— 这是**别的 App** 触发的打开。到了工作区上限时
+                // 宁可就地导航，也不能因为对方点了「在访达中显示」就把用户最老的工作区顶掉。
+                wc.openWorkspaceTab(at: directory, allowEvictingOldest: false)
+                if let selecting { wc.grid.activePane.reveal(selecting) }
                 wc.window?.makeKeyAndOrderFront(nil)
                 NSApp.activate()
-            } else if isDir.boolValue {
-                openWindow(at: url)
+            } else if let selecting {
+                openWindow(at: directory, selecting: selecting)
             } else {
-                openWindow(at: url.deletingLastPathComponent(), selecting: url)
+                openWindow(at: directory)
             }
         }
     }
@@ -324,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var first: MainWindowController?
         for ws in snapshot.windows {
             let firstPane = ws.workspaces.first(where: { !$0.panes.isEmpty })
-            let dir = URL(fileURLWithPath: firstPane?.panes.first?.tabs.first?.path ?? NSHomeDirectory())
+            let dir = URL(fileURLWithPath: firstPane?.panes.first?.tab.path ?? NSHomeDirectory())
             let wc = openWindow(at: dir, orderFront: first == nil)
             wc.restoreWorkspaces(ws)
             if first == nil { first = wc }
@@ -347,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// UISelfTest（I-60）：手动冲刷队列（模拟会话恢复完成）
     func uiTestFlushPendingExternalOpens() { flushPendingExternalOpens() }
 
-    /// I-60：把会话恢复期间排队的外部打开请求补落地（此刻窗口已在，走正常的"现有窗口新标签"分支）
+    /// I-60：把会话恢复期间排队的外部打开请求补落地（此刻窗口已在，走正常的"现有窗口新工作区标签"分支）
     private func flushPendingExternalOpens() {
         guard !pendingExternalOpens.isEmpty else { return }
         let queued = pendingExternalOpens

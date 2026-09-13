@@ -14,7 +14,7 @@ final class TabBarView: NSView {
     /// 无配件时宽度收缩为 0（低优先 width==0 兜底），有配件时随内容撑开。
     private let accessoryHost = NSView()
 
-    /// 标签胶囊高度（窗格标签 20；甲板工作区标签 28——行高 40 的 QSpace 密度）
+    /// 标签胶囊高度（甲板工作区标签条设 28——行高 40 的 QSpace 密度）
     var itemHeight: CGFloat = 20
 
     /// 甲板位于标题栏区（fullSizeContentView）：不覆写则点击被窗口拖拽机制吞掉（I-12）
