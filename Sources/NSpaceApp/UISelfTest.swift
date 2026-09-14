@@ -3275,6 +3275,32 @@ enum UISelfTest {
         let offFirst = sp.uiTestResultPaths.first
         record(offFirst == a.path,
                "M28 智能排序关：回退到达序（首=\((offFirst.map { ($0 as NSString).lastPathComponent }) ?? "nil")，期望 A/note.txt）")
+
+        // ── I-74：大小写与查询一致的排前面（用户报告：「优先展示匹配大小写的，
+        // 然后后面是不匹配大小写的，但是字符一样的」）──
+        // 走 uiTestAppend 注入而不是建真文件：APFS 默认大小写不敏感，
+        // `override.md` 与 `OVERRIDE.md` 在同一目录里根本是同一个文件，建不出这个对照。
+        let lower = base.appendingPathComponent("C/nsoverride.md")
+        let upper = base.appendingPathComponent("D/NSOVERRIDE.md")
+        func mdHit(_ u: URL) -> SearchHit {
+            SearchHit(url: u, name: u.lastPathComponent, isDirectory: false, size: 1,
+                      modified: nil, contentTypeID: "net.daringfireball.markdown")
+        }
+        sp.uiTestReset(root: nil)
+        sp.uiTestConfigureSmart(query: "nsoverride", snapshot: [:], active: true)
+        // 先 append 大写那个：若比较器没生效，到达序会让它留在首位，断言即红
+        sp.uiTestAppend([mdHit(upper), mdHit(lower)])
+        let caseFirst = sp.uiTestResultPaths.first
+        record(caseFirst == lower.path,
+               "I-74 大小写与查询一致的命中排最前（首=\((caseFirst.map { ($0 as NSString).lastPathComponent }) ?? "nil")，期望 nsoverride.md）")
+
+        // 带空格的查询在面板这层也要算得出分并排上来（引擎找得到、排序判 0 分沉底 = 用户仍看不到）
+        sp.uiTestReset(root: nil)
+        sp.uiTestConfigureSmart(query: "nsoverride md", snapshot: [:], active: true)
+        sp.uiTestAppend([mdHit(upper), mdHit(lower)])
+        let spacedFirst = sp.uiTestResultPaths.first
+        record(sp.uiTestResultPaths.count == 2 && spacedFirst == lower.path,
+               "I-74 带空格查询在结果排序里同样有效（\(sp.uiTestResultPaths.count) 条，首=\((spacedFirst.map { ($0 as NSString).lastPathComponent }) ?? "nil")）")
         sp.uiTestReset(root: nil)
     }
 

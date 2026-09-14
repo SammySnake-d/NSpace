@@ -120,4 +120,45 @@ import Foundation
         #expect(c <= 10)
         #expect(await store.score(forPath: hot.standardizedFileURL.path, now: now) > 0)   // 热路径未被淘汰
     }
+
+    // MARK: 多词查询 + 大小写优先（用户报告）
+
+    /// 排序层必须和搜索层同一口径：带空格的查询在这里也得算得出分。
+    /// 否则会出现"引擎找得到、排序判 0 分沉到最底下"的分裂——用户看到的仍然像是没搜到。
+    @Test func multiTermQueryScoresInsteadOfReturningNil() {
+        let s = SearchRanking.matchScore(query: "override md",
+                                         name: "OVERRIDE.md", path: "/u/.claude/OVERRIDE.md")
+        #expect(s != nil, "带空格的查询必须能算出分，实得 nil")
+        // 单词整串匹配时代这里恒为 nil：名字里没有空格，既不是子串也不是子序列
+        #expect((s ?? 0) > 0)
+    }
+
+    /// 每个词都要沾边：有一个词谁都不沾，整条不算（与引擎的 AND 语义一致）
+    @Test func multiTermRequiresEveryTermToMatch() {
+        #expect(SearchRanking.matchScore(query: "override zzz",
+                                         name: "OVERRIDE.md", path: "/u/OVERRIDE.md") == nil)
+    }
+
+    /// 用户要求：「优先展示匹配大小写的，然后后面是不匹配大小写的，但是字符一样的」
+    @Test func caseExactRanksAboveCaseInsensitive() {
+        let exactCase = SearchRanking.matchScore(query: "override",
+                                                 name: "override.md", path: "/a/override.md")!
+        let otherCase = SearchRanking.matchScore(query: "override",
+                                                 name: "OVERRIDE.md", path: "/a/OVERRIDE.md")!
+        #expect(exactCase > otherCase,
+                "大小写一致的该排前面：\(exactCase) vs \(otherCase)")
+    }
+
+    /// 但大小写加成**不许越档**：一个弱匹配（名内子串）不能因为大小写碰巧一致
+    /// 就压过一个强匹配（前缀命中）。加成上限 50 < 最小档距 200，这条钉住它。
+    @Test func caseBonusNeverOutranksAStrongerMatchTier() {
+        // 前缀档（800），大小写不一致
+        let strongerWrongCase = SearchRanking.matchScore(query: "rep",
+                                                         name: "REPORT.pdf", path: "/a/REPORT.pdf")!
+        // 名内子串档（400 区间），大小写完全一致
+        let weakerExactCase = SearchRanking.matchScore(query: "port",
+                                                       name: "report.pdf", path: "/a/report.pdf")!
+        #expect(strongerWrongCase > weakerExactCase,
+                "档位必须压过大小写加成：\(strongerWrongCase) vs \(weakerExactCase)")
+    }
 }

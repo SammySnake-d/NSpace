@@ -75,6 +75,28 @@ public struct SearchHit: Sendable, Hashable {
     }
 }
 
+/// 查询词元：把输入按空白切成若干词，逐词匹配、顺序无关、大小写与变音不敏感。
+///
+/// 用户报告：在 `~/.claude` 里搜 `override md` 报「未找到」，而目录里就摆着 `OVERRIDE.md`。
+/// 大小写不是原因（两条通道本来就用 `localizedCaseInsensitiveContains` / `CONTAINS[cd]`，
+/// 实测 `override` 单独搜能命中）——真凶是那个**空格**：整串 `"override md"` 被当作一个
+/// 连续子串去找，而文件名里那个位置是点号。`md override` 同样找不到，正是这一条的佐证。
+///
+/// 纯函数、无状态：两条通道共用同一口径，也才验得住（整串匹配时代那道判定散在扫描循环里）。
+public enum QueryTerms {
+    /// 切词。连续空白合并，首尾空白丢弃；空查询得空数组。
+    public static func split(_ query: String) -> [String] {
+        query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    /// 所有词都出现在 `name` 里即命中（AND，顺序无关，大小写/变音不敏感）。
+    /// 空词组永不命中——否则空查询会把整个磁盘当成结果。
+    public static func matches(_ name: String, terms: [String]) -> Bool {
+        guard !terms.isEmpty else { return false }
+        return terms.allSatisfy { name.localizedCaseInsensitiveContains($0) }
+    }
+}
+
 public struct SearchError: ClassifiedError {
     public let errorClass: ErrorClass
     public let localizedDescription: String

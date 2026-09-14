@@ -176,6 +176,9 @@ require_pass "I-43 点选区内收敛谓词：纯单击多选已选行=抢先收
 # M28 搜索智能排序（frecency+匹配融合）：开关开=高频次命中最前 / 关=回退到达序
 require_pass "M28 智能排序开：高 frecency 命中排最前"
 require_pass "M28 智能排序关：回退到达序"
+# I-74 搜索大小写优先 + 带空格查询（用户报告：搜 "override md" 找不到 OVERRIDE.md）
+require_pass "I-74 大小写与查询一致的命中排最前"
+require_pass "I-74 带空格查询在结果排序里同样有效"
 require_pass "M28/I-47 UITEST 存储隔离（frecency/session 写临时目录不碰用户真实数据）"
 # I-47 重启回 home：导航即落盘（非干净退出也不丢），否则位置只在干净退出才保存
 require_pass "I-47 导航即落盘：会话记住导航目录"

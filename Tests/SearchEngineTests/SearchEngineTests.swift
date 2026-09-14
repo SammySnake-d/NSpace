@@ -299,4 +299,78 @@ import Foundation
         session.stop()
         _ = stream
     }
+
+    // MARK: 多词查询（用户报告：在 ~/.claude 里搜 "override md" 报未找到，而目录里就有 OVERRIDE.md）
+
+    /// 夹具：名字以**点**分隔、大小写与查询不同的文件——用户那条 bug 的最小复现形状。
+    ///
+    /// 注意 basename 必须互不相同：APFS 默认大小写不敏感，`NSOVERRIDE.md` 与 `nsoverride.md`
+    /// 在同一目录里是**同一个文件**，写两次只会剩一个（第一版夹具就是这么写的，两条断言假红）。
+    /// 「大小写一致者优先」是排序问题，归 SearchRanking 的纯函数单测，不在文件系统上验。
+    func makeCaseFixture() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nspace-case-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for f in ["NSOVERRIDE.md", "nsoverridetwo.md", "unrelated.txt"] {
+            try Data("x".utf8).write(to: dir.appendingPathComponent(f))
+        }
+        return dir
+    }
+
+    /// 本条就是用户报的那个 bug：带空格的查询必须命中以点分隔的名字。
+    /// 大小写从来不是原因（"nsoverride" 单独搜一直能命中），空格才是。
+    @Test func spaceSeparatedTermsMatchAcrossPunctuation() async throws {
+        let dir = try makeCaseFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let hits = await collect(SearchRequest(query: "nsoverride md", scope: .directory(dir),
+                                               searchNames: true, searchContents: false,
+                                               includeHidden: true))
+        let names = Set(hits.map(\.name))
+        // 全大写的那个也要命中：大小写不敏感（这一条一直成立），空格才是这次修的
+        #expect(names.contains("NSOVERRIDE.md"), "带空格的查询必须命中 NSOVERRIDE.md，实得 \(names)")
+        #expect(names.contains("nsoverridetwo.md"))
+        #expect(!names.contains("unrelated.txt"))
+    }
+
+    /// 词序无关：AND 匹配不是顺序匹配
+    @Test func termOrderDoesNotMatter() async throws {
+        let dir = try makeCaseFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let hits = await collect(SearchRequest(query: "md nsoverride", scope: .directory(dir),
+                                               searchNames: true, searchContents: false,
+                                               includeHidden: true))
+        #expect(Set(hits.map(\.name)).contains("NSOVERRIDE.md"))
+    }
+
+    /// 每个词都要命中（AND，不是 OR）：有一个词不沾边就整条不算
+    @Test func allTermsMustMatchNotAny() async throws {
+        let dir = try makeCaseFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let hits = await collect(SearchRequest(query: "nsoverride zzz", scope: .directory(dir),
+                                               searchNames: true, searchContents: false,
+                                               includeHidden: true))
+        #expect(hits.isEmpty, "第二个词谁都不沾边，整条查询就不该有命中，实得 \(hits.map(\.name))")
+    }
+
+    /// 纯空白查询必须立刻收尾：切词后是空数组，而空数组喂给 andPredicate 会得到**恒真**谓词
+    /// （那会把整块磁盘推给主线程）。原来的守卫只判 query.isEmpty，拦不住一个空格。
+    @Test func whitespaceOnlyQueryFinishesImmediately() async throws {
+        let dir = try makeCaseFixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let hits = await collect(SearchRequest(query: "   ", scope: .directory(dir),
+                                               searchNames: true, searchContents: false,
+                                               includeHidden: true), timeout: 2)
+        #expect(hits.isEmpty)
+    }
+
+    @Test func queryTermsSplitsAndMatches() {
+        #expect(QueryTerms.split("override md") == ["override", "md"])
+        #expect(QueryTerms.split("  a   b  ") == ["a", "b"])
+        #expect(QueryTerms.split("   ").isEmpty)
+        #expect(QueryTerms.matches("OVERRIDE.md", terms: ["override", "md"]))
+        #expect(QueryTerms.matches("OVERRIDE.md", terms: ["MD", "OverRide"]))
+        #expect(!QueryTerms.matches("OVERRIDE.md", terms: ["override", "zzz"]))
+        // 空词组永不命中——否则空查询会把整个磁盘当结果
+        #expect(!QueryTerms.matches("anything", terms: []))
+    }
 }

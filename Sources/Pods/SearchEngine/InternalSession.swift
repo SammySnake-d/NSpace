@@ -39,7 +39,9 @@ final class SearchSession: NSObject, @unchecked Sendable {
         let wantsSpotlight = request.searchNames || request.searchContents
         // 内容搜索只走通道A；通道B 只承担按名搜（诚实：无自建全文索引）
         let wantsScan = request.includeHidden && request.searchNames
-        guard !request.query.isEmpty, wantsSpotlight || wantsScan else {
+        // 判据是**切词后非空**，不是原串非空：全是空白的查询（用户手滑敲了个空格）切出零个词，
+        // 而 `andPredicateWithSubpredicates([])` 是**恒真**谓词——那会把整块磁盘当成命中推给主线程。
+        guard !QueryTerms.split(request.query).isEmpty, wantsSpotlight || wantsScan else {
             finished = true
             continuation.finish()
             return
@@ -76,14 +78,23 @@ final class SearchSession: NSObject, @unchecked Sendable {
     private func startSpotlight() {
         pendingChannels += 1
         let q = NSMetadataQuery()
+        // 每个维度内部按**词** AND（"override md" → 名字里既有 override 又有 md），维度之间 OR。
+        // 整串 CONTAINS 时代，带空格的查询永远匹配不上 `OVERRIDE.md` 这种以点分隔的名字（用户报告）。
+        let terms = QueryTerms.split(request.query)
+        func allTerms(of key: String) -> NSPredicate {
+            let subs = terms.map { NSPredicate(format: "%K CONTAINS[cd] %@", key, $0) }
+            // NSMetadataQuery 拒绝**单子式**复合谓词（既有注释记过 OR 的同款限制，AND 一样）：
+            // 包一个只含 1 个子谓词的 AND 会抛 NSInvalidArgumentException 当场崩掉进程
+            // ——单词查询是最常见的用法，这条不是边角。单条直用，多条才复合。
+            return subs.count == 1 ? subs[0]
+                : NSCompoundPredicate(andPredicateWithSubpredicates: subs)
+        }
         var predicates: [NSPredicate] = []
         if request.searchNames {
-            predicates.append(NSPredicate(format: "%K CONTAINS[cd] %@",
-                                          NSMetadataItemFSNameKey, request.query))
+            predicates.append(allTerms(of: NSMetadataItemFSNameKey))
         }
         if request.searchContents {
-            predicates.append(NSPredicate(format: "%K CONTAINS[cd] %@",
-                                          NSMetadataItemTextContentKey, request.query))
+            predicates.append(allTerms(of: NSMetadataItemTextContentKey))
         }
         // NSMetadataQuery 拒绝单子式的 OR 复合谓词：单条件直用，多条件才 OR
         q.predicate = predicates.count == 1
@@ -226,11 +237,13 @@ final class SearchSession: NSObject, @unchecked Sendable {
             flush()
         }
 
+        // 切词一次、循环里只做比对：两百万次迭代不重复付切词成本
+        let terms = QueryTerms.split(request.query)
         LevelOrderWalk.walk(root: root,
                             skipDirectoryNames: request.skippedDirectoryNames,
                             shouldContinue: { !Task.isCancelled }) { url, _, isDir in
             let name = url.lastPathComponent
-            guard name.localizedCaseInsensitiveContains(request.query) else {
+            guard QueryTerms.matches(name, terms: terms) else {
                 flushIfDue()          // 未命中也要推进时间发射，否则孤零零一条命中会被压到扫完
                 return
             }
