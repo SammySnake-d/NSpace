@@ -90,9 +90,12 @@ final class TabBarView: NSView {
         // 已经命中胶囊 / 加号 / 配件 → 照旧
         if hit !== self, hit !== scroll, hit !== scroll.contentView, hit !== stack { return hit }
         // 命中的是空白：按 x 找胶囊
+        let localPoint = convert(point, from: superview)
         for case let item as TabItemView in stack.arrangedSubviews where !item.isHidden {
             let r = item.convert(item.bounds, to: self)
-            if point.x >= r.minX, point.x <= r.maxX, bounds.contains(point) { return item }
+            if localPoint.x >= r.minX, localPoint.x <= r.maxX, bounds.contains(localPoint) {
+                return item.hitTarget(at: localPoint, from: self)
+            }
         }
         return hit
     }
@@ -257,6 +260,14 @@ private final class TabItemView: NSView {
     /// （注：我一度认定是胶囊里的 NSTextField 吞掉了点击——真机 hitTest 实测标签是穿透的，
     /// 那条根因不成立，对应改动已撤。）
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// 标题栏命中兜底也必须保留关闭钮，不能把 × 当作标签选择。
+    func hitTarget(at point: NSPoint, from view: NSView) -> NSView {
+        if !closeButton.isHidden, closeButton.frame.contains(convert(point, from: view)) {
+            return closeButton
+        }
+        return self
+    }
 
     override func mouseDown(with event: NSEvent) {
         onSelect?()

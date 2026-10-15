@@ -1,10 +1,8 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// Finder 替代集成：把 NSpace 注册为 public.folder 默认打开程序。
-/// 诚实限制（与 QSpace 相同）：NSWorkspace.activateFileViewerSelecting 类
-/// "Reveal in Finder" 硬编码发给 Finder，无法拦截；能接管的是 LaunchServices
-/// 打开文件夹的路径（open 命令、第三方 App 的"打开文件夹"）。
+/// Finder 定位集成：通过 NSFileViewer 偏好接收遵循该偏好的定位请求。
+/// 显式指定 Finder 的请求不受此设置控制；沙箱来源还要求 Info.plist 声明目标文件类型。
 @MainActor
 enum FinderIntegration {
     /// 当前 public.folder 的默认处理程序是否已是本 App（设置页据此照实显示状态；
