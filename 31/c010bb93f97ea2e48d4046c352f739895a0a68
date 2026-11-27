@@ -1,0 +1,110 @@
+CHANGELOG.md
+  h_f33e46a035b77c 5-40
+Package.swift
+  h_f33e46a035b77c 5
+Resources/en.lproj/Localizable.strings
+  h_f33e46a035b77c 378-457
+Resources/zh-Hans.lproj/Localizable.strings
+  h_f33e46a035b77c 378-457
+Sources/NSpaceApp/AppDelegate.swift
+  h_f33e46a035b77c 11,62
+Sources/NSpaceApp/BatchRenameSheet.swift
+  h_f33e46a035b77c 1-448
+Sources/NSpaceApp/BrowserState.swift
+  h_f33e46a035b77c 21-26
+Sources/NSpaceApp/ConflictSheet.swift
+  h_f33e46a035b77c 111-115,118,135,159,164,166-171,190-204,207-217,230,233,251-263,265-266,270,274,305-308,310,323-336
+Sources/NSpaceApp/DirectoryViewModel.swift
+  h_f33e46a035b77c 31,35-64,88-92,98,110-111,118,126-143
+Sources/NSpaceApp/FileCellViews.swift
+  h_f33e46a035b77c 2,24-28,30,53,57-67,85,89-92,104,107-117,120-123,127,132-144,181-183,187-191,201,218,223,229,232,235,244-246,255-260,264,268,270-274,277-299,303,313,319,334-344
+Sources/NSpaceApp/FileColumnViewController.swift
+  h_f33e46a035b77c 15-16,22,29-31,40-45,88,91-93,140,144,211-225,228-257,380-387,389-402,404-457,459-474,476-486,488-489,491,496-497,499-501,503-504,507,519-523,528,530,535-545,549-555,560-561,568-575,579-582,586,590,598,602,614-620,662-687,762-780,857-860,864
+Sources/NSpaceApp/FileContextMenuBuilder.swift
+  h_f33e46a035b77c 26-32,63-64,80-86,89,93-95,99-103
+Sources/NSpaceApp/FileIconGridViewController.swift
+  h_f33e46a035b77c 8,16-25,28,30-54,56,58-72,77,99-102,106-111,118,126,130,136,144-146,151,166-168,178-182,185-189,195,198-205,215-216,229,236,243-244,246-247,278-283,318-329,351-353,443-452,465,671-673,677-678,698-700,702-792,797,817-819,821-822,827,829,834-844,848-854,859-860,867-874,878-881,885,889,956-957,961-969,974-975,978,984-985,987,989-990,992,997-1001,1003-1004,1012,1016,1028-1030,1050,1067-1077
+Sources/NSpaceApp/FileListViewController.swift
+  h_f33e46a035b77c 14,35-36,73-82,107-115,139,154,204-208,211-212,217-218,228,237,266-271,295,488-491,505,507,534-536,540-541,548-549,559,642-646,648-680,683-697,730-733,739-740,745,747,752-759,763,765-766,771-776,781-782,789-796,800-803,806,811,813,822,847,951-952,956-975,1065,1069,1081-1083
+Sources/NSpaceApp/FileOpsCoordinator.swift
+  h_f33e46a035b77c 11,17-22,35-37,42-57,70,74-82,106-154,208-217,260,285,291-335,359,428-479,483,487-492,497-505,563,566-573,656-682,684-687
+Sources/NSpaceApp/FilePaneCommandCenter.swift
+  h_f33e46a035b77c 1-368
+Sources/NSpaceApp/Formatters.swift
+  h_f33e46a035b77c 67-76,91-92,95,98-100,103,110,112-113,116-117
+Sources/NSpaceApp/InfoPanel.swift
+  h_f33e46a035b77c 2-3,6,9,12-52,54-56,60-69,71-72,75-89,92,103-144,150,159-162,170-175,177-178,188-189,191-198,204-369
+Sources/NSpaceApp/InlineRenameController.swift
+  h_f33e46a035b77c 1-291
+Sources/NSpaceApp/KeyBindings.swift
+  h_f33e46a035b77c 17,29,31,36-37,39-40
+Sources/NSpaceApp/MainMenu.swift
+  h_f33e46a035b77c 31-32,42-44,59-61,68-70,96-98,102-107,141-145
+Sources/NSpaceApp/MainWindowController.swift
+  h_f33e46a035b77c 163-169,320,325,347-360,363,365,370,413-414,425,436,451-493,504-509,520,532,632-634
+Sources/NSpaceApp/PaneFilterBar.swift
+  h_f33e46a035b77c 1-149
+Sources/NSpaceApp/PaneGridController.swift
+  h_f33e46a035b77c 66-67,108-111,114,218,223-227,235-266,300-304,307,312-317
+Sources/NSpaceApp/PaneViewController.swift
+  h_f33e46a035b77c 45-53,79-80,102,191-204,207,211,222-226,256-260,263,287,307,413,427-429,433-461,591-592,620-622,653-661,671-675,738,884,897
+Sources/NSpaceApp/Preferences.swift
+  h_f33e46a035b77c 208-218
+Sources/NSpaceApp/ProgressWindowController.swift
+  h_f33e46a035b77c 261
+Sources/NSpaceApp/SearchPanelController.swift
+  h_f33e46a035b77c 2,49,54-57,62-70,72-76,530,532-573,675,681-682,685-691,805-816,852-880
+Sources/NSpaceApp/SidebarViewController.swift
+  h_f33e46a035b77c 12,400-457,489-490,496-500,502-504,514-515,523,525,528,546-547
+Sources/NSpaceApp/StatusBarView.swift
+  h_f33e46a035b77c 97-104
+Sources/NSpaceApp/TabBarView.swift
+  h_f33e46a035b77c 8-10,13-14,81,85-92,115-118,121-123,126-128,131-137,213-215,217-218,228-230,234,237,270-307
+Sources/NSpaceApp/TopDeckView.swift
+  h_f33e46a035b77c 37-39,99-101,247-248
+Sources/NSpaceApp/UISelfTest.swift
+  h_f33e46a035b77c 2,249-251,3487-3716
+Sources/NSpaceApp/WorkspaceManager.swift
+  h_f33e46a035b77c 11-12,14-15,21,29,36-39,41-60,62-69,71-76,80-81,84-86,96-97,99-100,103,105,123-128,141-184
+Sources/NSpaceContracts/Contracts.swift
+  h_f33e46a035b77c 73-82,86,106-107,110-111,116,221-229,256-257,264,268
+Sources/NSpaceKernel/OperationKernel.swift
+  h_f33e46a035b77c 33,35-37,69,107,189-191,198-213
+Sources/Pods/BatchRename/Contract.swift
+  h_f33e46a035b77c 1-255
+Sources/Pods/BatchRename/Node.swift
+  h_f33e46a035b77c 1-120
+Sources/Pods/FileHash/Contract.swift
+  h_f33e46a035b77c 1-32
+Sources/Pods/FileHash/Node.swift
+  h_f33e46a035b77c 1-50
+Sources/Pods/LocalOps/InternalOps.swift
+  h_f33e46a035b77c 10-21,33,36-39,43-45,50-62
+Sources/Pods/TrashLedger/Node.swift
+  h_f33e46a035b77c 42-46
+Tests/BatchRenameTests/BatchRenameTests.swift
+  h_f33e46a035b77c 1-93
+Tests/FileHashTests/FileHashTests.swift
+  h_f33e46a035b77c 1-39
+Tests/LocalOpsTests/LocalOpsTests.swift
+  h_f33e46a035b77c 215-232
+Tests/NSpaceKernelTests/KernelTests.swift
+  h_f33e46a035b77c 44-64
+Tests/TrashLedgerTests/TrashLedgerTests.swift
+  h_f33e46a035b77c 82-108
+VERSION
+  h_f33e46a035b77c 1
+scripts/ui-smoke.sh
+  h_f33e46a035b77c 305-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31c010bb93f97ea2e48d4046c352f739895a0a68",
+  "prompts": {},
+  "humans": {
+    "h_f33e46a035b77c": {
+      "author": "Sammy <caxapokrq+sammy@gmail.com>"
+    }
+  }
+}
