@@ -108,8 +108,14 @@ private final class ConflictSheetController: NSObject {
     private let dstIcon = NSImageView()
     private let dstLabel = NSTextField(labelWithString: "")
     private let applyFolderCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let renameRow = NSStackView()
+    private let renameField = NSTextField()
+    private let renameApplyButton = NSButton(title: "", target: nil, action: nil)
+    private var skipButton: NSButton?
+    private var renameButton: NSButton?
     private var mergeButton: NSButton?
     private var keepBothButton: NSButton?
+    private var currentConflict: FileConflict?
 
     static func present(_ conflicts: [FileConflict],
                         completion: @escaping ([URL: ConflictDecision]?) -> Void) {
@@ -126,7 +132,7 @@ private final class ConflictSheetController: NSObject {
         self.hostWindow = host
         self.machine = ConflictDecisionMachine(conflicts)
         self.completion = completion
-        self.panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 224),
+        self.panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 248),
                              styleMask: [.titled], backing: .buffered, defer: false)
         super.init()
         buildContent()
@@ -150,14 +156,19 @@ private final class ConflictSheetController: NSObject {
     // MARK: 逐冲突重配置
 
     private func configure(for conflict: FileConflict) {
+        currentConflict = conflict
         titleLabel.stringValue = L10n.f("conflict.title", conflict.existing.lastPathComponent)
         messageLabel.stringValue = L10n.t("conflict.message")
         configureRow(icon: srcIcon, label: srcLabel, title: L10n.t("conflict.source"), url: conflict.source)
         configureRow(icon: dstIcon, label: dstLabel, title: L10n.t("conflict.existing"), url: conflict.existing)
-        // 合并仅对「双方都是目录」有意义；文件冲突禁用（保持三按钮布局一致，禁用即诚实不可点）
+        // 合并仅对「双方都是目录」有意义；文件冲突禁用
         mergeButton?.isEnabled = conflict.bothDirectories
-        keepBothButton?.isEnabled = true   // 文件与文件夹都可以改名共存
-        // checkbox 每次面板出现（每文件夹）重置为未勾——勾选是对"这一次这个文件夹"的显式批量选择
+        keepBothButton?.isEnabled = true
+        skipButton?.isEnabled = true
+        renameButton?.isEnabled = true
+        renameRow.isHidden = true
+        renameField.stringValue = conflict.existing.lastPathComponent
+        renameApplyButton.isEnabled = false
         applyFolderCheck.state = .off
     }
 
@@ -175,10 +186,34 @@ private final class ConflictSheetController: NSObject {
 
     @objc private func onReplace() { apply(.replace) }
     @objc private func onMerge() { apply(.mergeFolders) }
-    /// 两者保留：自动改名共存（`文件 2.txt`）。引擎侧 `.keepBoth` 早就实现了
-    /// （含批内撞名去重），旧版只是没给按钮——用户报告"只有合并、取消，没有改名"。
     @objc private func onKeepBoth() { apply(.keepBoth) }
+    @objc private func onSkip() { apply(.skip) }
+    @objc private func onRenameToggle() {
+        let show = renameRow.isHidden
+        renameRow.isHidden = !show
+        if show {
+            panel.makeFirstResponder(renameField)
+            renameField.selectText(nil)
+            refreshRenameApplyEnabled()
+        }
+    }
+    @objc private func onRenameApply() {
+        let name = renameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isRenameValid(name) else { NSSound.beep(); return }
+        apply(.rename(name))
+    }
     @objc private func onCancel() { machine.cancel(); finish(nil) }
+
+    private func isRenameValid(_ name: String) -> Bool {
+        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { return false }
+        if let existing = currentConflict?.existing.lastPathComponent, name == existing { return false }
+        return true
+    }
+
+    private func refreshRenameApplyEnabled() {
+        let name = renameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameApplyButton.isEnabled = isRenameValid(name)
+    }
 
     private func apply(_ d: ConflictDecision) {
         if applyFolderCheck.state == .on { machine.decideCurrentFolder(d) } else { machine.decideCurrent(d) }
@@ -192,10 +227,10 @@ private final class ConflictSheetController: NSObject {
         ConflictSheetController.live = nil
     }
 
-    // MARK: 布局构建（4pt 网格；三按钮右对齐 + 左下 checkbox）
+    // MARK: 布局构建（4pt 网格；保留 M27 四按钮 + 跳过/自定义重命名）
 
     private func buildContent() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 224))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 248))
 
         titleLabel.font = .boldSystemFont(ofSize: 13)
         titleLabel.lineBreakMode = .byTruncatingMiddle
@@ -213,16 +248,30 @@ private final class ConflictSheetController: NSObject {
         applyFolderCheck.title = L10n.t("conflict.applyFolder")
         applyFolderCheck.font = .systemFont(ofSize: 11)
 
-        // 三按钮：取消 / 合并 / 替换（右对齐，替换为默认=回车）
+        renameField.font = .systemFont(ofSize: 12)
+        renameField.placeholderString = L10n.t("conflict.renamePlaceholder")
+        renameField.delegate = self
+        renameApplyButton.title = L10n.t("conflict.renameApply")
+        renameApplyButton.bezelStyle = .rounded
+        renameApplyButton.target = self
+        renameApplyButton.action = #selector(onRenameApply)
+        renameRow.orientation = .horizontal
+        renameRow.spacing = 8
+        renameRow.isHidden = true
+        renameRow.addArrangedSubview(renameField)
+        renameRow.addArrangedSubview(renameApplyButton)
+
         let cancelB = makeButton("conflict.cancel", #selector(onCancel)); cancelB.keyEquivalent = "\u{1b}"
+        let skipB = makeButton("conflict.skip", #selector(onSkip)); skipButton = skipB
+        let renameB = makeButton("conflict.rename", #selector(onRenameToggle)); renameButton = renameB
         let mergeB = makeButton("conflict.merge", #selector(onMerge)); mergeButton = mergeB
         let keepBothB = makeButton("conflict.keepBoth", #selector(onKeepBoth)); keepBothButton = keepBothB
         let replaceB = makeButton("conflict.replace", #selector(onReplace)); replaceB.keyEquivalent = "\r"
-        let buttonStack = NSStackView(views: [cancelB, mergeB, keepBothB, replaceB])
+        let buttonStack = NSStackView(views: [cancelB, skipB, renameB, mergeB, keepBothB, replaceB])
         buttonStack.orientation = .horizontal
         buttonStack.spacing = 8
 
-        for v in [titleLabel, messageLabel, srcIcon, srcLabel, dstIcon, dstLabel, applyFolderCheck, buttonStack] {
+        for v in [titleLabel, messageLabel, srcIcon, srcLabel, dstIcon, dstLabel, renameRow, applyFolderCheck, buttonStack] {
             v.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(v)
         }
@@ -253,11 +302,14 @@ private final class ConflictSheetController: NSObject {
             dstLabel.leadingAnchor.constraint(equalTo: dstIcon.trailingAnchor, constant: 8),
             dstLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -pad),
 
+            renameRow.topAnchor.constraint(equalTo: dstIcon.bottomAnchor, constant: 12),
+            renameRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: pad),
+            renameRow.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -pad),
+
             applyFolderCheck.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: pad),
-            applyFolderCheck.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -pad),
+            applyFolderCheck.bottomAnchor.constraint(equalTo: buttonStack.topAnchor, constant: -12),
             buttonStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -pad),
             buttonStack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -pad),
-            buttonStack.leadingAnchor.constraint(greaterThanOrEqualTo: applyFolderCheck.trailingAnchor, constant: 12),
         ])
         panel.contentView = root
     }
@@ -266,5 +318,19 @@ private final class ConflictSheetController: NSObject {
         let b = NSButton(title: L10n.t(key), target: self, action: action)
         b.bezelStyle = .rounded
         return b
+    }
+}
+
+extension ConflictSheetController: NSTextFieldDelegate {
+    func controlTextDidChange(_ obj: Notification) {
+        refreshRenameApplyEnabled()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)), renameApplyButton.isEnabled {
+            onRenameApply()
+            return true
+        }
+        return false
     }
 }

@@ -63,6 +63,8 @@ final class PaneGridController: NSViewController {
 
     var activePane: PaneViewController { pool[activePaneIndex] }
     var visiblePanes: [PaneViewController] { Array(pool.prefix(layout.paneCount)) }
+    var visiblePaneCount: Int { layout.paneCount }
+    func isPaneActive(_ pane: PaneViewController) -> Bool { activePane === pane }
 
     init(initialDirectory: URL) {
         self.initialDirectory = initialDirectory
@@ -103,9 +105,13 @@ final class PaneGridController: NSViewController {
             let dir = pool.isEmpty ? initialDirectory : activePane.activeTab.browser.current
             let pane = PaneViewController(directory: dir)
             pane.coordinator = coordinator
+            pane.isPaneActiveProvider = { [weak self, weak pane] in
+                guard let self, let pane else { return false }
+                return self.isPaneActive(pane)
+            }
             pane.onRequestFocus = { [weak self, weak pane] in
                 guard let self, let pane, let i = self.pool.firstIndex(where: { $0 === pane }) else { return }
-                self.setActivePane(i)
+                self.setActivePane(i, focusContent: false)
             }
             pane.onLocationChange = { [weak self, weak pane] url in
                 guard let self, let pane else { return }
@@ -209,17 +215,53 @@ final class PaneGridController: NSViewController {
 
     // MARK: 焦点协调
 
-    func setActivePane(_ index: Int) {
+    func setActivePane(_ index: Int, focusContent: Bool = true) {
         guard index < layout.paneCount else { return }
         let sameAsActive = (index == activePaneIndex)
         activePaneIndex = index
         refreshActiveHighlight()                         // 幂等且廉价：多窗格 restore/首布局着色须恒执行
-        view.window?.makeFirstResponder(activePane.focusTarget)
+        if focusContent,
+           let win = view.window,
+           !Self.isResponderInside(win.firstResponder, view: activePane.view) {
+            win.makeFirstResponder(activePane.focusTarget)
+        }
         // 同窗格点击：不重推位置/状态。窗格内选中变化本就经 pane.onStatusChange 更新甲板，
         // 此处再推一次是"改选中前的旧值" → 双刷卡顿（I-33）；跨窗格切换才需要这一推。
         guard !sameAsActive else { return }
         onActiveLocationChange?(activePane.activeTab.browser.current)
         onActiveStatusChange?()
+    }
+
+    private static func isResponderInside(_ responder: NSResponder?, view: NSView) -> Bool {
+        var cur = responder as? NSView
+        while let v = cur {
+            if v === view { return true }
+            cur = v.superview
+        }
+        return false
+    }
+
+    /// 互换双窗格当前目录（MIT：复用各 Pane 自身导航历史）
+    func swapPanes() {
+        guard layout.paneCount >= 2 else { return }
+        let panes = visiblePanes
+        let otherIndex = (activePaneIndex + 1) % panes.count
+        let a = panes[activePaneIndex]
+        let b = panes[otherIndex]
+        let urlA = a.activeTab.browser.current
+        let urlB = b.activeTab.browser.current
+        guard urlA != urlB else { return }
+        a.navigate(to: urlB)
+        b.navigate(to: urlA)
+    }
+
+    /// 另一窗格同步到当前活动窗格所在目录
+    func syncOtherPane() {
+        guard layout.paneCount >= 2 else { return }
+        let panes = visiblePanes
+        let otherIndex = (activePaneIndex + 1) % panes.count
+        let target = activePane.activeTab.browser.current
+        panes[otherIndex].navigate(to: target)
     }
 
     private func refreshActiveHighlight() {
@@ -255,16 +297,24 @@ final class PaneGridController: NSViewController {
                       activePaneIndex: activePaneIndex)
     }
 
-    func restoreSession(_ w: SessionWindow) {
+    func sessionHistories() -> [(back: [URL], forward: [URL])] {
+        visiblePanes.map { $0.browserHistorySnapshot() }
+    }
+
+    func restoreSession(_ w: SessionWindow, histories: [(back: [URL], forward: [URL])] = []) {
         _ = view  // 先强制 loadView（窗格池就位）
         if let l = PaneLayout(rawValue: w.layoutRaw) { apply(layout: l) }
-        for (pane, sp) in zip(visiblePanes, w.panes) {
+        for (i, (pane, sp)) in zip(visiblePanes, w.panes).enumerated() {
             // 目标态与窗格现态**逐字段相同** → 不重建：保住浏览历史 / 选中 / 滚动位置。
             // 「新建工作区 = 复制当前工作区」会拿现态原样造快照，只有活动窗格可能换路径；
             // 无条件 installTab 会把用户根本没碰的那些窗格连 BrowserState 一起换新——
             // 切回去 ⌘[ 后退失灵、选中消失、列表滚回顶部。外部打开默认走这条，每次都中。
-            guard pane.sessionPane() != sp else { continue }
-            pane.restoreSession(sp)
+            if pane.sessionPane() != sp {
+                pane.restoreSession(sp)
+            }
+            if histories.indices.contains(i) {
+                pane.restoreBrowserHistory(back: histories[i].back, forward: histories[i].forward)
+            }
         }
         setActivePane(min(max(0, w.activePaneIndex), layout.paneCount - 1))
     }

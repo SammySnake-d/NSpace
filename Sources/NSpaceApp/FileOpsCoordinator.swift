@@ -8,10 +8,16 @@ import TrashLedger
 /// 操作后显露落点（新建完成 → 选中并按需进入重命名）；列表/图标视图各自实现（分栏传 nil）
 @MainActor
 protocol FileRevealTarget: AnyObject {
-    func prepareReveal(_ url: URL, rename: Bool)
+    func prepareReveal(_ url: URL, rename: Bool, focus: Bool)
     /// 取走并清空待定位目标。切视图模式时用来「搬家」：读盘途中切走，pending 还挂在旧视图上，
     /// 不搬就永久丢失，而且会在旧视图里留成日后突然"幽灵跳选"并抢焦点的定时炸弹。
     func takePendingReveal() -> (url: URL, rename: Bool)?
+}
+
+extension FileRevealTarget {
+    func prepareReveal(_ url: URL, rename: Bool) {
+        prepareReveal(url, rename: rename, focus: true)
+    }
 }
 
 /// UI → 内核桥（每窗口一个）：把用户意图翻译成 OperationSpec 交给 OperationKernel，
@@ -26,11 +32,29 @@ final class FileOpsCoordinator {
     /// 剪切态 URL 集：被剪切的行灰显；粘贴或复制后清空
     private var cutURLs: Set<URL> = []
 
+    /// 「放回原处」台账内存镜像（供 validateMenuItem 同步诚实校验，避免异步 actor 竞态）
+    private var knownTrashedPaths: Set<String> = []
+
     /// 使用习惯学习（M28）：全应用打开/进入记账的载体（AppDelegate 注入同一实例；nil=不学习）。
     var frecencyStore: FrecencyStore?
 
     /// 「放回原处」台账（AppDelegate 注入同一实例；nil=不记账 → 放回原处一律不可用）
-    var trashLedger: TrashLedger?
+    var trashLedger: TrashLedger? {
+        didSet { syncKnownTrashedPathsFromLedger() }
+    }
+
+    private func syncKnownTrashedPathsFromLedger() {
+        guard let led = trashLedger else { knownTrashedPaths = []; return }
+        Task { @MainActor [weak self] in
+            let paths = await led.allTrashedPaths()
+            self?.knownTrashedPaths = paths
+        }
+    }
+
+    func canPutBackAny(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, trashLedger != nil else { return false }
+        return urls.contains { knownTrashedPaths.contains($0.standardizedFileURL.path) }
+    }
 
     /// 记一次访问（打开文件/进入文件夹）——供聚焦搜索按使用习惯排序。actor 异步提交，发后不等。
     func recordAccess(_ url: URL) {
@@ -43,9 +67,18 @@ final class FileOpsCoordinator {
         self.grid = grid
     }
 
-    // MARK: 剪贴板状态查询（列表按此灰显剪切项）
+    // MARK: 剪贴板状态查询（列表按此灰显剪切项 + 菜单诚实校验）
 
     func isCut(_ url: URL) -> Bool { cutURLs.contains(url) }
+
+    static var hasClipboardFiles: Bool {
+        NSPasteboard.general.canReadObject(forClasses: [NSURL.self],
+                                           options: [.urlReadingFileURLsOnly: true])
+    }
+
+    static var canPasteOrCreateFromPasteboard: Bool {
+        hasClipboardFiles || contentPayload(from: .general) != nil
+    }
 
     // MARK: 复制 / 剪切 / 粘贴 / 拷贝路径
 
@@ -67,16 +100,58 @@ final class FileOpsCoordinator {
 
     func paste(into directory: URL, revealIn list: FileRevealTarget? = nil) {
         let urls = readPasteboardURLs()
-        // 剪贴板里没有文件时，把**内容**粘成一个新文件（文本/图片/PDF/RTF）。
-        // 旧版直接 beep——用户从浏览器或截图复制的东西在这儿完全落不了地。
         guard !urls.isEmpty else { pasteContentAsNewFile(into: directory, revealIn: list); return }
-        // 剪切态且粘贴项恰为被剪切集 → 移动；否则复制
         let isMove = !cutURLs.isEmpty && urls.allSatisfy { cutURLs.contains($0) }
-        // M27-B：同目录复制粘贴不再静默退化为"制作副本"——走正常 copy 触发自源冲突，
-        // 弹面板让用户选替换/跳过/两者保留/重命名/取消（引擎自源安全律护航，绝不删源）。
         let spec = OperationSpec(kind: isMove ? .move : .copy, sources: urls, destination: directory)
-        run(spec) { [weak self] _ in
-            if isMove { self?.cutURLs = []; self?.redrawLists() }
+        let originalParents = urls.map { (url: $0, parent: $0.deletingLastPathComponent()) }
+        run(spec) { [weak self] receipt in
+            guard let self else { return }
+            if isMove {
+                self.cutURLs = []
+                self.redrawLists()
+                if let receipt, receipt.failures.isEmpty {
+                    let movedBack = originalParents.map { pair in
+                        (moved: directory.appendingPathComponent(pair.url.lastPathComponent),
+                         originalParent: pair.parent)
+                    }
+                    self.registerMoveUndo(movedBack, actionKey: "undo.move")
+                }
+            }
+            if let firstCreated = receipt?.createdURLs.first {
+                list?.prepareReveal(firstCreated, rename: false)
+            }
+        }
+    }
+
+    /// ⌥⌘V「将项目移到这里」：不必先 ⌘X，直接把剪贴板里的文件移动到当前目录
+    func movePaste(into directory: URL, revealIn list: FileRevealTarget? = nil) {
+        let urls = readPasteboardURLs()
+        guard !urls.isEmpty else {
+            NSSound.beep()
+            Toast.show(L10n.t("toast.pasteNothing"), in: grid?.view.window)
+            return
+        }
+        let dest = directory.standardizedFileURL
+        guard urls.allSatisfy({ !Self.isSelfOrDescendant(destination: dest, ofSource: $0) }) else {
+            NSSound.beep()
+            return
+        }
+        let originalParents = urls.map { (url: $0, parent: $0.deletingLastPathComponent()) }
+        run(OperationSpec(kind: .move, sources: urls, destination: dest)) { [weak self] receipt in
+            guard let self else { return }
+            self.cutURLs = []
+            self.redrawLists()
+            if let receipt, receipt.failures.isEmpty {
+                let movedBack = originalParents.map { pair in
+                    (moved: dest.appendingPathComponent(pair.url.lastPathComponent),
+                     originalParent: pair.parent)
+                }
+                self.registerMoveUndo(movedBack, actionKey: "undo.move")
+                if let firstCreated = receipt.createdURLs.first {
+                    list?.prepareReveal(firstCreated, rename: false)
+                }
+                Toast.show(L10n.f("toast.movedN", urls.count), in: self.grid?.view.window)
+            }
         }
     }
 
@@ -130,6 +205,16 @@ final class FileOpsCoordinator {
                    in: grid?.view.window)
     }
 
+    func copyNames(_ urls: [URL], to pasteboard: NSPasteboard = .general) {
+        guard !urls.isEmpty else { return }
+        let pb = pasteboard
+        pb.clearContents()
+        pb.setString(urls.map(\.lastPathComponent).joined(separator: "\n"), forType: .string)
+        Toast.show(urls.count == 1 ? L10n.t("toast.copiedName")
+                   : L10n.f("toast.copiedNames", urls.count),
+                   in: grid?.view.window)
+    }
+
     // MARK: 清空废纸篓 / 放回原处（v0.19.19）
 
     /// 清空废纸篓：**不可逆**。读废纸篓内容（只读，BG-1 允许）→ 确认 → 经内核 `.delete`。
@@ -172,6 +257,7 @@ final class FileOpsCoordinator {
         run(OperationSpec(kind: .delete, sources: victims, destination: trash)) { [weak self] receipt in
             guard let self, let receipt else { return }
             // 台账里对应条目一并作废（那些落点已经不存在了）
+            for u in victims { self.knownTrashedPaths.remove(u.standardizedFileURL.path) }
             if let led = self.trashLedger { Task { await led.forget(victims) } }
             if receipt.failures.isEmpty {
                 Toast.show(L10n.f("toast.trashEmptied", receipt.filesDone), in: self.grid?.view.window)
@@ -196,9 +282,55 @@ final class FileOpsCoordinator {
             }
             // 复用既有的"搬回原处 + 必要时改名回原名"链路（撤销废纸篓走的就是这条）
             self.restore(known.map { TrashedItem(original: $0.original, trashed: $0.trashed) })
+            for item in known { self.knownTrashedPaths.remove(item.trashed.standardizedFileURL.path) }
             await led.forget(known.map(\.trashed))
             Toast.show(L10n.f("toast.putBackN", known.count), in: self.grid?.view.window)
         }
+    }
+
+    /// ⌥⌘⌫ 立即永久删除（经 EraserNode 围栏校验证，取消放在第一按钮防回车误删）
+    func deleteImmediately(_ urls: [URL], window: NSWindow?) {
+        guard !urls.isEmpty else { return }
+        guard let fence = Self.commonFenceRoot(of: urls) else { NSSound.beep(); return }
+        guard let host = window ?? grid?.view.window, host.attachedSheet == nil else {
+            run(OperationSpec(kind: .delete, sources: urls, destination: fence))
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = urls.count == 1
+            ? L10n.f("alert.deleteImmediately.single", urls[0].lastPathComponent)
+            : L10n.f("alert.deleteImmediately.multi", urls.count)
+        alert.informativeText = L10n.t("alert.deleteImmediately.body")
+        alert.addButton(withTitle: L10n.t("common.cancel"))
+        alert.addButton(withTitle: L10n.t("alert.deleteImmediately.confirm"))
+        alert.buttons[1].hasDestructiveAction = true
+        alert.beginSheetModal(for: host) { [weak self] response in
+            guard response == .alertSecondButtonReturn, let self else { return }
+            self.run(OperationSpec(kind: .delete, sources: urls, destination: fence)) { [weak self] receipt in
+                guard let self, let receipt else { return }
+                for src in urls { self.knownTrashedPaths.remove(src.standardizedFileURL.path) }
+                if let led = self.trashLedger { Task { await led.forget(urls) } }
+                if receipt.failures.isEmpty {
+                    Toast.show(L10n.f("toast.deletedPermanently", receipt.filesDone),
+                               in: self.grid?.view.window)
+                } else {
+                    Toast.show(receipt.failures[0].message, in: self.grid?.view.window)
+                }
+            }
+        }
+    }
+
+    private nonisolated static func commonFenceRoot(of urls: [URL]) -> URL? {
+        guard let firstParent = urls.first?.standardizedFileURL.deletingLastPathComponent() else { return nil }
+        var components = firstParent.pathComponents
+        for u in urls.dropFirst() {
+            let parentComps = u.standardizedFileURL.deletingLastPathComponent().pathComponents
+            let sharedCount = zip(components, parentComps).prefix { $0 == $1 }.count
+            components = Array(components.prefix(sharedCount))
+        }
+        guard components.count > 1 else { return nil } // 拒绝退化为 "/" 围栏
+        return NSURL.fileURL(withPathComponents: components)
     }
 
     // MARK: 内核操作
@@ -224,6 +356,7 @@ final class FileOpsCoordinator {
                 self.registerRestoreUndo(items)
                 // 落台账：「放回原处」跨会话可用全靠它（UndoManager 只活在本窗本次会话里）
                 let pairs = items.map { (original: $0.original, trashed: $0.trashed) }
+                for p in pairs { self.knownTrashedPaths.insert(p.trashed.standardizedFileURL.path) }
                 if let led = self.trashLedger { Task { await led.record(pairs) } }
             }
             // 旧版此路径**零反馈**（copy/move 有吐司，trash 没有），用户只看到行消失。
@@ -292,16 +425,82 @@ final class FileOpsCoordinator {
         }
     }
 
-    /// 行内重命名提交（FG-6：失败由调用方原子回滚旧名 + 原位红字）
+    /// ⌃⌘N 用所选项目新建文件夹（Finder 经典效率流）：建目录 → 移入所选 → 选中文件夹并进入重命名
+    func newFolderWithSelection(_ urls: [URL], in directory: URL, revealIn list: FileRevealTarget?) {
+        guard !urls.isEmpty else { return }
+        run(OperationSpec(kind: .newFolder, sources: [], destination: directory,
+                          newName: L10n.t("newItem.folder"))) { [weak self] receipt in
+            guard let self, let folderURL = receipt?.createdURLs.first else { return }
+            let originalParents = urls.map { (url: $0, parent: $0.deletingLastPathComponent()) }
+            self.run(OperationSpec(kind: .move, sources: urls, destination: folderURL)) { [weak self] moveReceipt in
+                guard let self else { return }
+                if let moveReceipt, moveReceipt.failures.isEmpty {
+                    let movedBack = originalParents.map { pair in
+                        (moved: folderURL.appendingPathComponent(pair.url.lastPathComponent),
+                         originalParent: pair.parent)
+                    }
+                    self.registerMoveUndo(movedBack, actionKey: "undo.move")
+                }
+                list?.prepareReveal(folderURL, rename: true)
+            }
+        }
+    }
+
+    /// 批量重命名弹窗 + 原子提交 + ⌘Z 整批撤销
+    func presentBatchRename(urls: [URL], in window: NSWindow?, revealIn list: FileRevealTarget?) {
+        guard !urls.isEmpty else { return }
+        BatchRenameSheetController.present(sources: urls, hostWindow: window ?? grid?.view.window) { [weak self] pairs in
+            self?.executeBatchRename(pairs: pairs, revealIn: list)
+        }
+    }
+
+    func executeBatchRename(pairs: [RenamePair], revealIn list: FileRevealTarget? = nil) {
+        guard !pairs.isEmpty else { return }
+        run(OperationSpec(kind: .batchRename, sources: pairs.map(\.source), renamePairs: pairs)) { [weak self] receipt in
+            guard let self, let receipt else { return }
+            if !receipt.renamedItems.isEmpty {
+                let reversePairs = receipt.renamedItems.map {
+                    RenamePair(source: $0.renamed, newName: $0.original.lastPathComponent)
+                }
+                self.undoManager.registerUndo(withTarget: self) { coord in
+                    MainActor.assumeIsolated {
+                        coord.executeBatchRename(pairs: reversePairs, revealIn: list)
+                    }
+                }
+                self.undoManager.setActionName(L10n.t("undo.batchRename"))
+            }
+            if let first = receipt.createdURLs.first {
+                list?.prepareReveal(first, rename: false)
+            }
+            Toast.show(L10n.f("toast.batchRenamedN", receipt.filesDone), in: self.grid?.view.window)
+        }
+    }
+
+    /// 行内重命名提交（FG-6：失败由调用方原子回滚旧名 + 原位红字；成功入 Undo 栈支持 ⌘Z）
     func rename(_ url: URL, to newName: String, completion: @escaping @MainActor (Bool) -> Void) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != url.lastPathComponent else { completion(true); return }
+        let oldName = url.lastPathComponent
         Task { @MainActor in
             let id = await kernel.submit(OperationSpec(kind: .rename, sources: [url], newName: trimmed))
             let ok = await waitTerminal(id)
-            if ok { reloadLists() }
+            if ok {
+                let dst = (await kernel.receipt(id))?.createdURLs.first
+                    ?? url.deletingLastPathComponent().appendingPathComponent(trimmed)
+                self.registerRenameUndo(at: dst, restoreName: oldName)
+                reloadLists()
+            }
             completion(ok)
         }
+    }
+
+    private func registerRenameUndo(at currentURL: URL, restoreName: String) {
+        undoManager.registerUndo(withTarget: self) { coord in
+            MainActor.assumeIsolated {
+                coord.rename(currentURL, to: restoreName) { _ in }
+            }
+        }
+        undoManager.setActionName(L10n.t("undo.rename"))
     }
 
     // MARK: F5 复制 / F6 移动 到另一窗格
@@ -361,9 +560,17 @@ final class FileOpsCoordinator {
             onComplete?(false)
             return
         }
+        let originalParents = urls.map { (url: $0, parent: $0.deletingLastPathComponent()) }
         run(OperationSpec(kind: move ? .move : .copy, sources: urls, destination: dest)) { [weak self] receipt in
             // 成功落地才吐司（取消/失败 receipt==nil，失败另有自己的呈现）
-            if receipt != nil {
+            if let receipt {
+                if move, receipt.failures.isEmpty {
+                    let movedBack = originalParents.map { pair in
+                        (moved: dest.appendingPathComponent(pair.url.lastPathComponent),
+                         originalParent: pair.parent)
+                    }
+                    self?.registerMoveUndo(movedBack, actionKey: "undo.move")
+                }
                 Toast.show(L10n.f(move ? "toast.movedN" : "toast.copiedN", urls.count),
                            in: self?.grid?.view.window)
             }
@@ -446,9 +653,38 @@ final class FileOpsCoordinator {
         return false
     }
 
-    /// 操作后重新读取各可见窗格活动列表（真实 FS 投影刷新）
+    private func registerMoveUndo(_ items: [(moved: URL, originalParent: URL)], actionKey: String) {
+        let valid = items.filter { $0.moved.deletingLastPathComponent().standardizedFileURL.path != $0.originalParent.standardizedFileURL.path }
+        guard !valid.isEmpty else { return }
+        undoManager.registerUndo(withTarget: self) { coord in
+            MainActor.assumeIsolated {
+                coord.undoMovedItems(valid)
+            }
+        }
+        undoManager.setActionName(L10n.t(actionKey))
+    }
+
+    private func undoMovedItems(_ items: [(moved: URL, originalParent: URL)]) {
+        // 按目标父目录分组还原并注册重做
+        let grouped = Dictionary(grouping: items) { $0.originalParent.standardizedFileURL }
+        for (parent, group) in grouped {
+            let sources = group.map(\.moved)
+            let reverse = group.map { (moved: parent.appendingPathComponent($0.moved.lastPathComponent),
+                                     originalParent: $0.moved.deletingLastPathComponent()) }
+            run(OperationSpec(kind: .move, sources: sources, destination: parent)) { [weak self] receipt in
+                if let receipt, receipt.failures.isEmpty {
+                    self?.registerMoveUndo(reverse, actionKey: "undo.move")
+                }
+            }
+        }
+    }
+
+    /// 操作后重新读取各可见窗格活动列表（真实 FS 投影刷新 + 同步卷可用容量）
     private func reloadLists() {
-        grid?.visiblePanes.forEach { $0.reloadActiveList() }
+        grid?.visiblePanes.forEach {
+            $0.reloadActiveList()
+            $0.refreshVolumeSpace()
+        }
     }
 
     /// 仅重绘（剪切灰显变化，无需重新读盘）

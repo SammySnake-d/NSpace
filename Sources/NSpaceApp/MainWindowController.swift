@@ -160,7 +160,13 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
             self, selector: #selector(windowFrameChanged(_:)),
             name: NSWindow.willCloseNotification, object: window)
 
-        sidebar.onNavigate = { [weak self] url in self?.grid.activePane.navigate(to: url) }
+        sidebar.onNavigate = { [weak self] url in
+            self?.grid.activePane.navigate(to: url)
+            self?.focusActivePane()
+        }
+        sidebar.onOpenInNewWorkspaceTab = { [weak self] url in
+            self?.openWorkspaceTab(at: url)
+        }
         grid.onActiveLocationChange = { [weak self] url in
             self?.updateTitle(for: url)
             // 高亮跟随窗格：旧版侧栏高亮只是"上次点了谁"，换目录后一直指着旧位置撒谎
@@ -311,12 +317,12 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
     // MARK: 书签（右键"添加到书签"经响应链到此；选中目录逐个入册）
 
     @objc func addSelectionToBookmarks(_ sender: Any?) {
-        let dirs = grid.activePane.activeTab.listVC.selectedItems
+        let dirs = grid.activePane.currentSelectedItems()
             .filter { $0.isDirectory && !$0.isPackage }
         guard !dirs.isEmpty else { NSSound.beep(); return }
         let store = sidebar.model.bookmarkStore
         Task { [weak self] in
-            for dir in dirs { try? await store.add(dir.url) }
+            for dir in dirs { _ = try? await store.add(dir.url) }
             self?.sidebar.model.rebuild()
             Toast.show(String(format: L10n.t("toast.bookmarkAdded"), dirs.count),
                        in: self?.window)
@@ -338,16 +344,30 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         grid.activePane.editPath(sender)
     }
 
+    @objc func toggleFilterBar(_ sender: Any?) {
+        grid.activePane.toggleFilterBar(sender)
+    }
+
+    @objc func swapPanes(_ sender: Any?) {
+        grid.swapPanes()
+        updateTitle(for: grid.activePane.activeTab.browser.current)
+    }
+
+    @objc func syncOtherPane(_ sender: Any?) {
+        grid.syncOtherPane()
+        updateTitle(for: grid.activePane.activeTab.browser.current)
+    }
+
     // MARK: 工作区标签（M17：自管 WorkspaceManager；⌘T/⌘W/循环 + 标签条钮都走这里）
 
-    /// 切换前把 grid 实时快照回灌活动槽（否则切走的工作区丢失未落盘编辑）
+    /// 切换前把 grid 实时快照与导航历史回灌活动槽（否则切走的工作区丢失未落盘状态/后退栈）
     private func snapshotIntoActive() {
-        workspaces.syncActive(grid.sessionWindow())
+        workspaces.syncActive(grid.sessionWindow(), histories: grid.sessionHistories())
     }
 
     private func refreshWorkspaceTabs() {
         snapshotIntoActive()
-        deck.updateWorkspaces(titles: workspaces.titles(), active: workspaces.activeIndex)
+        deck.updateWorkspaces(titles: workspaces.titles(), toolTips: workspaces.toolTips(), active: workspaces.activeIndex)
     }
 
     private func focusActivePane() {
@@ -390,8 +410,8 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
                 return sp
             },
             activePaneIndex: activeIndex)
-        workspaces.append(fresh, limit: limit)
-        grid.restoreSession(workspaces.activeState)
+        workspaces.append(fresh, limit: limit, histories: grid.sessionHistories())
+        grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
         refreshWorkspaceTabs()
         focusActivePane()
         syncDeck()
@@ -402,7 +422,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         guard index != workspaces.activeIndex else { return }
         snapshotIntoActive()
         workspaces.switchTo(index)
-        grid.restoreSession(workspaces.activeState)
+        grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
         refreshWorkspaceTabs()
         focusActivePane()
         syncDeck()
@@ -413,7 +433,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         snapshotIntoActive()
         let wasActive = index == workspaces.activeIndex
         if workspaces.close(at: index) {
-            if wasActive { grid.restoreSession(workspaces.activeState) }
+            if wasActive { grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories) }
             refreshWorkspaceTabs()
             focusActivePane()
             syncDeck()
@@ -428,6 +448,49 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         closeWorkspace(at: workspaces.activeIndex)
     }
 
+    @objc func reopenClosedWorkspaceTab(_ sender: Any?) {
+        snapshotIntoActive()
+        guard workspaces.reopenLastClosed(limit: Preferences.workspaceTabLimit) else { NSSound.beep(); return }
+        grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    func duplicateWorkspace(at index: Int) {
+        snapshotIntoActive()
+        workspaces.duplicate(at: index, limit: Preferences.workspaceTabLimit)
+        grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    func closeOtherWorkspaces(keeping index: Int) {
+        snapshotIntoActive()
+        workspaces.closeOthers(keeping: index)
+        grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
+    func closeWorkspacesToRight(of index: Int) {
+        snapshotIntoActive()
+        let prevActive = workspaces.activeIndex
+        workspaces.closeToRight(of: index)
+        if prevActive > index {
+            grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
+        }
+        refreshWorkspaceTabs()
+        focusActivePane()
+        syncDeck()
+        (NSApp.delegate as? AppDelegate)?.noteStateChanged()
+    }
+
     /// ⌘1..9 数字直达（I-13）：菜单项 tag = 工作区下标；越界由 switchTo 守卫忽略
     @objc func switchWorkspaceByNumber(_ sender: NSMenuItem) {
         switchWorkspace(to: sender.tag)
@@ -437,6 +500,12 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         if item.action == #selector(switchWorkspaceByNumber(_:)) {
             item.state = item.tag == workspaces.activeIndex ? .on : .off
             return item.tag < workspaces.count
+        }
+        if item.action == #selector(swapPanes(_:)) || item.action == #selector(syncOtherPane(_:)) {
+            return grid.visiblePaneCount > 1
+        }
+        if item.action == #selector(reopenClosedWorkspaceTab(_:)) {
+            return workspaces.canReopenClosed
         }
         return true
     }
@@ -448,7 +517,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         guard workspaces.count > 1 else { return }
         snapshotIntoActive()
         workspaces.cycle(backward: backward)
-        grid.restoreSession(workspaces.activeState)
+        grid.restoreSession(workspaces.activeState, histories: workspaces.activeHistories)
         refreshWorkspaceTabs()
         focusActivePane()
         syncDeck()
@@ -460,7 +529,7 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         guard !ws.workspaces.isEmpty else { return }
         workspaces = WorkspaceManager(states: ws.workspaces, activeIndex: ws.activeWorkspace)
         grid.restoreSession(workspaces.activeState)
-        deck.updateWorkspaces(titles: workspaces.titles(), active: workspaces.activeIndex)
+        deck.updateWorkspaces(titles: workspaces.titles(), toolTips: workspaces.toolTips(), active: workspaces.activeIndex)
         syncDeck()
     }
 
@@ -560,6 +629,9 @@ extension MainWindowController: TopDeckDelegate {
     func deckNewWorkspace() { newWorkspaceTab(nil) }
     func deckSelectWorkspace(_ index: Int) { switchWorkspace(to: index) }
     func deckCloseWorkspace(_ index: Int) { closeWorkspace(at: index) }
+    func deckDuplicateWorkspace(_ index: Int) { duplicateWorkspace(at: index) }
+    func deckCloseOtherWorkspaces(keeping index: Int) { closeOtherWorkspaces(keeping: index) }
+    func deckCloseWorkspacesToRight(of index: Int) { closeWorkspacesToRight(of: index) }
 
     func deckHistory(forward: Bool) -> [URL] {
         let b = grid.activePane.activeTab.browser

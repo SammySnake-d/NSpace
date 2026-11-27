@@ -70,9 +70,20 @@ public protocol ClassifiedError: Error, Sendable {
 
 // MARK: - 操作契约（展示层 → 内核的 Typed Command，BG-1）
 
+public struct RenamePair: Sendable, Hashable {
+    public let source: URL
+    public let newName: String
+
+    public init(source: URL, newName: String) {
+        self.source = source
+        self.newName = newName
+    }
+}
+
 public struct OperationSpec: Sendable {
     public enum Kind: String, Sendable {
         case copy, move, trash, duplicate, newFolder, newFile, rename
+        case batchRename
         /// **永久删除（不可逆）**——Eraser 胶囊。必须带 destination 作为围栏根，
         /// 每个 source 都要落在围栏内，否则整批拒绝（爆炸半径写进契约，不写进注释）
         case delete
@@ -92,13 +103,17 @@ public struct OperationSpec: Sendable {
     /// 为「⌘V 把剪贴板内容粘成新文件」而加——展示层不许自己写盘（BG-1），
     /// 内容只能随 Command 一起交给内核，由胶囊节点落地。
     public let contents: Data?
+    /// `batchRename` 专用：待执行的「源 URL → 目标新名」配对清单
+    public let renamePairs: [RenamePair]?
 
     public init(kind: Kind, sources: [URL], destination: URL? = nil, newName: String? = nil,
-                archiveOptions: ArchiveOptions? = nil, contents: Data? = nil) {
+                archiveOptions: ArchiveOptions? = nil, contents: Data? = nil,
+                renamePairs: [RenamePair]? = nil) {
         self.kind = kind; self.sources = sources
         self.destination = destination; self.newName = newName
         self.archiveOptions = archiveOptions
         self.contents = contents
+        self.renamePairs = renamePairs
     }
 }
 
@@ -203,6 +218,15 @@ public struct TrashedItem: Sendable, Hashable {
     }
 }
 
+/// 批量重命名成功一对：原 URL → 新 URL（供 Undo 批量还原）
+public struct RenamedItem: Sendable, Hashable {
+    public let original: URL
+    public let renamed: URL
+    public init(original: URL, renamed: URL) {
+        self.original = original; self.renamed = renamed
+    }
+}
+
 /// 操作真实成败凭证（Proof Owner 产物）
 /// 单项失败：**部分成功**的操作用它如实汇报哪一项没成、为什么。
 ///
@@ -229,15 +253,19 @@ public struct OperationReceipt: Sendable {
     public let createdURLs: [URL]
     /// trash 操作回传 原URL→回收站URL 对（UI 注册撤销用）
     public let trashedItems: [TrashedItem]
+    /// batchRename 回传 原URL→新URL 对（UI 选中+Undo 批量还原用）
+    public let renamedItems: [RenamedItem]
     /// 逐项失败清单。非空 = 部分成功：内核据此把状态判为 .failed（状态说真话），
     /// 但**回执照样存下来**，让 UI 能为真落地的那部分注册撤销并如实汇报。
     public let failures: [OperationFailure]
 
     public init(id: UUID, filesDone: Int, bytesDone: Int64, duration: TimeInterval,
                 createdURLs: [URL] = [], trashedItems: [TrashedItem] = [],
+                renamedItems: [RenamedItem] = [],
                 failures: [OperationFailure] = []) {
         self.id = id; self.filesDone = filesDone; self.bytesDone = bytesDone; self.duration = duration
         self.createdURLs = createdURLs; self.trashedItems = trashedItems
+        self.renamedItems = renamedItems
         self.failures = failures
     }
 }

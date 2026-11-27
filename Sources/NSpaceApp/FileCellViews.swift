@@ -1,4 +1,5 @@
 import AppKit
+import NSpaceContracts
 
 /// 上报用户交互的表视图（窗格焦点协调：点击即请求激活所属窗格）。
 /// 另承载右键菜单构造钩子与 Return 键（触发行内重命名）。
@@ -20,9 +21,13 @@ final class FocusReportingTableView: NSTableView {
     /// ←/→ 键（分栏视图列间移动用；nil 时交回系统默认行为）
     var onArrowLeft: (() -> Void)?
     var onArrowRight: (() -> Void)?
-    /// 组头行判定（M26）：真时该行为组头，点击切折叠、不参与选中语义
+    /// 焦点先验与名称列/URL 映射（防非活动窗格误触发、非名称列误触发、重载漂移行号）
+    var isPaneActiveProvider: (() -> Bool)?
+    var itemURLProvider: ((Int) -> URL?)?
+    var rowForURLProvider: ((URL) -> Int?)?
+    /// 组头行判定（M26）：真时该行为组头，点击不参与选中语义
     var isGroupRowProvider: ((Int) -> Bool)?
-    /// 组头行点击（M26）：切换该行所属组的折叠态
+    /// 组头行点击（M26）
     var onGroupRowClick: ((Int) -> Void)?
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -45,19 +50,21 @@ final class FocusReportingTableView: NSTableView {
     /// 待触发的重命名（等一个双击间隔；双击到来即作废）
     private var pendingRenameToken = 0
 
-    /// 单击重命名的决策谓词（纯函数，可确定性单测）。
-    /// 只有「**恰好单选** + 点在那个已选中的行 + 无修饰键 + 单击」才算。
-    /// 为什么排除多选：那一手势已经归 I-43 的"抢先收敛选区"，两者抢同一个动作时收敛优先——
-    /// 收敛本身就是一次选中变更，紧接着弹出重命名框会很突兀。
+    /// 单击重命名的决策谓词（由 InlineRenameCoordinator 统一实现，保留原签名供 UISelfTest 回归验证）
     static func shouldScheduleRename(clickedRow: Int, modifiers: NSEvent.ModifierFlags,
                                      clickCount: Int, selectedCount: Int,
                                      rowIsSelected: Bool, isGroupRow: Bool) -> Bool {
-        clickedRow >= 0
-            && !isGroupRow
-            && modifiers.intersection([.command, .shift, .option, .control]).isEmpty
-            && clickCount == 1
-            && selectedCount == 1
-            && rowIsSelected
+        InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: true,
+            inNameArea: true,
+            dragInitiated: false,
+            clickedRow: clickedRow,
+            modifiers: modifiers,
+            clickCount: clickCount,
+            selectedCount: selectedCount,
+            rowIsSelected: rowIsSelected,
+            isGroupRow: isGroupRow
+        )
     }
 
     /// 取消待触发的重命名（双击、导航、键盘操作都要作废它）
@@ -75,16 +82,14 @@ final class FocusReportingTableView: NSTableView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let wasPaneActive = isPaneActiveProvider?() ?? true
         onInteract?()
-        // 组头行：不可选、不可折叠，单击直接吞掉（不落入 super 的选中链，
-        // 否则会把选中"跳"到组头下面那一行）
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
-        if row >= 0, isGroupRowProvider?(row) == true { return }
-        // I-43：纯单击「已选中的多选行」时，AppKit 会等双击间隔(~0.5s NSEvent.doubleClickInterval)才把
-        // 选中收敛为单选（为区分双击打开）——造成"点选区内卡 0.5-1s、点选区外即时"（真机插桩实测 0.672s）。
-        // 让 super 正常处理（拖拽/双击语义不受影响），若期间未发起拖拽（pasteboardWriterForRow 未被调）则
-        // super 返回后立即抢先收敛为单选，消除等待（实测降至 0.160s）。抢先目标行与 AppKit 延迟收敛目标一致。
+        let col = self.column(at: point)
+        let isGroup = row >= 0 && isGroupRowProvider?(row) == true
+        if isGroup { return }
+
         if Self.shouldPreemptCollapse(clickedRow: row, modifiers: event.modifierFlags,
                                       clickCount: event.clickCount,
                                       selectedCount: selectedRowIndexes.count,
@@ -96,28 +101,47 @@ final class FocusReportingTableView: NSTableView {
             }
             return
         }
-        // 双击：作废待触发的重命名（否则先弹重命名框、再被"打开"顶掉，两个动作打架）
+
         if event.clickCount >= 2 { cancelPendingRename() }
 
-        // 单击已选中项 → 重命名。必须**等满一个双击间隔**再动手：
-        // 立刻重命名的话，用户想双击进入时会先看到重命名框弹出来一下。
-        let willScheduleRename = Self.shouldScheduleRename(
-            clickedRow: row, modifiers: event.modifierFlags, clickCount: event.clickCount,
+        let inNameCol = tableColumns.count <= 1
+            ? (col == 0)
+            : (col >= 0 && col < tableColumns.count && tableColumns[col].identifier.rawValue == "name")
+
+        let willScheduleRename = InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: wasPaneActive,
+            inNameArea: inNameCol,
+            dragInitiated: false,
+            clickedRow: row,
+            modifiers: event.modifierFlags,
+            clickCount: event.clickCount,
             selectedCount: selectedRowIndexes.count,
             rowIsSelected: selectedRowIndexes.contains(row),
-            isGroupRow: row >= 0 && isGroupRowProvider?(row) == true)
+            isGroupRow: isGroup
+        )
+        let targetURL = willScheduleRename ? itemURLProvider?(row) : nil
+        if willScheduleRename { dragInitiated = false }
 
         super.mouseDown(with: event)
 
-        if willScheduleRename, let fire = onSingleClickRename {
+        if willScheduleRename, !dragInitiated, let fire = onSingleClickRename {
             pendingRenameToken += 1
             let token = pendingRenameToken
             let delay = NSEvent.doubleClickInterval
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.pendingRenameToken == token else { return }   // 期间被双击/导航作废
-                guard self.selectedRowIndexes.count == 1,
-                      self.selectedRowIndexes.contains(row) else { return }        // 选中已变，不动手
-                fire(row)
+                guard let self, self.pendingRenameToken == token, !self.dragInitiated else { return }
+                let resolvedRow: Int?
+                if let targetURL, let resolver = self.rowForURLProvider {
+                    resolvedRow = resolver(targetURL)
+                } else {
+                    resolvedRow = row
+                }
+                guard let finalRow = resolvedRow,
+                      finalRow >= 0,
+                      self.selectedRowIndexes.count == 1,
+                      self.selectedRowIndexes.contains(finalRow),
+                      self.isGroupRowProvider?(finalRow) != true else { return }
+                fire(finalRow)
             }
         }
     }
@@ -154,9 +178,15 @@ final class FocusReportingTableView: NSTableView {
         // 带 ⇧/⌥/⌃ 的组合（如 ⇧⌘↓ 扩选）不吞，保持系统行为
         if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
            event.keyCode == 125 || event.keyCode == 126 { return }
-        // Return（36）/ Enter（76）：按使用习惯分发（rename→行内重命名 / open→打开选中）
-        if event.keyCode == 36 || event.keyCode == 76 {
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        // Return（36）/ Enter（76）：仅无修饰键时按使用习惯分发（⌘↩ 等交系统/菜单）
+        if (event.keyCode == 36 || event.keyCode == 76), mods.isEmpty {
             if Preferences.enterAction == "open" { onOpenSelected?() } else { onReturn?() }
+            return
+        }
+        // F2（120）：无论 enterAction 为何，始终触发行内重命名
+        if event.keyCode == 120, mods.isEmpty {
+            onReturn?()
             return
         }
         // Backspace（51）：⌘⌫ 保持废纸篓语义交回菜单快捷键；无 ⌘ 时按使用习惯分发
@@ -168,7 +198,7 @@ final class FocusReportingTableView: NSTableView {
             }
             return
         }
-        if event.keyCode == 49, let onSpace {
+        if event.keyCode == 49, mods.isEmpty, let onSpace {
             onSpace()
             return
         }
@@ -185,79 +215,24 @@ final class FocusReportingTableView: NSTableView {
     }
 }
 
-/// 行内重命名编辑框：Enter 提交、Esc 取消、失焦提交；可只选中文件名主体（不含扩展名）
-@MainActor
-final class InlineRenameField: NSTextField, NSTextFieldDelegate {
-    var onCommit: ((String) -> Void)?
-    var onCancel: (() -> Void)?
-    private var finished = false
-
-    init(string: String) {
-        super.init(frame: .zero)
-        stringValue = string
-        isEditable = true
-        isBordered = true
-        isBezeled = true
-        bezelStyle = .squareBezel
-        drawsBackground = true
-        font = .systemFont(ofSize: Formatters.listFontSize)
-        lineBreakMode = .byTruncatingTail
-        focusRingType = .default
-        delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
-
-    /// 选中文件名主体（扩展名保留不选）；无扩展名则全选
-    func selectBaseName() {
-        guard let editor = currentEditor() else { return }
-        let ns = stringValue as NSString
-        let base = ns.deletingPathExtension
-        if base.count > 0, base.count < ns.length {
-            editor.selectedRange = NSRange(location: 0, length: base.count)
-        } else {
-            editor.selectAll(nil)
-        }
-    }
-
-    func control(_ control: NSControl, textView: NSTextView,
-                 doCommandBy selector: Selector) -> Bool {
-        if selector == #selector(NSResponder.insertNewline(_:)) { commit(); return true }
-        if selector == #selector(NSResponder.cancelOperation(_:)) { cancel(); return true }
-        return false
-    }
-
-    /// 失焦 = 提交（Finder 语义）
-    func controlTextDidEndEditing(_ obj: Notification) {
-        guard !finished else { return }
-        commit()
-    }
-
-    private func commit() { guard !finished else { return }; finished = true; onCommit?(stringValue) }
-    private func cancel() { guard !finished else { return }; finished = true; onCancel?() }
-}
-
-/// 名称单元格：图标 + 文本；支持行内重命名（label ⟷ 可编辑框）
+/// 名称单元格：图标 + 文本；支持行内重命名（label ⟷ 统一 InlineRenameField）
 @MainActor
 final class NameCellView: NSTableCellView {
     private let iconView = NSImageView()
     private let label = NSTextField(labelWithString: "")
-    private var editor: InlineRenameField?
-
-    /// 提交/取消回调（由 FileListViewController 注入，接 .rename 提交与 FG-6 回滚）
-    var onRenameCommit: ((String) -> Void)?
-    var onRenameCancel: (() -> Void)?
+    let renameField = InlineRenameField()
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
         label.lineBreakMode = .byTruncatingMiddle
-        label.font = .systemFont(ofSize: 12)
+        label.font = .systemFont(ofSize: Formatters.listFontSize)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
+        renameField.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
         addSubview(label)
+        addSubview(renameField)
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -266,6 +241,9 @@ final class NameCellView: NSTableCellView {
             label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            renameField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
+            renameField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            renameField.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         textField = label
         imageView = iconView
@@ -274,65 +252,71 @@ final class NameCellView: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        renameField.endEditAppearance()
+        label.isHidden = false
+    }
+
     func configure(icon: NSImage, name: String, dimmed: Bool) {
         iconView.image = icon
         label.stringValue = name
-        label.font = .systemFont(ofSize: Formatters.listFontSize)  // 每次配置重取字号（列重建时即时生效）
+        label.font = .systemFont(ofSize: Formatters.listFontSize)
         label.textColor = dimmed ? .secondaryLabelColor : .labelColor
     }
 
-    var isEditing: Bool { editor != nil }
+    var isEditing: Bool { !renameField.isHidden }
 
-    /// 进入行内编辑：隐藏 label，覆盖一个可编辑框，选中文件名主体
-    func beginRename() {
-        guard editor == nil, let win = window else { return }
-        let field = InlineRenameField(string: label.stringValue)
-        field.onCommit = { [weak self] newName in self?.finish(commit: newName) }
-        field.onCancel = { [weak self] in self?.finish(commit: nil) }
-        field.translatesAutoresizingMaskIntoConstraints = false
-        editor = field
-        label.isHidden = true
-        addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            field.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-        win.makeFirstResponder(field)
-        field.selectBaseName()
+    func setEditingAppearance(_ editing: Bool) {
+        label.isHidden = editing
+        if !editing {
+            renameField.endEditAppearance()
+        }
     }
 
-    private func finish(commit: String?) {
-        let field = editor
-        editor = nil
-        field?.removeFromSuperview()
-        label.isHidden = false
-        if let name = commit { onRenameCommit?(name) } else { onRenameCancel?() }
+    func beginRename(
+        for item: FileItem,
+        using renameCoordinator: InlineRenameCoordinator,
+        hostView: NSView,
+        prepareVisibleFrame: () -> Void,
+        onCommit: @escaping (String) async -> URL?,
+        onFinish: @escaping (URL?, Bool) -> Void,
+        onTabStep: ((URL, Bool) -> Void)? = nil
+    ) {
+        label.isHidden = true
+        renameCoordinator.begin(
+            item: item,
+            field: renameField,
+            font: .systemFont(ofSize: Formatters.listFontSize),
+            hostView: hostView,
+            prepareVisibleFrame: prepareVisibleFrame,
+            commitRename: onCommit,
+            finishUI: { [weak self] renamedURL, restoreFocus in
+                self?.label.isHidden = false
+                onFinish(renamedURL, restoreFocus)
+            },
+            onTabStep: onTabStep
+        )
     }
 }
 
-/// 组头行视图（M26 列表分组）：折叠三角 + 「2026年8月」 + 项数（tabular-nums 次级墨色）。
-/// 整行可点击切换折叠（onToggle）；右键菜单由表视图 menuProvider 按行类型分发。
-/// 行高 24、floatsGroupRows 悬浮由 FileListViewController 配置。
+/// 组头行视图（M26 列表分组）：折叠占位去除 + 「2026年8月」 + 项数（tabular-nums 次级墨色）
 @MainActor
 final class GroupHeaderView: NSTableCellView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
 
-    /// 组头是**印在背景条上的标题**，不是可点开合的控件（用户要求：像 QSpace，不要伸缩）。
-    /// 去掉了 chevron 与折叠能力：一个长得像按钮却什么都不做的箭头，
-    /// 比没有箭头更糟——它在承诺一件做不到的事。
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
         wantsLayer = true
-        layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
+        refreshLayerAppearance()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.textColor = .labelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.textColor = .secondaryLabelColor
-        countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)  // tabular-nums
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         addSubview(titleLabel)
         addSubview(countLabel)
         NSLayoutConstraint.activate([
@@ -346,6 +330,17 @@ final class GroupHeaderView: NSTableCellView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLayerAppearance()
+    }
+
+    private func refreshLayerAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
+        }
+    }
 
     func configure(title: String, count: Int) {
         titleLabel.stringValue = title

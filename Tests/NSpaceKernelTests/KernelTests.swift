@@ -41,4 +41,25 @@ import NSpaceContracts
         }
         Issue.record("操作未在 1s 内到达终态")
     }
+
+    /// 终态历史设上限：超出保留窗口的旧终态被回收，最新条目可读
+    @Test func prunesOldTerminalRunsAboveCap() async throws {
+        let kernel = OperationKernel(maxRetainedTerminalRuns: 5)
+        var ids: [UUID] = []
+        for _ in 0..<8 {
+            let id = await kernel.submit(OperationSpec(kind: .copy, sources: [], destination: nil))
+            ids.append(id)
+        }
+        for _ in 0..<100 {
+            if let last = await kernel.projection(ids[7]), last.state.isTerminal {
+                let count = await kernel.retainedRunCount
+                #expect(count == 5)
+                #expect(await kernel.projection(ids[0]) == nil)
+                #expect(await kernel.projection(ids[7]) != nil)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("操作未在 1s 内到达终态")
+    }
 }

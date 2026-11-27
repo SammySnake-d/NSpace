@@ -42,6 +42,15 @@ final class PaneViewController: NSViewController {
     var onLocationChange: ((URL) -> Void)?
     /// 用户在本窗格交互 → 请求成为活动窗格
     var onRequestFocus: (() -> Void)?
+    /// 查询本窗格当前是否已是活动窗格（单击重命名防非活动窗格误触发用）
+    var isPaneActiveProvider: (() -> Bool)? {
+        didSet {
+            guard let tab else { return }
+            tab.listVC.isPaneActiveProvider = isPaneActiveProvider
+            tab.iconVC?.isPaneActiveProvider = isPaneActiveProvider
+            tab.columnVC?.isPaneActiveProvider = isPaneActiveProvider
+        }
+    }
     /// 计数/选中变化上抛（甲板据此重验动作按钮 enabled；M17）
     var onStatusChange: (() -> Void)?
 
@@ -67,6 +76,8 @@ final class PaneViewController: NSViewController {
     /// 地址栏内联错误提示（路径不存在/无权限）：红字贴右端、1.5s 后淡出——不弹窗（spec 做工不变量）
     private let pathHint = NSTextField(labelWithString: "")
     private var pathHintFadeWorkItem: DispatchWorkItem?
+    private let filterBar = PaneFilterBar()
+    private var filterBarHeight: NSLayoutConstraint!
     private let contentContainer = NSView()
     private let statusBar = StatusBarView()
     private(set) var isActivePane = false
@@ -88,6 +99,7 @@ final class PaneViewController: NSViewController {
         breadcrumb.onNavigate = { [weak self] url in
             self?.onRequestFocus?()
             self?.navigate(to: url)
+            self?.focusFileView()
         }
         breadcrumb.onBeginEditing = { [weak self] in
             self?.onRequestFocus?()
@@ -176,12 +188,27 @@ final class PaneViewController: NSViewController {
         let separator = NSBox()
         separator.boxType = .separator
 
+        filterBar.isHidden = true
+        filterBar.onQueryChanged = { [weak self] q in
+            guard let self else { return }
+            self.activeTab.model.filterQuery = q
+            self.updateStatusCounts()
+        }
+        filterBar.onDismissAndFocusView = { [weak self] in
+            self?.setFilterBarVisible(false)
+            self?.focusFileView()
+        }
+        filterBar.onMoveDownToView = { [weak self] in
+            self?.focusFileView()
+        }
+
         let root = NSView()
         root.wantsLayer = true
-        for sub in [addressArea, separator, contentContainer, statusBar] {
+        for sub in [addressArea, separator, filterBar, contentContainer, statusBar] {
             sub.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(sub)
         }
+        filterBarHeight = filterBar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             // fullSizeContentView 下内容延伸到标题栏底下：顶部控件必须锚 safeArea 顶，
             // 否则被工具栏遮住（窗格标签栏退役后这个顶由地址栏接手）
@@ -192,7 +219,11 @@ final class PaneViewController: NSViewController {
             separator.topAnchor.constraint(equalTo: addressArea.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            filterBar.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            filterBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            filterBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            filterBarHeight,
+            contentContainer.topAnchor.constraint(equalTo: filterBar.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
@@ -221,12 +252,15 @@ final class PaneViewController: NSViewController {
         let browser = BrowserState(url: url)
         let model = DirectoryViewModel(directory: url)
         // 外部化默认偏好：按设置初始化（隐藏文件/默认排序键与升降序/文件夹置顶/视图模式）
-        model.includeHidden = Preferences.showHiddenByDefault
         let defaultSortKey = SortSpec.Key(rawValue: Preferences.defaultSortKey) ?? .name
-        model.sort = SortSpec(key: defaultSortKey, ascending: Preferences.defaultSortAscending,
-                              foldersFirst: Preferences.foldersFirst)
+        model.configureInitial(
+            includeHidden: Preferences.showHiddenByDefault,
+            sort: SortSpec(key: defaultSortKey, ascending: Preferences.defaultSortAscending,
+                           foldersFirst: Preferences.foldersFirst)
+        )
         let listVC = FileListViewController(model: model)
         listVC.coordinator = coordinator
+        listVC.isPaneActiveProvider = isPaneActiveProvider
         listVC.onNavigate = { [weak self] target in self?.navigate(to: target) }
         listVC.onNavigateBack = { [weak self] in self?.goBack(nil) }
         listVC.onInteract = { [weak self] in self?.onRequestFocus?() }
@@ -250,6 +284,7 @@ final class PaneViewController: NSViewController {
         if let vc = tab.iconVC { return vc }
         let vc = FileIconGridViewController(model: tab.model)
         vc.coordinator = coordinator
+        vc.isPaneActiveProvider = isPaneActiveProvider
         vc.onNavigate = { [weak self] target in self?.navigate(to: target) }
         vc.onInteract = { [weak self] in self?.onRequestFocus?() }
         vc.onContentChange = { [weak self, weak tab] in
@@ -269,6 +304,7 @@ final class PaneViewController: NSViewController {
         if let vc = tab.columnVC { return vc }
         let vc = FileColumnViewController(model: tab.model)
         vc.coordinator = coordinator
+        vc.isPaneActiveProvider = isPaneActiveProvider
         vc.onNavigate = { [weak self] target in self?.navigate(to: target) }
         vc.onInteract = { [weak self] in self?.onRequestFocus?() }
         vc.onSelectionChange = { [weak self, weak tab] in
@@ -374,7 +410,7 @@ final class PaneViewController: NSViewController {
         case .list:
             let sel = activeTab.listVC.selectedItems
             selected = sel.count
-            bytes = sel.reduce(0) { $0 + ($1.size ?? 0) }
+            bytes = sel.reduce(0) { $0 + ($1.size ?? activeTab.listVC.computedSize(for: $1.url) ?? 0) }
         case .icons:
             let sel = activeTab.iconVC?.selectedItems ?? []
             selected = sel.count
@@ -388,8 +424,39 @@ final class PaneViewController: NSViewController {
                 bytes = vc.selectedItems.reduce(0) { $0 + ($1.size ?? 0) }
             }
         }
-        statusBar.update(itemCount: items, selectedCount: selected, selectedBytes: bytes)
+        let unfilteredTotal: Int? = activeTab.model.isFiltering ? activeTab.model.allItems.count : nil
+        filterBar.updateCounts(shown: items, total: activeTab.model.allItems.count, filtering: activeTab.model.isFiltering)
+        statusBar.update(itemCount: items, selectedCount: selected, selectedBytes: bytes, filteredFrom: unfilteredTotal)
         onStatusChange?()
+    }
+
+    func refreshVolumeSpace() {
+        guard isViewLoaded else { return }
+        statusBar.updateVolume(for: activeTab.browser.current)
+    }
+
+    func focusFileView() {
+        view.window?.makeFirstResponder(focusTarget)
+    }
+
+    @objc func toggleFilterBar(_ sender: Any?) {
+        let show = filterBar.isHidden
+        setFilterBarVisible(show)
+        if show {
+            filterBar.focusField()
+        } else {
+            filterBar.clearAndDismiss()
+        }
+    }
+
+    func setFilterBarVisible(_ visible: Bool) {
+        guard isViewLoaded else { return }
+        filterBar.isHidden = !visible
+        filterBarHeight.constant = visible ? 24 : 0
+        if !visible && !activeTab.model.filterQuery.isEmpty {
+            activeTab.model.filterQuery = ""
+        }
+        view.needsLayout = true
     }
 
     /// 当前活动内容视图的选中数（甲板动作按钮校验用）
@@ -521,6 +588,8 @@ final class PaneViewController: NSViewController {
     }
 
     private func applyLocation() {
+        setFilterBarVisible(false)
+        filterBar.setQueryText("")
         activeTab.model.navigate(to: activeTab.browser.current)
         // 分栏模式：列链联动（沿当前链下钻原地扩列，跳转则重建列链）
         if activeTab.viewMode == .columns {
@@ -548,11 +617,9 @@ final class PaneViewController: NSViewController {
     /// 取走当前视图上的待定位目标（切视图模式搬家用）
     private func takePendingReveal() -> (url: URL, rename: Bool)? {
         switch activeTab.viewMode {
-        case .list:  return activeTab.listVC.takePendingReveal()
-        case .icons: return activeTab.iconVC?.takePendingReveal()
-        case .columns:
-            guard let url = activeTab.columnVC?.takePendingReveal() else { return nil }
-            return (url, false)   // 分栏无行内重命名语义
+        case .list:    return activeTab.listVC.takePendingReveal()
+        case .icons:   return activeTab.iconVC?.takePendingReveal()
+        case .columns: return activeTab.columnVC?.takePendingReveal()
         }
     }
 
@@ -583,6 +650,15 @@ final class PaneViewController: NSViewController {
                                     viewMode: activeTab.viewMode.rawValue))
     }
 
+    func browserHistorySnapshot() -> (back: [URL], forward: [URL]) {
+        activeTab.browser.stacksSnapshot
+    }
+
+    func restoreBrowserHistory(back: [URL], forward: [URL]) {
+        activeTab.browser.restoreStacks(back: back, forward: forward)
+        refreshChrome()
+    }
+
     /// 按快照重建浏览上下文（路径已消失回退个人目录——容错矩阵）
     func restoreSession(_ pane: SessionPane) {
         let fm = FileManager.default
@@ -592,11 +668,11 @@ final class PaneViewController: NSViewController {
             ? URL(fileURLWithPath: st.path)
             : fm.homeDirectoryForCurrentUser
         let fresh = installTab(at: url)
-        if let key = SortSpec.Key(rawValue: st.sortKey) {
-            fresh.model.sort = SortSpec(key: key, ascending: st.sortAscending,
-                                        foldersFirst: fresh.model.sort.foldersFirst)
-        }
-        fresh.model.includeHidden = st.includeHidden
+        let targetKey = SortSpec.Key(rawValue: st.sortKey) ?? fresh.model.sort.key
+        fresh.model.configureInitial(
+            includeHidden: st.includeHidden,
+            sort: SortSpec(key: targetKey, ascending: st.sortAscending, foldersFirst: fresh.model.sort.foldersFirst)
+        )
         if let raw = st.viewMode, let vm = PaneViewMode(rawValue: raw) {
             fresh.viewMode = vm
         }
@@ -659,6 +735,7 @@ final class PaneViewController: NSViewController {
     func reloadActiveList() {
         activeTab.model.reload()
         if activeTab.viewMode == .columns { activeTab.columnVC?.reloadAllColumns() }
+        refreshVolumeSpace()
     }
 
     /// 仅重绘活动内容（剪切灰显变化，无需重新读盘）
@@ -804,7 +881,7 @@ final class PaneViewController: NSViewController {
             == activeTab.browser.current.standardizedFileURL.path
     }
 
-    private func currentSelectedItems() -> [FileItem] {
+    func currentSelectedItems() -> [FileItem] {
         switch activeTab.viewMode {
         case .list: return activeTab.listVC.selectedItems
         case .icons: return activeTab.iconVC?.selectedItems ?? []
@@ -817,7 +894,7 @@ final class PaneViewController: NSViewController {
         switch activeTab.viewMode {
         case .list: activeTab.listVC.prepareReveal(url, rename: rename)
         case .icons: activeTab.iconVC?.prepareReveal(url, rename: rename)
-        case .columns: activeTab.columnVC?.select(urls: [url])
+        case .columns: activeTab.columnVC?.prepareReveal(url, rename: rename)
         }
     }
 

@@ -5,7 +5,7 @@ import NSpaceContracts
 import IconThumb
 
 /// 交互上报的图标网格集合视图：点击即请求激活所属窗格；右键菜单钩子；
-/// 空格 Quick Look、双击打开；Return 不支持重命名（诚实 beep，不装）
+/// 空格 Quick Look、双击打开；Return/F2/单击已选重命名
 @MainActor
 final class IconGridCollectionView: NSCollectionView {
     var onInteract: (() -> Void)?
@@ -13,18 +13,68 @@ final class IconGridCollectionView: NSCollectionView {
     var menuProvider: ((IndexPath?) -> NSMenu?)?
     var onSpace: (() -> Void)?
     var onDoubleClick: ((IndexPath) -> Void)?
+    var onReturnRename: (() -> Void)?
+    var onReturnOpen: (() -> Void)?
+    var onSingleClickRename: ((IndexPath) -> Void)?
+    var isPaneActiveProvider: (() -> Bool)?
+    var urlForIndexPathProvider: ((IndexPath) -> URL?)?
+    var indexPathForURLProvider: ((URL) -> IndexPath?)?
+    var dragInitiated = false
+    private var pendingRenameToken = 0
+
+    func cancelPendingRename() { pendingRenameToken += 1 }
 
     override func mouseDown(with event: NSEvent) {
+        let wasPaneActive = isPaneActiveProvider?() ?? true
         onInteract?()
+        let point = convert(event.locationInWindow, from: nil)
+        let ip = indexPathForItem(at: point)
+        if event.clickCount >= 2 { cancelPendingRename() }
+
+        let inNameArea: Bool
+        if let ip, let cell = item(at: ip) as? FileIconItem {
+            inNameArea = cell.isPointInLabel(point, in: self)
+        } else {
+            inNameArea = false
+        }
+        let isSelected = ip.map { selectionIndexPaths.contains($0) } ?? false
+        let willScheduleRename = InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: wasPaneActive,
+            inNameArea: inNameArea,
+            dragInitiated: false,
+            clickedRow: ip == nil ? -1 : 0,
+            modifiers: event.modifierFlags,
+            clickCount: event.clickCount,
+            selectedCount: selectionIndexPaths.count,
+            rowIsSelected: isSelected,
+            isGroupRow: false
+        )
+        let targetURL = willScheduleRename ? ip.flatMap { urlForIndexPathProvider?($0) } : nil
+        if willScheduleRename { dragInitiated = false }
+
         super.mouseDown(with: event)
-        // 双击：selection 已由 super 处理，再派发打开
+
         if event.clickCount == 2 {
-            let point = convert(event.locationInWindow, from: nil)
-            if let ip = indexPathForItem(at: point) { onDoubleClick?(ip) }
+            if let hit = indexPathForItem(at: point) { onDoubleClick?(hit) }
+            return
+        }
+
+        if willScheduleRename, !dragInitiated, let targetURL, let fire = onSingleClickRename {
+            pendingRenameToken += 1
+            let token = pendingRenameToken
+            let delay = NSEvent.doubleClickInterval
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.pendingRenameToken == token, !self.dragInitiated else { return }
+                guard let resolved = self.indexPathForURLProvider?(targetURL),
+                      self.selectionIndexPaths.count == 1,
+                      self.selectionIndexPaths.contains(resolved) else { return }
+                fire(resolved)
+            }
         }
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        cancelPendingRename()
         onInteract?()
         super.rightMouseDown(with: event)
     }
@@ -38,7 +88,6 @@ final class IconGridCollectionView: NSCollectionView {
         onInteract?()
         let point = convert(event.locationInWindow, from: nil)
         let ip = indexPathForItem(at: point)
-        // 右击未选中条目 → 先把它设为唯一选中（Finder 语义）
         if let ip, !selectionIndexPaths.contains(ip) {
             deselectAll(nil)
             selectItems(at: [ip], scrollPosition: [])
@@ -47,24 +96,26 @@ final class IconGridCollectionView: NSCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // 纯 ⌘↑/⌘↓ 落到网格 = 导航菜单未接（禁用态）——吞掉，不让默认选中跳变顶替导航语义（I-39）；
-        // 带 ⇧/⌥/⌃ 的组合不吞，保持系统行为
-        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
-           event.keyCode == 125 || event.keyCode == 126 { return }
-        // 空格（49）Quick Look；Return（36/76）图标视图不支持行内重命名——诚实 beep
-        if event.keyCode == 49, let onSpace {
+        cancelPendingRename()
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if mods == .command, event.keyCode == 125 || event.keyCode == 126 { return }
+        if event.keyCode == 49, mods.isEmpty, let onSpace {
             onSpace()
             return
         }
-        if event.keyCode == 36 || event.keyCode == 76 {
-            NSSound.beep()
+        if (event.keyCode == 36 || event.keyCode == 76), mods.isEmpty {
+            if Preferences.enterAction == "open" { onReturnOpen?() } else { onReturnRename?() }
+            return
+        }
+        if event.keyCode == 120, mods.isEmpty {
+            onReturnRename?()
             return
         }
         super.keyDown(with: event)
     }
 }
 
-/// 图标网格单元：图标（尺寸随滑块）+ 两行截断文件名 + 圆角选中底
+/// 图标网格单元：图标（尺寸随滑块）+ 两行截断文件名 + 圆角选中底 + 行内重命名框
 @MainActor
 final class FileIconItem: NSCollectionViewItem {
     static let reuseID = NSUserInterfaceItemIdentifier("fileIconItem")
@@ -72,16 +123,17 @@ final class FileIconItem: NSCollectionViewItem {
     private let backdrop = NSView()
     private let icon = NSImageView()
     private let label = NSTextField(wrappingLabelWithString: "")
+    let renameField = InlineRenameField()
 
     override func loadView() {
         backdrop.wantsLayer = true
-        backdrop.layer?.cornerRadius = 6
+        backdrop.layer?.cornerRadius = 8
         backdrop.translatesAutoresizingMaskIntoConstraints = false
 
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        label.font = .systemFont(ofSize: 11)
+        label.font = .systemFont(ofSize: max(11, Formatters.listFontSize - 1))
         label.alignment = .center
         label.maximumNumberOfLines = 2
         label.lineBreakMode = .byTruncatingTail
@@ -89,10 +141,14 @@ final class FileIconItem: NSCollectionViewItem {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        renameField.alignment = .center
+        renameField.translatesAutoresizingMaskIntoConstraints = false
+
         let root = NSView()
         root.addSubview(backdrop)
         root.addSubview(icon)
         root.addSubview(label)
+        root.addSubview(renameField)
         NSLayoutConstraint.activate([
             backdrop.topAnchor.constraint(equalTo: root.topAnchor, constant: 2),
             backdrop.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -2),
@@ -107,6 +163,9 @@ final class FileIconItem: NSCollectionViewItem {
             label.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
             label.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
             label.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -4),
+            renameField.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 4),
+            renameField.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 4),
+            renameField.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -4),
         ])
         view = root
         imageView = icon
@@ -116,18 +175,34 @@ final class FileIconItem: NSCollectionViewItem {
     override var isSelected: Bool { didSet { updateSelection() } }
     override var highlightState: NSCollectionViewItem.HighlightState { didSet { updateSelection() } }
 
+    func isPointInLabel(_ pointInCollection: NSPoint, in collectionView: NSCollectionView) -> Bool {
+        let local = label.convert(pointInCollection, from: collectionView)
+        return label.bounds.insetBy(dx: -4, dy: -4).contains(local)
+    }
+
     private func updateSelection() {
         let active = isSelected || highlightState == .forSelection
-        backdrop.layer?.backgroundColor = active
-            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.30).cgColor
-            : NSColor.clear.cgColor
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            backdrop.layer?.backgroundColor = active
+                ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.28).cgColor
+                : NSColor.clear.cgColor
+        }
     }
 
     func configure(icon image: NSImage, name: String, dimmed: Bool) {
         icon.image = image
         icon.alphaValue = dimmed ? 0.5 : 1.0
+        label.font = .systemFont(ofSize: max(11, Formatters.listFontSize - 1))
         label.stringValue = name
         label.textColor = dimmed ? .secondaryLabelColor : .labelColor
+        updateSelection()
+    }
+
+    func setEditingAppearance(_ editing: Bool) {
+        label.isHidden = editing
+        if !editing {
+            renameField.endEditAppearance()
+        }
     }
 
     /// 缩略图到货：只换图不重建（不打断选中态）
@@ -137,6 +212,8 @@ final class FileIconItem: NSCollectionViewItem {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        renameField.endEditAppearance()
+        label.isHidden = false
         icon.image = nil
         icon.alphaValue = 1.0
         label.stringValue = ""
@@ -149,22 +226,25 @@ final class FileIconItem: NSCollectionViewItem {
 /// 双击打开、右键菜单复用 builder、拖出/投放同判卷规则、空格 Quick Look。
 /// 行内重命名本期不支持（菜单项诚实灰显，不装假）。
 @MainActor
-final class FileIconGridViewController: NSViewController, FileRevealTarget {
+final class FileIconGridViewController: NSViewController, FilePaneContent, FilePaneExtendedActions {
     let model: DirectoryViewModel
     weak var coordinator: FileOpsCoordinator?
     var onNavigate: ((URL) -> Void)?
     var onInteract: (() -> Void)?
     var onSelectionChange: (() -> Void)?
     var onContentChange: (() -> Void)?
+    var isPaneActiveProvider: (() -> Bool)?
 
     private let collectionView = IconGridCollectionView()
     private let flowLayout = NSCollectionViewFlowLayout()
     private let scrollView = NSScrollView()
     private let emptyLabel = NSTextField(labelWithString: "")
     private let sizeSlider = NSSlider()
+    private let renameCoordinator = InlineRenameCoordinator()
+    private let qlBridge = FileQuickLookBridge()
 
-    /// 操作完成后待显露（选中）的目标；图标视图不支持行内重命名，rename 标志忽略
-    private var pendingReveal: (url: URL, rename: Bool)?
+    /// 操作完成后待显露（选中并按需重命名/是否夺焦点）的目标
+    private var pendingReveal: (url: URL, rename: Bool, focus: Bool)?
 
     /// 选中态 URL 缓存（I-32）：随选中变更记账，作 applySnapshot 恢复选中的真源。
     /// 直接用 selectionIndexPaths 反查会错映（model.items 已换新），造成删除后选中"漂移"到顶项。
@@ -195,6 +275,12 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     private var iconSize: CGFloat = FileIconGridViewController.preferredIconSize
 
     var focusTarget: NSView { collectionView }
+    var isEditingName: Bool { renameCoordinator.isEditing }
+    var hasOtherPane: Bool { (coordinator?.grid?.visiblePaneCount ?? 1) > 1 }
+    var isGrouped: Bool { Preferences.listGrouping }
+    func focusFileView() { view.window?.makeFirstResponder(collectionView) }
+    func selectAllItems() { collectionView.selectAll(nil) }
+    func renameSelection() { beginRenameSelected() }
 
     /// 当前目录（空白处拷贝路径 / 新建 / 粘贴的落点；语义同列表视图）
     var currentDirectory: URL { model.directory }
@@ -229,6 +315,18 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         collectionView.onInteract = { [weak self] in self?.onInteract?() }
         collectionView.menuProvider = { [weak self] _ in self?.buildMenu() }
         collectionView.onSpace = { [weak self] in self?.toggleQuickLook(nil) }
+        collectionView.onReturnRename = { [weak self] in self?.beginRenameSelected() }
+        collectionView.onReturnOpen = { [weak self] in self?.openSelected(nil) }
+        collectionView.onSingleClickRename = { [weak self] ip in
+            guard let self, !TrashLocation.isInsideTrash(self.currentDirectory) else { return }
+            self.beginRename(at: ip)
+        }
+        collectionView.isPaneActiveProvider = { [weak self] in self?.isPaneActiveProvider?() ?? true }
+        collectionView.urlForIndexPathProvider = { [weak self] ip in self?.fileItem(at: ip)?.url }
+        collectionView.indexPathForURLProvider = { [weak self] url in
+            guard let self, let idx = self.model.itemIndex(forURL: url) else { return nil }
+            return self.indexPath(forModelIndex: idx)
+        }
         collectionView.onDoubleClick = { [weak self] ip in
             guard let self, let file = self.fileItem(at: ip) else { return }
             self.open(file)
@@ -250,6 +348,9 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         NotificationCenter.default.addObserver(
             self, selector: #selector(groupingChanged(_:)),
             name: Notification.Name.nspaceGroupingChanged, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(fontSettingChanged(_:)),
+            name: .nspaceColumnsChanged, object: nil)
 
         // 底部工具条：图标大小滑块（4pt 网格：高 24、右缘 8）
         let separator = NSBox()
@@ -339,6 +440,16 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     private var lastSnapshotDirectory: URL?
 
     private func applySnapshot() {
+        _ = renameCoordinator.runOrDefer { [weak self] in
+            self?.performApplySnapshot()
+        }
+    }
+
+    @objc private func fontSettingChanged(_ note: Notification) {
+        redraw()
+    }
+
+    private func performApplySnapshot() {
         if lastSnapshotDirectory != model.directory {
             lastSnapshotDirectory = model.directory
             cancelDecorationWork()
@@ -351,7 +462,7 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         collectionView.reloadData()
         select(urls: Array(kept), scroll: false)   // 空集也走 → deselectAll 显式清空（被删项不"漂移"到新项）
         if model.items.isEmpty, !model.isLoading {
-            showEmptyState(L10n.t("empty.folder"))
+            showEmptyState(L10n.t(model.isFiltering ? "filter.empty" : "empty.folder"))
         }
         revealPendingIfPossible()
         refreshVisibleDecorations()
@@ -557,11 +668,14 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
 
     // MARK: 显露（新建后选中；图标视图不支持行内重命名，rename 忽略——诚实不装）
 
-    func prepareReveal(_ url: URL, rename: Bool) { pendingReveal = (url, rename) }
+    func prepareReveal(_ url: URL, rename: Bool, focus: Bool) {
+        pendingReveal = (url, rename, focus)
+    }
 
     func takePendingReveal() -> (url: URL, rename: Bool)? {
         defer { pendingReveal = nil }
-        return pendingReveal
+        guard let pendingReveal else { return nil }
+        return (pendingReveal.url, pendingReveal.rename)
     }
 
     /// UISelfTest（I-56）：是否还挂着待定位目标（验证切视图模式时 pending 真的被搬过来）
@@ -581,13 +695,106 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
         collectionView.deselectAll(nil)
         collectionView.selectItems(at: [ip], scrollPosition: .nearestHorizontalEdge)
         selectionURLCache = [pending.url]   // I-32：程序化选中同步缓存真源
-        view.window?.makeFirstResponder(collectionView)   // I-48：聚焦网格，选中显蓝色强调（否则未强调灰几乎不可见）
+        if pending.focus && !pending.rename {
+            view.window?.makeFirstResponder(collectionView)
+        }
         onSelectionChange?()
+        if pending.rename {
+            beginRename(at: ip)
+        }
+    }
+
+    private func beginRenameSelected() {
+        let ips = collectionView.selectionIndexPaths
+        guard ips.count == 1, let ip = ips.first else { NSSound.beep(); return }
+        beginRename(at: ip)
+    }
+
+    func beginRename(at ip: IndexPath) {
+        guard !TrashLocation.isInsideTrash(currentDirectory),
+              let item = fileItem(at: ip) else { return }
+        collectionView.scrollToItems(at: [ip], scrollPosition: .nearestHorizontalEdge)
+        view.layoutSubtreeIfNeeded()
+        guard let cell = collectionView.item(at: ip) as? FileIconItem else { return }
+        cell.setEditingAppearance(true)
+        renameCoordinator.begin(
+            item: item,
+            field: cell.renameField,
+            font: .systemFont(ofSize: max(11, Formatters.listFontSize - 1)),
+            hostView: collectionView,
+            prepareVisibleFrame: { [weak self] in
+                self?.collectionView.scrollToItems(at: [ip], scrollPosition: .nearestHorizontalEdge)
+            },
+            commitRename: { [weak self] newName in
+                await self?.submitRenameAndAwaitURL(item, newName: newName, at: ip)
+            },
+            finishUI: { [weak self, weak cell] renamedURL, restoreFocus in
+                cell?.setEditingAppearance(false)
+                guard let self else { return }
+                if let renamedURL {
+                    self.prepareReveal(renamedURL, rename: false, focus: restoreFocus)
+                    self.model.reload()
+                } else if restoreFocus {
+                    self.view.window?.makeFirstResponder(self.collectionView)
+                }
+            },
+            onTabStep: { [weak self] anchorURL, forward in
+                self?.beginRenameAdjacent(from: anchorURL, forward: forward)
+            }
+        )
+    }
+
+    private func beginRenameAdjacent(from anchorURL: URL, forward: Bool) {
+        guard let curIdx = model.itemIndex(forURL: anchorURL) else { return }
+        let nextIdx = forward ? curIdx + 1 : curIdx - 1
+        guard nextIdx >= 0, nextIdx < model.items.count,
+              let nextIP = indexPath(forModelIndex: nextIdx) else { return }
+        collectionView.deselectAll(nil)
+        collectionView.selectItems(at: [nextIP], scrollPosition: .nearestHorizontalEdge)
+        selectionURLCache = [model.items[nextIdx].url]
+        onSelectionChange?()
+        beginRename(at: nextIP)
+    }
+
+    private func submitRenameAndAwaitURL(_ item: FileItem, newName: String, at ip: IndexPath) async -> URL? {
+        guard let coordinator else { return nil }
+        return await withCheckedContinuation { continuation in
+            coordinator.rename(item.url, to: newName) { [weak self] ok in
+                if !ok {
+                    if let currentIdx = self?.model.itemIndex(forURL: item.url),
+                       let currentIP = self?.indexPath(forModelIndex: currentIdx) {
+                        self?.flashRenameError(at: currentIP)
+                    } else {
+                        self?.flashRenameError(at: ip)
+                    }
+                    continuation.resume(returning: nil)
+                } else {
+                    let renamed = item.url.deletingLastPathComponent().appendingPathComponent(newName)
+                    continuation.resume(returning: renamed)
+                }
+            }
+        }
+    }
+
+    private func flashRenameError(at ip: IndexPath) {
+        NSSound.beep()
+        guard let attrs = collectionView.layoutAttributesForItem(at: ip) else { return }
+        let banner = NSTextField(labelWithString: L10n.t("rename.failed"))
+        banner.textColor = .systemRed
+        banner.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.9)
+        banner.drawsBackground = true
+        banner.font = .systemFont(ofSize: 11)
+        banner.frame = NSRect(x: attrs.frame.minX, y: max(0, attrs.frame.maxY - 20), width: max(180, attrs.frame.width), height: 20)
+        collectionView.addSubview(banner)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            banner.removeFromSuperview()
+        }
     }
 
     // MARK: 打开行为（语义同列表：文件走系统默认 App；文件夹窗格内导航）
 
-    private func open(_ item: FileItem) {
+    func open(_ item: FileItem) {
         if item.isDirectory && !item.isPackage {
             onNavigate?(item.url)
         } else {
@@ -607,131 +814,79 @@ final class FileIconGridViewController: NSViewController, FileRevealTarget {
     @objc func toggleHiddenFiles(_ sender: Any?) { model.includeHidden.toggle() }
     @objc func refresh(_ sender: Any?) { model.reload() }
 
-    @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
-    @objc func cutItems(_ sender: Any?) { coordinator?.cut(selectedURLs) }
-    /// 放回原处（仅废纸篓内；只对台账里有记录的项有效，其余诚实置灰）
-    @objc func putBackItems(_ sender: Any?) { coordinator?.putBack(selectedURLs) }
+    @objc func copyItems(_ sender: Any?) { FileViewActions.copyItems(pane: self) }
+    @objc func cutItems(_ sender: Any?) { FileViewActions.cutItems(pane: self) }
+    @objc func putBackItems(_ sender: Any?) { FileViewActions.putBackItems(pane: self) }
 
-    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: model.directory, revealIn: self) }
-    /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
-    /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
-    /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。
+    @objc func pasteItems(_ sender: Any?) { FileViewActions.pasteItems(pane: self) }
+    @objc func moveItemsHere(_ sender: Any?) { FileViewActions.moveItemsHere(pane: self) }
     @objc func copyPath(_ sender: Any?) { copyPath(to: .general) }
 
     /// 自测注入私有 pasteboard 用（产品路径恒走 .general）
     func copyPath(to pasteboard: NSPasteboard) {
-        coordinator?.copyPaths(selectedURLs.isEmpty ? [currentDirectory] : selectedURLs, to: pasteboard)
+        FileViewActions.copyPath(pane: self, to: pasteboard)
     }
+    @objc func copyNames(_ sender: Any?) { FileViewActions.copyNames(pane: self) }
     @objc func copy(_ sender: Any?) { copyItems(sender) }
     @objc func cut(_ sender: Any?) { cutItems(sender) }
     @objc func paste(_ sender: Any?) { pasteItems(sender) }
 
-    @objc func duplicateItems(_ sender: Any?) { coordinator?.duplicate(selectedURLs) }
-    @objc func moveToTrash(_ sender: Any?) { coordinator?.moveToTrash(selectedURLs) }
-    @objc func newFolderHere(_ sender: Any?) { coordinator?.newFolder(in: model.directory, revealIn: self) }
-    @objc func newFileHere(_ sender: Any?) { coordinator?.newFile(in: model.directory, revealIn: self) }
+    @objc func duplicateItems(_ sender: Any?) { FileViewActions.duplicateItems(pane: self) }
+    @objc func renameSelected(_ sender: Any?) { beginRenameSelected() }
+    @objc func batchRenameItems(_ sender: Any?) { FileViewActions.batchRenameItems(pane: self) }
+    @objc func moveToTrash(_ sender: Any?) { FileViewActions.moveToTrash(pane: self) }
+    @objc func deleteImmediately(_ sender: Any?) { FileViewActions.deleteImmediately(pane: self) }
+    @objc func newFolderHere(_ sender: Any?) { FileViewActions.newFolderHere(pane: self) }
+    @objc func newFileHere(_ sender: Any?) { FileViewActions.newFileHere(pane: self) }
+    @objc func newFolderWithSelection(_ sender: Any?) { FileViewActions.newFolderWithSelection(pane: self) }
+    @objc func compressItems(_ sender: Any?) { FileViewActions.compressItems(pane: self) }
+    @objc func extractItems(_ sender: Any?) { FileViewActions.extractItems(pane: self) }
+    @objc func extractItemsTo(_ sender: Any?) { FileViewActions.extractItemsTo(pane: self) }
     @objc func copyToOtherPane(_ sender: Any?) { coordinator?.copyToOtherPane(selectedURLs) }
     @objc func moveToOtherPane(_ sender: Any?) { coordinator?.moveToOtherPane(selectedURLs) }
 
-    @objc func openSelected(_ sender: Any?) { selectedItems.forEach { open($0) } }
-
-    @objc func openWithApp(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem, let app = item.representedObject as? URL else { return }
-        NSWorkspace.shared.open(selectedURLs, withApplicationAt: app,
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc func openWithOther(_ sender: Any?) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        guard panel.runModal() == .OK, let app = panel.url else { return }
-        NSWorkspace.shared.open(selectedURLs, withApplicationAt: app,
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc func getInfo(_ sender: Any?) {
-        let target = selectedURLs.first ?? model.directory
-        InfoPanel.show(for: target)
-    }
-
-    @objc func openInTerminal(_ sender: Any?) {
-        let dir: URL = selectedItems.first(where: { $0.isDirectory })?.url ?? model.directory
-        let ws = NSWorkspace.shared
-        let terminal = ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
-            ?? ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
-        guard let terminal else { NSSound.beep(); return }
-        ws.open([dir], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc func showPackageContents(_ sender: Any?) {
-        guard let pkg = selectedItems.first(where: { $0.isPackage }) else { return }
-        onNavigate?(pkg.url)
-    }
+    @objc func openSelected(_ sender: Any?) { FileViewActions.openSelected(pane: self) }
+    @objc func openWithApp(_ sender: Any?) { FileViewActions.openWithApp(pane: self, sender: sender) }
+    @objc func openWithOther(_ sender: Any?) { FileViewActions.openWithOther(pane: self) }
+    @objc func airdropSelected(_ sender: Any?) { FileViewActions.airdropSelected(pane: self) }
+    @objc func getInfo(_ sender: Any?) { FileViewActions.getInfo(pane: self) }
+    @objc func openInTerminal(_ sender: Any?) { FileViewActions.openInTerminal(pane: self) }
+    @objc func showPackageContents(_ sender: Any?) { FileViewActions.showPackageContents(pane: self) }
 
     // MARK: Quick Look（空格开关；与列表同款响应链面板控制）
 
-    /// I-45：收起走淡出而非"缩到图标"（同列表视图，sourceFrame 收起态返回 .zero）
-    private var quickLookDismissing = false
-
     @objc func toggleQuickLook(_ sender: Any?) {
-        guard let panel = QLPreviewPanel.shared() else { return }
-        if panel.isVisible {
-            quickLookDismissing = true
-            panel.orderOut(nil)
-        } else if !selectedItems.isEmpty {
-            panel.makeKeyAndOrderFront(nil)
+        qlBridge.toggle(urls: selectedURLs) { [weak self] url in
+            self?.itemScreenRect(for: url) ?? .zero
         }
     }
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        quickLookDismissing = false
-        panel.dataSource = self
-        panel.delegate = self
-        panel.reloadData()
+        MainActor.assumeIsolated {
+            qlBridge.quickLookDismissing = false
+            panel.dataSource = self
+            panel.delegate = self
+            qlBridge.updateIfVisible(urls: selectedURLs) { [weak self] url in
+                self?.itemScreenRect(for: url) ?? .zero
+            }
+        }
     }
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.dataSource = nil
-        panel.delegate = nil
+        MainActor.assumeIsolated {
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
     }
 }
 
-// MARK: - 菜单校验（按选中态启用/禁用；重命名未实现 → 不响应即自动灰显）
+// MARK: - 菜单校验（按选中态统一委托 FileViewActions）
 
 extension FileIconGridViewController: @preconcurrency NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let hasSelection = !collectionView.selectionIndexPaths.isEmpty
-        switch menuItem.action {
-        // 拷贝路径恒可用：空选中回落到当前目录（同列表视图）
-        case #selector(copyPath(_:)):
-            return true
-        case #selector(putBackItems(_:)):
-            return TrashLocation.isInsideTrash(model.directory) && !selectedURLs.isEmpty
-        case #selector(copyItems(_:)), #selector(cutItems(_:)),
-             #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
-             #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
-             #selector(copy(_:)), #selector(cut(_:)):
-            return hasSelection
-        // 废纸篓里禁掉「把活文件放进来」的动作（Finder 同样禁用）。废纸篓可浏览之后
-        // 这些入口才第一次可达：放进来的文件既无撤销、也无「放回原处」元数据，
-        // 将来清空废纸篓就真没了。三视图同病同修。
-        case #selector(pasteItems(_:)), #selector(paste(_:)):
-            if TrashLocation.isInsideTrash(model.directory) { return false }
-            return NSPasteboard.general.canReadObject(forClasses: [NSURL.self],
-                                                      options: [.urlReadingFileURLsOnly: true])
-        case #selector(newFolderHere(_:)), #selector(newFileHere(_:)):
-            return !TrashLocation.isInsideTrash(model.directory)
-        case #selector(toggleGrouping(_:)):
-            menuItem.state = Preferences.listGrouping ? .on : .off
-            return true
-        default:
-            return true
-        }
+        FileViewActions.validateMenuItem(menuItem, pane: self)
     }
 }
 
@@ -798,63 +953,55 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
         // I-32：用户点选经此（didSelect/didDeselect）→ 记账真源
         selectionURLCache = Set(selectedURLs)
         onSelectionChange?()
-        if QLPreviewPanel.sharedPreviewPanelExists(),
-           let panel = QLPreviewPanel.shared(), panel.isVisible {
-            panel.reloadData()
+        qlBridge.updateIfVisible(urls: selectedURLs) { [weak self] url in
+            self?.itemScreenRect(for: url) ?? .zero
         }
+    }
+
+    private func itemScreenRect(for url: URL) -> NSRect {
+        guard let idx = model.items.firstIndex(where: { $0.url == url }),
+              let ip = indexPath(forModelIndex: idx),
+              let attrs = collectionView.layoutAttributesForItem(at: ip),
+              let window = view.window else { return .zero }
+        let rect = collectionView.convert(attrs.frame, to: nil)
+        return window.convertToScreen(rect)
     }
 
     // MARK: 拖拽源（可拖到 Finder/其他 App/另一窗格/侧边栏书签/暂存架）
 
     func collectionView(_ collectionView: NSCollectionView,
                         pasteboardWriterForItemAt indexPath: IndexPath) -> (any NSPasteboardWriting)? {
-        fileItem(at: indexPath)?.url as NSURL?
+        (collectionView as? IconGridCollectionView)?.dragInitiated = true
+        return fileItem(at: indexPath)?.url as NSURL?
     }
 
-    // MARK: 投放目标（BG-1：落点只发意图，kind 判定与提交在 coordinator）
+    // MARK: 投放目标（统一走 FileDropPolicy）
 
     func collectionView(_ collectionView: NSCollectionView, validateDrop draggingInfo: any NSDraggingInfo,
                         proposedIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                         dropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
-        guard let urls = Self.draggedFileURLs(draggingInfo), !urls.isEmpty else { return [] }
-        // 落点归一：目录项=投进该文件夹；文件项/空白=投进当前目录
-        var target = model.directory
         let dropItem = fileItem(at: proposedIndexPath.pointee as IndexPath)
-        if dropOperation.pointee == .on, let f = dropItem, f.isDirectory, !f.isPackage {
-            target = f.url
+        let folderTarget: FileItem? = if dropOperation.pointee == .on, let f = dropItem, f.isDirectory, !f.isPackage {
+            f
         } else {
+            nil
+        }
+        if folderTarget == nil {
             dropOperation.pointee = .before
         }
-        // 拒绝把目录投进它自己/子孙
-        guard urls.allSatisfy({ !FileOpsCoordinator.isSelfOrDescendant(destination: target, ofSource: $0) }) else {
-            return []
-        }
-        let forceCopy = draggingInfo.draggingSourceOperationMask == .copy
-        // 全部来源已在目标目录：移动是无操作 → 拒绝（⌥ 复制放行，语义=制作副本）
-        let destPath = target.standardizedFileURL.path
-        if !forceCopy, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == destPath }) {
-            return []
-        }
-        if forceCopy { return .copy }
-        // Finder 惯例：同卷=移动、跨卷=复制
-        return urls.allSatisfy({ FileOpsCoordinator.isSameVolume($0, target) }) ? .move : .copy
+        return FileDropPolicy.dragOperation(for: draggingInfo, targetDirectory: model.directory, targetItem: folderTarget)
     }
 
     func collectionView(_ collectionView: NSCollectionView, acceptDrop draggingInfo: any NSDraggingInfo,
                         indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
-        guard let urls = Self.draggedFileURLs(draggingInfo), !urls.isEmpty else { return false }
-        var target = model.directory
-        if dropOperation == .on, let f = fileItem(at: indexPath), f.isDirectory, !f.isPackage {
-            target = f.url
+        let dropItem = fileItem(at: indexPath)
+        let folderTarget: FileItem? = if dropOperation == .on, let f = dropItem, f.isDirectory, !f.isPackage {
+            f
+        } else {
+            nil
         }
-        coordinator?.dropTransfer(urls: urls, into: target,
-                                  forceCopy: draggingInfo.draggingSourceOperationMask == .copy)
-        return true
-    }
-
-    private static func draggedFileURLs(_ info: any NSDraggingInfo) -> [URL]? {
-        info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                            options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        return FileDropPolicy.acceptDrop(draggingInfo, targetDirectory: model.directory,
+                                         targetItem: folderTarget, coordinator: coordinator)
     }
 }
 
@@ -862,13 +1009,11 @@ extension FileIconGridViewController: NSCollectionViewDataSource, NSCollectionVi
 
 extension FileIconGridViewController: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        selectedItems.count
+        qlBridge.count()
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        let urls = selectedURLs
-        guard index >= 0, index < urls.count else { return nil }
-        return urls[index] as NSURL
+        qlBridge.item(at: index)
     }
 
     /// 面板收到方向键先转回网格（四向皆推进选中，Finder 手感）
@@ -880,14 +1025,9 @@ extension FileIconGridViewController: @preconcurrency QLPreviewPanelDataSource, 
 
     /// 缩放动画起点=条目图标区
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
-        if quickLookDismissing { return .zero }
-        guard let url = (item as? NSURL) as URL?,
-              let idx = model.items.firstIndex(where: { $0.url == url }),
-              let ip = indexPath(forModelIndex: idx),
-              let attrs = collectionView.layoutAttributesForItem(at: ip),
-              let window = view.window else { return .zero }
-        let rect = collectionView.convert(attrs.frame, to: nil)
-        return window.convertToScreen(rect)
+        qlBridge.sourceFrame(on: panel, for: item) { [weak self] url in
+            self?.itemScreenRect(for: url) ?? .zero
+        }
     }
 }
 
@@ -907,7 +1047,7 @@ final class IconGroupHeaderView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
+        refreshLayerAppearance()
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -922,6 +1062,17 @@ final class IconGroupHeaderView: NSView {
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             countLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
         ])
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLayerAppearance()
+    }
+
+    private func refreshLayerAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.12).cgColor
+        }
     }
 
     @available(*, unavailable)

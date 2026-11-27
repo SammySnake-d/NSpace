@@ -14,6 +14,7 @@ enum KeyBindings {
     /// 常用命令注册表（设置窗按此渲染；新增可配快捷键 = 加一行）
     static let registry: [Entry] = [
         Entry(id: "newTab", titleKey: "menu.newWorkspace", defaultKey: "t", defaultMods: [.command]),
+        Entry(id: "reopenTab", titleKey: "menu.reopenWorkspace", defaultKey: "t", defaultMods: [.command, .shift]),
         Entry(id: "closeTab", titleKey: "menu.closeWorkspace", defaultKey: "w", defaultMods: [.command]),
         // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆；M19 从菜单硬编码迁入注册表，可改键）
         Entry(id: "copyToOtherPane", titleKey: "menu.copyToOtherPane", defaultKey: "\u{F708}", defaultMods: []),
@@ -25,12 +26,18 @@ enum KeyBindings {
         Entry(id: "cycleWorkspace", titleKey: "menu.nextWorkspace", defaultKey: "\t", defaultMods: [.control]),
         Entry(id: "cycleWorkspaceBack", titleKey: "menu.prevWorkspace", defaultKey: "\t", defaultMods: [.control, .shift]),
         Entry(id: "newFolder", titleKey: "menu.newFolder", defaultKey: "n", defaultMods: [.command, .shift]),
+        Entry(id: "newFolderWithSelection", titleKey: "menu.newFolderWithSelection", defaultKey: "n", defaultMods: [.command, .control]),
         Entry(id: "newFile", titleKey: "menu.newFile", defaultKey: "n", defaultMods: [.command, .option]),
+        Entry(id: "batchRename", titleKey: "menu.batchRename", defaultKey: "r", defaultMods: [.command, .shift]),
         Entry(id: "quickLook", titleKey: "menu.quickLook", defaultKey: " ", defaultMods: []),
         Entry(id: "getInfo", titleKey: "menu.getInfo", defaultKey: "i", defaultMods: [.command]),
         Entry(id: "duplicate", titleKey: "menu.duplicate", defaultKey: "d", defaultMods: [.command]),
         Entry(id: "moveToTrash", titleKey: "menu.moveToTrash", defaultKey: "\u{8}", defaultMods: [.command]),
+        Entry(id: "deleteImmediately", titleKey: "menu.deleteImmediately", defaultKey: "\u{8}", defaultMods: [.command, .option]),
+        Entry(id: "moveItemsHere", titleKey: "menu.moveHere", defaultKey: "v", defaultMods: [.command, .option]),
         Entry(id: "copyPath", titleKey: "menu.copyPath", defaultKey: "c", defaultMods: [.command, .shift]),
+        Entry(id: "copyNames", titleKey: "menu.copyNames", defaultKey: "c", defaultMods: [.command, .option]),
+        Entry(id: "filterInPane", titleKey: "menu.filterInPane", defaultKey: "f", defaultMods: [.command, .option]),
         Entry(id: "toggleHidden", titleKey: "menu.toggleHidden", defaultKey: ".", defaultMods: [.command, .shift]),
         // 使用分组（M26）：默认无键（用户按需自配），走注册表可配
         Entry(id: "toggleGrouping", titleKey: "menu.toggleGrouping", defaultKey: "", defaultMods: []),

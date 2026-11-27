@@ -18,6 +18,12 @@ final class BrowserState {
     /// 后退/前进历史（最近的在前，供导航长按历史菜单展示；§3）
     var backHistory: [URL] { backStack.reversed() }
     var forwardHistory: [URL] { forwardStack.reversed() }
+    var stacksSnapshot: (back: [URL], forward: [URL]) { (backStack, forwardStack) }
+
+    func restoreStacks(back: [URL], forward: [URL]) {
+        backStack = back
+        forwardStack = forward
+    }
 
     /// 跳到后退历史第 index 项（0=最近）：回退 index+1 步，路径逐一进前进栈（浏览器语义）
     @discardableResult

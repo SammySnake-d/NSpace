@@ -30,8 +30,11 @@ public actor OperationKernel {
     /// 串行执行：磁盘 I/O 可预测；并行度留作后续配置
     private var executing = false
     private var waiting: [UUID] = []
+    private let maxRetainedTerminalRuns: Int
 
-    public init() {}
+    public init(maxRetainedTerminalRuns: Int = 200) {
+        self.maxRetainedTerminalRuns = max(1, maxRetainedTerminalRuns)
+    }
 
     // MARK: 编排配置（What 由 App 启动时声明式注入，BG-2）
 
@@ -63,6 +66,7 @@ public actor OperationKernel {
             run.state = .cancelled
             runs[id] = run
             publish(id)
+            pruneTerminalHistoryIfNeeded()
         }
     }
 
@@ -100,7 +104,7 @@ public actor OperationKernel {
         guard var run = runs[id], run.state == .pending else { pump(); return }
         guard let node = nodes[run.spec.kind] else {
             run.state = .failed(message: "no node registered for \(run.spec.kind.rawValue)", errorClass: .logic)
-            runs[id] = run; publish(id); pump(); return
+            runs[id] = run; publish(id); pruneTerminalHistoryIfNeeded(); pump(); return
         }
         executing = true
         run.state = .scanning
@@ -182,10 +186,29 @@ public actor OperationKernel {
         if wasTerminal { return }
         runs[id] = run
         publish(id)
+        if run.state.isTerminal {
+            pruneTerminalHistoryIfNeeded()
+        }
     }
 
     private func publish(_ id: UUID) {
         guard let p = projection(id) else { return }
         for c in observers.values { c.yield(p) }
     }
+
+    /// 终态历史设上限：只裁剪最旧的终态 run 与回执，绝不驱逐未完成任务（MIT Information Axiom）
+    private func pruneTerminalHistoryIfNeeded() {
+        let terminalIDs = order.filter { runs[$0]?.state.isTerminal == true }
+        let excess = terminalIDs.count - maxRetainedTerminalRuns
+        guard excess > 0 else { return }
+        let evict = Set(terminalIDs.prefix(excess))
+        order.removeAll { evict.contains($0) }
+        for id in evict {
+            runs.removeValue(forKey: id)
+            receipts.removeValue(forKey: id)
+        }
+    }
+
+    /// 仅单测可观测保留条目数
+    var retainedRunCount: Int { runs.count }
 }

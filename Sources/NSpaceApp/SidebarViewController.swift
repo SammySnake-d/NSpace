@@ -9,6 +9,7 @@ import BookmarkStore
 final class SidebarViewController: NSViewController {
     let model: SidebarModel
     var onNavigate: ((URL) -> Void)?
+    var onOpenInNewWorkspaceTab: ((URL) -> Void)?
 
     /// 程序化同步高亮期间不许触发导航（否则 selectRowIndexes → selectionDidChange → navigate → 又同步，成环）
     private var suppressSelectionNavigation = false
@@ -396,17 +397,64 @@ extension SidebarViewController: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let row = outline.clickedRow
-        guard row >= 0 else { return }
-        guard let leaf = outline.item(atRow: row) as? SidebarLeafNode,
-              case .bookmark = leaf.payload else { return }
-        let rename = menu.addItem(withTitle: L10n.t("sidebar.rename"),
-                                  action: #selector(renameBookmark(_:)), keyEquivalent: "")
-        rename.target = self
-        rename.representedObject = leaf
-        let remove = menu.addItem(withTitle: L10n.t("sidebar.remove"),
-                                  action: #selector(removeBookmark(_:)), keyEquivalent: "")
-        remove.target = self
-        remove.representedObject = leaf
+        guard row >= 0, let leaf = outline.item(atRow: row) as? SidebarLeafNode else { return }
+
+        if let url = leaf.url {
+            addSidebarMenuItem(menu, "menu.open", #selector(openSidebarItem(_:)), represented: url)
+            addSidebarMenuItem(menu, "sidebar.openNewWorkspace", #selector(openSidebarItemInNewTab(_:)), represented: url)
+            menu.addItem(.separator())
+            addSidebarMenuItem(menu, "menu.openInTerminal", #selector(openSidebarItemInTerminal(_:)), represented: url)
+            addSidebarMenuItem(menu, "menu.getInfo", #selector(getInfoSidebarItem(_:)), represented: url)
+        }
+
+        switch leaf.payload {
+        case .bookmark:
+            if leaf.url != nil { menu.addItem(.separator()) }
+            addSidebarMenuItem(menu, "sidebar.rename", #selector(renameBookmark(_:)), represented: leaf)
+            addSidebarMenuItem(menu, "sidebar.remove", #selector(removeBookmark(_:)), represented: leaf)
+        case .volume(let vol) where vol.isEjectable:
+            menu.addItem(.separator())
+            addSidebarMenuItem(menu, "sidebar.eject", #selector(ejectSidebarVolume(_:)), represented: leaf)
+        case .place, .volume:
+            break
+        }
+    }
+
+    private func addSidebarMenuItem(_ menu: NSMenu, _ titleKey: String, _ action: Selector, represented: Any) {
+        let item = menu.addItem(withTitle: L10n.t(titleKey), action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = represented
+    }
+
+    @objc private func openSidebarItem(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        onNavigate?(url)
+    }
+
+    @objc private func openSidebarItemInNewTab(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        onOpenInNewWorkspaceTab?(url)
+    }
+
+    @objc private func openSidebarItemInTerminal(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        TerminalLauncher.open(directory: url)
+    }
+
+    @objc private func getInfoSidebarItem(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        InfoPanel.show(for: url)
+    }
+
+    @objc private func ejectSidebarVolume(_ sender: NSMenuItem) {
+        guard let leaf = sender.representedObject as? SidebarLeafNode,
+              case let .volume(vol) = leaf.payload else { return }
+        do {
+            try model.eject(vol)
+            Toast.show(L10n.f("toast.ejected", vol.name), in: view.window)
+        } catch {
+            showBanner(String(format: L10n.t("sidebar.ejectFailed"), vol.name, error.localizedDescription))
+        }
     }
 }
 
@@ -438,14 +486,22 @@ final class SidebarLeafCell: NSTableCellView {
     private let title = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
     private let eject = NSButton()
+    private var ejectWidth: NSLayoutConstraint!
+    private var ejectGap: NSLayoutConstraint!
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         self.identifier = identifier
         title.font = .systemFont(ofSize: 13)
-        title.lineBreakMode = .byTruncatingTail
-        subtitle.font = .systemFont(ofSize: 10)
+        title.lineBreakMode = .byTruncatingMiddle
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        subtitle.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         subtitle.textColor = .tertiaryLabelColor
+        subtitle.setContentCompressionResistancePriority(.required, for: .horizontal)
+        subtitle.setContentHuggingPriority(.required, for: .horizontal)
+
         eject.image = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: L10n.t("sidebar.eject"))
         eject.symbolConfiguration = .init(pointSize: 10, weight: .regular)
         eject.isBordered = false
@@ -455,20 +511,21 @@ final class SidebarLeafCell: NSTableCellView {
             sub.translatesAutoresizingMaskIntoConstraints = false
             addSubview(sub)
         }
+        ejectWidth = eject.widthAnchor.constraint(equalToConstant: 0)
+        ejectGap = eject.leadingAnchor.constraint(equalTo: subtitle.trailingAnchor, constant: 4)
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: eject.leadingAnchor, constant: -4),
             title.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -1),
-            subtitle.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 8),
-            subtitle.trailingAnchor.constraint(lessThanOrEqualTo: eject.leadingAnchor, constant: -4),
+            subtitle.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
             subtitle.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ejectGap,
             eject.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             eject.centerYAnchor.constraint(equalTo: centerYAnchor),
-            eject.widthAnchor.constraint(equalToConstant: 20),
+            ejectWidth,
         ])
         imageView = icon
         textField = title
@@ -486,6 +543,8 @@ final class SidebarLeafCell: NSTableCellView {
         subtitle.stringValue = leaf.subtitle ?? ""
         subtitle.isHidden = leaf.subtitle == nil
         eject.isHidden = !ejectable
+        ejectWidth.constant = ejectable ? 20 : 0
+        ejectGap.constant = ejectable ? 4 : 0
         eject.target = ejectTarget
         eject.action = ejectAction
     }

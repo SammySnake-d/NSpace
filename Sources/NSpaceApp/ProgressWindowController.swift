@@ -258,6 +258,7 @@ final class ProgressRowView: NSView {
         case .trash: "trash"
         case .duplicate: "plus.square.on.square"
         case .rename: "pencil"
+        case .batchRename: "pencil"
         case .newFolder: "folder.badge.plus"
         case .newFile: "doc.badge.plus"
         case .compress: "doc.zipper"

@@ -1,4 +1,5 @@
 import AppKit
+import BatchRename
 import NSpaceContracts
 import SearchEngine
 import Frecency
@@ -244,6 +245,9 @@ enum UISelfTest {
             GlobalHotkey.apply()
             window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .milliseconds(200))
+
+            // ── 场景 I-74：MIT 公理重构与新特性（三视图重命名/FSEvents 防打断/大小写重命名/过滤/工作区消歧与恢复/冲突跳过改名/横滚/批量撤销）
+            await runAxiomaticRefactorAndFeaturesScenario(wc: wc, window: window)
 
             // ── 场景 I-52：外部/浏览器 reveal 落点可配（默认现有窗口新标签，不弹新窗）──────────────
             // 放在搜索之后（会开关窗口，须让搜索场景先在干净窗口态跑）；自身清理回进入前状态供场景6。
@@ -3478,6 +3482,236 @@ enum UISelfTest {
         hostWindow.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .milliseconds(200))
         if assertSandboxed(box) { try? fs.removeItem(at: box) }
+    }
+
+    /// 场景 I-74：MIT 公理重构与新特性全链路（沙箱临时目录内）
+    private static func runAxiomaticRefactorAndFeaturesScenario(wc: MainWindowController, window: NSWindow) async {
+        let fs = FileManager.default
+        let box = fs.temporaryDirectory
+            .appendingPathComponent("nspace-uitest-v020-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        guard assertSandboxed(box) else {
+            record(false, "沙箱守卫[I-74]: 重构与新特性夹具在自建临时目录内")
+            return
+        }
+        record(true, "沙箱守卫[I-74]: 重构与新特性夹具在自建临时目录内")
+
+        let alpha = box.appendingPathComponent("alpha.txt")
+        let beta = box.appendingPathComponent("beta.md")
+        let gamma = box.appendingPathComponent("gamma.txt")
+        let subA = box.appendingPathComponent("dirA/sub")
+        let subB = box.appendingPathComponent("dirB/sub")
+        try? fs.createDirectory(at: subA, withIntermediateDirectories: true)
+        try? fs.createDirectory(at: subB, withIntermediateDirectories: true)
+        try? Data("alpha".utf8).write(to: alpha)
+        try? Data("beta".utf8).write(to: beta)
+
+        let savedTabLimit = Preferences.workspaceTabLimit
+        Preferences.workspaceTabLimit = 0
+        let wsBefore = wc.workspaceCount
+        let pane = wc.grid.activePane
+        let origURL = pane.uiTestCurrentURL
+        let origMode = pane.activeTab.viewMode
+        defer {
+            while wc.workspaceCount > wsBefore {
+                wc.closeWorkspace(at: wc.workspaceCount - 1)
+            }
+            Preferences.workspaceTabLimit = savedTabLimit
+            pane.setFilterBarVisible(false)
+            pane.setViewMode(origMode)
+            pane.navigate(to: origURL)
+            if assertSandboxed(box) { try? fs.removeItem(at: box) }
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        wc.grid.apply(layout: .single)
+        pane.uiTestEndPathEditing()
+        pane.setViewMode(.list)
+        pane.navigate(to: box)
+        _ = await pollFS {
+            samePath(pane.uiTestViewCurrentDirectory, box)
+                && !pane.activeTab.model.isLoading
+                && pane.activeTab.model.items.contains { $0.name == "alpha.txt" }
+        }
+
+        // ① 统一单击重命名安全谓词：非活跃窗格/非名称列/拖拽均不触发
+        let predValid = InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: true, inNameArea: true, dragInitiated: false,
+            clickedRow: 0, modifiers: [], clickCount: 1, selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        let predInactive = InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: false, inNameArea: true, dragInitiated: false,
+            clickedRow: 0, modifiers: [], clickCount: 1, selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        let predNonName = InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: true, inNameArea: false, dragInitiated: false,
+            clickedRow: 0, modifiers: [], clickCount: 1, selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        let predDrag = InlineRenameCoordinator.shouldScheduleSingleClickRename(
+            wasPaneAlreadyActive: true, inNameArea: true, dragInitiated: true,
+            clickedRow: 0, modifiers: [], clickCount: 1, selectedCount: 1, rowIsSelected: true, isGroupRow: false)
+        record(predValid && !predInactive && !predNonName && !predDrag,
+               "I-74 单击重命名安全谓词：非活跃窗格/非名称列/拖拽均不触发（valid=\(predValid) inactive=\(predInactive) nonName=\(predNonName) drag=\(predDrag)）")
+
+        func cancelInlineEdit(fallbackTarget: NSView) async {
+            if let fr = window.firstResponder as? NSView,
+               let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                         timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: window.windowNumber, context: nil,
+                                         characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                         isARepeat: false, keyCode: 53) {
+                fr.keyDown(with: ev)
+            }
+            try? await Task.sleep(for: .milliseconds(120))
+            if pane.activeTab.listVC.isEditingName
+                || pane.activeTab.iconVC?.isEditingName == true
+                || pane.activeTab.columnVC?.isEditingName == true {
+                window.makeFirstResponder(fallbackTarget)
+                try? await Task.sleep(for: .milliseconds(120))
+            }
+        }
+
+        // ② 三视图行内重命名 + FSEvents 推迟刷新不打断编辑 + 结束恢复焦点
+        window.contentView?.layoutSubtreeIfNeeded()
+        if let alphaItem = pane.activeTab.model.items.first(where: { $0.name == "alpha.txt" }) {
+            pane.activeTab.listVC.uiTestSelect(urls: [alphaItem.url])
+        }
+        pane.focusFileView()
+        try? await Task.sleep(for: .milliseconds(80))
+        pane.activeTab.listVC.renameSelected(nil)
+        try? await Task.sleep(for: .milliseconds(100))
+        let listEditing = pane.activeTab.listVC.isEditingName
+        // 编辑途中制造目录变化，触发 FSEvents 重载，验证不打断重命名状态
+        try? Data("gamma".utf8).write(to: gamma)
+        try? await Task.sleep(for: .milliseconds(400))
+        let survivedFS = pane.activeTab.listVC.isEditingName
+        await cancelInlineEdit(fallbackTarget: pane.activeTab.listVC.tableView)
+        let deferredFlushed = await pollFS {
+            pane.activeTab.model.allItems.contains { $0.name == "gamma.txt" }
+        }
+        let listFocusOK = (window.firstResponder as? NSView)?.isDescendant(of: pane.view) == true
+
+        // Icon 视图行内重命名
+        pane.setViewMode(.icons)
+        try? await Task.sleep(for: .milliseconds(250))
+        window.contentView?.layoutSubtreeIfNeeded()
+        var iconEditing = false
+        if let iconVC = pane.activeTab.iconVC,
+           let alphaItem = pane.activeTab.model.items.first(where: { $0.name == "alpha.txt" }) {
+            iconVC.select(urls: [alphaItem.url])
+            iconVC.focusFileView()
+            try? await Task.sleep(for: .milliseconds(100))
+            iconVC.renameSelected(nil)
+            try? await Task.sleep(for: .milliseconds(120))
+            iconEditing = iconVC.isEditingName
+            await cancelInlineEdit(fallbackTarget: iconVC.focusTarget)
+        }
+
+        // Column 视图行内重命名
+        pane.setViewMode(.columns)
+        _ = await pollFS {
+            !(pane.activeTab.columnVC?.uiTestFocusedColumnItemURLs ?? []).isEmpty
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+        window.contentView?.layoutSubtreeIfNeeded()
+        var colEditing = false
+        if let colVC = pane.activeTab.columnVC,
+           let targetURL = colVC.uiTestFocusedColumnItemURLs.first(where: { $0.lastPathComponent == "alpha.txt" }) {
+            colVC.uiTestSelectInFocusedColumn([targetURL])
+            colVC.focusFileView()
+            try? await Task.sleep(for: .milliseconds(100))
+            colVC.renameSelected(nil)
+            try? await Task.sleep(for: .milliseconds(120))
+            colEditing = colVC.isEditingName
+            await cancelInlineEdit(fallbackTarget: colVC.focusTarget)
+        }
+        pane.setViewMode(.list)
+        try? await Task.sleep(for: .milliseconds(150))
+        record(listEditing && survivedFS && deferredFlushed && listFocusOK && iconEditing && colEditing,
+               "I-74 三视图行内重命名与 FSEvents 推迟刷新（list=\(listEditing) fs=\(survivedFS) flush=\(deferredFlushed) focus=\(listFocusOK) icon=\(iconEditing) col=\(colEditing)）")
+
+        // ③ APFS 仅大小写重命名成功（alpha.txt -> Alpha.txt）
+        var renameCallbackOK = false
+        wc.coordinator.rename(alpha, to: "Alpha.txt") { ok in
+            renameCallbackOK = ok
+        }
+        let caseRenamed = await pollFS {
+            let entries = (try? fs.contentsOfDirectory(atPath: box.path)) ?? []
+            return entries.contains("Alpha.txt") && !entries.contains("alpha.txt")
+        }
+        record(renameCallbackOK && caseRenamed,
+               "I-74 APFS 仅大小写重命名成功（cb=\(renameCallbackOK) disk=\(caseRenamed)）")
+
+        // ④ 窗格实时过滤（⌥⌘F）筛选并恢复
+        let totalBefore = pane.activeTab.model.items.count
+        pane.toggleFilterBar(nil)
+        pane.activeTab.model.filterQuery = "beta"
+        let filteredCount = pane.activeTab.model.items.count
+        let onlyBeta = filteredCount == 1 && pane.activeTab.model.items.first?.name == "beta.md"
+        pane.toggleFilterBar(nil)
+        let restoredCount = pane.activeTab.model.items.count
+        record(totalBefore >= 5 && onlyBeta && restoredCount == totalBefore,
+               "I-74 窗格实时过滤（⌥⌘F）筛选并恢复（all=\(totalBefore) filtered=\(filteredCount) restored=\(restoredCount)）")
+
+        // ⑤ 重名工作区标签自动消歧 + ⇧⌘T 恢复已关闭工作区
+        wc.openWorkspaceTab(at: subA)
+        wc.openWorkspaceTab(at: subB)
+        try? await Task.sleep(for: .milliseconds(150))
+        let titles = wc.uiTestWorkspaceTitles
+        let disambiguated = titles.contains("dirA/sub") && titles.contains("dirB/sub")
+        let countWithBoth = wc.workspaceCount
+        wc.closeWorkspace(at: wc.workspaceCount - 1)
+        let countAfterClose = wc.workspaceCount
+        wc.reopenClosedWorkspaceTab(nil)
+        let countAfterReopen = wc.workspaceCount
+        let restoredB = wc.uiTestWorkspaceTitles.contains("dirB/sub")
+        while wc.workspaceCount > wsBefore {
+            wc.closeWorkspace(at: wc.workspaceCount - 1)
+        }
+        record(disambiguated && countAfterClose == countWithBoth - 1 && countAfterReopen == countWithBoth && restoredB,
+               "I-74 重名工作区标签自动消歧且 ⇧⌘T 恢复已关闭标签（titles=\(titles) \(countWithBoth)→\(countAfterClose)→\(countAfterReopen)）")
+
+        // ⑥ 冲突弹窗保留 M27 四钮并新增跳过与重命名
+        let c1 = box.appendingPathComponent("Alpha.txt")
+        let conflictSample = [FileConflict(source: c1, existing: c1, bothDirectories: false)]
+        if let panel = ConflictSheet.uiTestPanel(conflictSample, host: window) {
+            let btns = Set(viewTree(panel.contentView).compactMap { ($0 as? NSButton)?.title })
+            let hasAll = btns.contains(L10n.t("conflict.cancel"))
+                && btns.contains(L10n.t("conflict.skip"))
+                && btns.contains(L10n.t("conflict.rename"))
+                && btns.contains(L10n.t("conflict.merge"))
+                && btns.contains(L10n.t("conflict.keepBoth"))
+                && btns.contains(L10n.t("conflict.replace"))
+                && btns.contains(L10n.t("conflict.applyFolder"))
+            record(hasAll, "I-74 冲突弹窗保留 M27 四钮并新增跳过与重命名")
+        } else {
+            record(false, "I-74 冲突弹窗保留 M27 四钮并新增跳过与重命名")
+        }
+
+        // ⑦ 列表横向滚动 + BatchRename 提交与 ⌘Z 撤销
+        let hasHScroll = pane.activeTab.listVC.tableView.enclosingScrollView?.hasHorizontalScroller == true
+        let batchSources = [box.appendingPathComponent("Alpha.txt"), beta]
+        let previews = BatchRenamePlanner.preview(
+            sources: batchSources,
+            rule: .addAffix(prefix: "v2_", suffix: ""),
+            extMode: .keep,
+            externalExists: { dir, name in
+                fs.fileExists(atPath: dir.appendingPathComponent(name).path)
+            }
+        )
+        let pairs = previews.filter { $0.changed && $0.isValid }.map { RenamePair(source: $0.source, newName: $0.newName) }
+        wc.coordinator.executeBatchRename(pairs: pairs)
+        let batchApplied = await pollFS {
+            let entries = (try? fs.contentsOfDirectory(atPath: box.path)) ?? []
+            return entries.contains("v2_Alpha.txt") && entries.contains("v2_beta.md")
+        }
+        if batchApplied {
+            wc.coordinator.undoManager.undo()
+        }
+        let batchUndone = await pollFS {
+            let entries = (try? fs.contentsOfDirectory(atPath: box.path)) ?? []
+            return entries.contains("Alpha.txt") && entries.contains("beta.md")
+        }
+        record(hasHScroll && pairs.count == 2 && batchApplied && batchUndone,
+               "I-74 列表视图支持横向滚动且批量重命名支持撤销（hScroll=\(hasHScroll) applied=\(batchApplied) undone=\(batchUndone)）")
     }
 
     // MARK: 工具

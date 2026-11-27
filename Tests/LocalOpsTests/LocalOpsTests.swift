@@ -212,4 +212,22 @@ import NSpaceContracts
         #expect(r.bytesDone == 0)
         #expect(try Data(contentsOf: r.createdURLs[0]).isEmpty)
     }
+
+    // MARK: APFS 仅大小写重命名（foo.txt -> Foo.txt）
+
+    @Test func caseOnlyRenameSucceedsOnCaseInsensitiveFS() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let src = dir.appendingPathComponent("readme.txt")
+        try Data("case-test".utf8).write(to: src)
+
+        let r = try await LocalOpsNode().execute(
+            OperationSpec(kind: .rename, sources: [src], newName: "ReadMe.txt"),
+            context: Self.context())
+        let created = try #require(r.createdURLs.first)
+        #expect(created.lastPathComponent == "ReadMe.txt")
+        let items = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(items == ["ReadMe.txt"])
+        #expect(try String(data: Data(contentsOf: created), encoding: .utf8) == "case-test")
+    }
 }

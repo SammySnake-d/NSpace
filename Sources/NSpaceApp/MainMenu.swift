@@ -28,6 +28,8 @@ enum MainMenu {
         fileMenu.addItem(withTitle: L10n.t("menu.newWindow"), action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
         let newTabItem = fileMenu.addItem(withTitle: L10n.t("menu.newWorkspace"), action: #selector(MainWindowController.newWorkspaceTab(_:)), keyEquivalent: "")
         KeyBindings.apply("newTab", to: newTabItem)
+        let reopenTabItem = fileMenu.addItem(withTitle: L10n.t("menu.reopenWorkspace"), action: #selector(MainWindowController.reopenClosedWorkspaceTab(_:)), keyEquivalent: "")
+        KeyBindings.apply("reopenTab", to: reopenTabItem)
         let nextWsItem = fileMenu.addItem(withTitle: L10n.t("menu.nextWorkspace"),
                                           action: #selector(MainWindowController.nextWorkspace(_:)), keyEquivalent: "")
         KeyBindings.apply("nextWorkspace", to: nextWsItem)
@@ -37,6 +39,9 @@ enum MainMenu {
         let newFolderItem = fileMenu.addItem(withTitle: L10n.t("menu.newFolder"),
                                              action: #selector(FileListViewController.newFolderHere(_:)), keyEquivalent: "")
         KeyBindings.apply("newFolder", to: newFolderItem)
+        let newFolderSelItem = fileMenu.addItem(withTitle: L10n.t("menu.newFolderWithSelection"),
+                                                action: #selector(FileListViewController.newFolderWithSelection(_:)), keyEquivalent: "")
+        KeyBindings.apply("newFolderWithSelection", to: newFolderSelItem)
         let newFileItem = fileMenu.addItem(withTitle: L10n.t("menu.newFile"),
                                            action: #selector(FileListViewController.newFileHere(_:)), keyEquivalent: "")
         KeyBindings.apply("newFile", to: newFileItem)
@@ -51,12 +56,18 @@ enum MainMenu {
         KeyBindings.apply("getInfo", to: infoItem)
         fileMenu.addItem(withTitle: L10n.t("menu.rename"),
                          action: #selector(FileListViewController.renameSelected(_:)), keyEquivalent: "")
+        let batchRenameItem = fileMenu.addItem(withTitle: L10n.t("menu.batchRename"),
+                                               action: #selector(FileListViewController.batchRenameItems(_:)), keyEquivalent: "")
+        KeyBindings.apply("batchRename", to: batchRenameItem)
         let dupItem = fileMenu.addItem(withTitle: L10n.t("menu.duplicate"),
                          action: #selector(FileListViewController.duplicateItems(_:)), keyEquivalent: "")
         KeyBindings.apply("duplicate", to: dupItem)
         let trashItem = fileMenu.addItem(withTitle: L10n.t("menu.moveToTrash"),
                                          action: #selector(FileListViewController.moveToTrash(_:)), keyEquivalent: "")
         KeyBindings.apply("moveToTrash", to: trashItem)
+        let deleteImmItem = fileMenu.addItem(withTitle: L10n.t("menu.deleteImmediately"),
+                                             action: #selector(FileListViewController.deleteImmediately(_:)), keyEquivalent: "")
+        KeyBindings.apply("deleteImmediately", to: deleteImmItem)
         fileMenu.addItem(.separator())
         // F5 复制 / F6 移动 到另一窗格（QSpace 肌肉记忆；默认 F5/F6，可在设置改键）
         let f5 = fileMenu.addItem(withTitle: L10n.t("menu.copyToOtherPane"),
@@ -82,9 +93,18 @@ enum MainMenu {
         editMenu.addItem(withTitle: L10n.t("menu.cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: L10n.t("menu.copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: L10n.t("menu.paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let moveHereItem = editMenu.addItem(withTitle: L10n.t("menu.moveHere"),
+                                            action: #selector(FileListViewController.moveItemsHere(_:)), keyEquivalent: "")
+        KeyBindings.apply("moveItemsHere", to: moveHereItem)
         let copyPathItem = editMenu.addItem(withTitle: L10n.t("menu.copyPath"),
                                             action: #selector(FileListViewController.copyPath(_:)), keyEquivalent: "")
         KeyBindings.apply("copyPath", to: copyPathItem)
+        let copyNamesItem = editMenu.addItem(withTitle: L10n.t("menu.copyNames"),
+                                             action: #selector(FileListViewController.copyNames(_:)), keyEquivalent: "")
+        KeyBindings.apply("copyNames", to: copyNamesItem)
+        let filterItem = editMenu.addItem(withTitle: L10n.t("menu.filterInPane"),
+                                          action: #selector(MainWindowController.toggleFilterBar(_:)), keyEquivalent: "")
+        KeyBindings.apply("filterInPane", to: filterItem)
         editMenu.addItem(withTitle: L10n.t("menu.selectAll"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
 
         // 显示
@@ -117,6 +137,11 @@ enum MainMenu {
             item.tag = layout.rawValue
             item.image = NSImage(systemSymbolName: layout.symbolName, accessibilityDescription: nil)
         }
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(withTitle: L10n.t("menu.swapPanes"),
+                         action: #selector(MainWindowController.swapPanes(_:)), keyEquivalent: "")
+        viewMenu.addItem(withTitle: L10n.t("menu.syncOtherPane"),
+                         action: #selector(MainWindowController.syncOtherPane(_:)), keyEquivalent: "")
         viewMenu.addItem(.separator())
         let sidebarItem = viewMenu.addItem(withTitle: L10n.t("menu.toggleSidebar"),
                                            action: #selector(MainWindowController.toggleSidebar(_:)),

@@ -7,6 +7,18 @@ extension LocalOpsNode {
 
     // MARK: 重命名（同目录 moveItem 改名；FG-6 失败由 UI 侧原子回滚）
 
+    private static func pathExistsOrSymlink(_ url: URL) -> Bool {
+        var st = stat()
+        return lstat(url.path, &st) == 0
+    }
+
+    private static func isSameDirectoryEntry(_ a: URL, _ b: URL) -> Bool {
+        var sa = stat()
+        var sb = stat()
+        guard lstat(a.path, &sa) == 0, lstat(b.path, &sb) == 0 else { return false }
+        return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino
+    }
+
     func renameEntry(_ spec: OperationSpec, context: NodeContext, started: Date) throws -> OperationReceipt {
         let fm = FileManager.default
         guard spec.sources.count == 1, let src = spec.sources.first else {
@@ -18,21 +30,36 @@ extension LocalOpsNode {
         guard !newName.contains("/"), newName != ".", newName != ".." else {
             throw LocalOpsError(.logic, "非法文件名: \(newName)")
         }
-        guard fm.fileExists(atPath: src.path) else {
+        guard Self.pathExistsOrSymlink(src) else {
             throw LocalOpsError(.external, "源不存在: \(src.lastPathComponent)", path: src.path)
         }
-        let dst = src.deletingLastPathComponent().appendingPathComponent(newName)
-        // 同名（仅大小写变化除外）视为无操作，避免 moveItem 自我覆盖报错
-        if dst.path == src.path {
+        let parent = src.deletingLastPathComponent()
+        let dst = parent.appendingPathComponent(newName)
+        // 字节完全一致：无操作
+        if dst.lastPathComponent == src.lastPathComponent && dst.path == src.path {
             return OperationReceipt(id: context.operationID, filesDone: 0, bytesDone: 0,
                                     duration: Date().timeIntervalSince(started), createdURLs: [src])
         }
-        if fm.fileExists(atPath: dst.path) {
+        let dstExists = Self.pathExistsOrSymlink(dst)
+        let sameEntry = dstExists && Self.isSameDirectoryEntry(src, dst)
+        if dstExists && !sameEntry {
             throw LocalOpsError(.external, "已存在同名项: \(newName)", path: dst.path)
         }
         context.report(.scanTotals(files: 1, bytes: 0))
         do {
-            try fm.moveItem(at: src, to: dst)
+            if sameEntry {
+                // APFS/HFS+ 仅大小写或 Unicode 正规化变更：先暂存同级唯一临时名，再落目标名
+                let hop = parent.appendingPathComponent(".nspace-rename-hop-\(UUID().uuidString)")
+                try fm.moveItem(at: src, to: hop)
+                do {
+                    try fm.moveItem(at: hop, to: dst)
+                } catch {
+                    try? fm.moveItem(at: hop, to: src)
+                    throw error
+                }
+            } else {
+                try fm.moveItem(at: src, to: dst)
+            }
         } catch {
             throw LocalOpsError(.external, "重命名失败: \(error.localizedDescription)", path: src.path)
         }

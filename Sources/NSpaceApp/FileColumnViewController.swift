@@ -12,19 +12,23 @@ import IconThumb
 /// 列加载自管：每列局部 DirectoryReader 实例、加载在 Task 中，列销毁/挂起即取消——
 /// 不动共享 model 的数据源语义（切回列表零成本），窗格挂起时列加载一并停（北极星）。
 @MainActor
-final class FileColumnViewController: NSViewController {
-    /// 只读消费共享 model 的配置（includeHidden/sort）与 FSEvents 联动；列内容不经它
+final class FileColumnViewController: NSViewController, FilePaneContent, FilePaneExtendedActions {
+    /// 只读消费共享 model 的配置（includeHidden/sort/filterQuery）与 FSEvents 联动；列内容不经它
     let model: DirectoryViewModel
     weak var coordinator: FileOpsCoordinator?
     var onNavigate: ((URL) -> Void)?
     var onInteract: (() -> Void)?
     var onSelectionChange: (() -> Void)?
+    var isPaneActiveProvider: (() -> Bool)?
 
     private let hScroll = NSScrollView()
     private let stack = NSStackView()
     private(set) var columns: [ColumnUnit] = []   // setter 私有；UISelfTest 内容级断言需读
     private var preview: PreviewColumnView?
     private var focusedColumnIndex = 0
+    private let renameCoordinator = InlineRenameCoordinator()
+    private let qlBridge = FileQuickLookBridge()
+    private var pendingReveal: (url: URL, rename: Bool, focus: Bool)?
 
     /// 挂起态：置位期间列加载全取消、showDirectory 只记 pending（恢复时重建）
     private var suspended = false
@@ -33,6 +37,12 @@ final class FileColumnViewController: NSViewController {
     var focusTarget: NSView {
         columns.indices.contains(focusedColumnIndex) ? columns[focusedColumnIndex].tableView : view
     }
+    var isEditingName: Bool { renameCoordinator.isEditing }
+    var hasOtherPane: Bool { (coordinator?.grid?.visiblePaneCount ?? 1) > 1 }
+    var isGrouped: Bool { false }
+    func focusFileView() { view.window?.makeFirstResponder(focusTarget) }
+    func selectAllItems() { (focusTarget as? NSTableView)?.selectAll(nil) }
+    func renameSelection() { beginRenameSelected() }
 
     /// 状态栏计数（焦点列语义：N 项 / 已选 M 项）
     var statusCounts: (items: Int, selected: Int) {
@@ -75,12 +85,12 @@ final class FileColumnViewController: NSViewController {
     init(model: DirectoryViewModel) {
         self.model = model
         super.init(nibName: nil, bundle: nil)
-        // FSEvents 联动：活动目录内容变化 → 刷新对应列（加载中的列不打扰，避免 navigate 双读）
+        // FSEvents 与过滤联动：活动列或当前目录列刷新（加载中或重命名中不打扰）
         model.addOnUpdate { [weak self] in
             guard let self, !self.suspended, self.view.window != nil else { return }
-            if let col = self.columns.first(where: { $0.directory.path == self.model.directory.path }),
-               !col.isLoading {
-                col.reload()
+            let focusDir = self.currentDirectory.standardizedFileURL.path
+            for col in self.columns where (col.directory.path == self.model.directory.path || col.directory.standardizedFileURL.path == focusDir) {
+                if !col.isLoading { col.reload() }
             }
         }
     }
@@ -127,10 +137,11 @@ final class FileColumnViewController: NSViewController {
 
     // MARK: 挂起/恢复（窗格切走/布局切换时由 PaneViewController 调用——北极星零后台功耗）
 
-    /// 取消全部在飞列加载与预览缩略图；后续 showDirectory 只记 pending
+    /// 挂起时也中止进行中的重命名并取消列加载
     func suspend() {
         guard !suspended else { return }
         suspended = true
+        renameCoordinator.cancelIfNeeded()
         columns.forEach { $0.cancelLoad() }
         preview?.cancelThumb()
     }
@@ -197,11 +208,53 @@ final class FileColumnViewController: NSViewController {
         view.window?.makeFirstResponder(leaf.tableView)   // I-48：聚焦叶列，选中显蓝色强调（非 first responder 时未强调灰几乎不可见）
     }
 
-    /// 取走并清空叶列的待定位目标（切视图模式搬家用，语义同 FileRevealTarget.takePendingReveal）
-    func takePendingReveal() -> URL? {
+    func prepareReveal(_ url: URL, rename: Bool, focus: Bool) {
+        pendingReveal = (url, rename, focus)
+        let parent = url.deletingLastPathComponent().standardizedFileURL.path
+        if let col = columns.first(where: { $0.directory.standardizedFileURL.path == parent }) {
+            col.desiredSelection = [url]
+            handlePendingRevealIfNeeded(in: col)
+        }
+    }
+
+    /// 取走并清空待定位目标（切视图模式搬家用，语义同 FileRevealTarget.takePendingReveal）
+    func takePendingReveal() -> (url: URL, rename: Bool)? {
+        if let p = pendingReveal {
+            pendingReveal = nil
+            return (p.url, p.rename)
+        }
         guard let leaf = columns.last, let url = leaf.desiredSelection.first else { return nil }
         leaf.desiredSelection = []
-        return url
+        return (url, false)
+    }
+
+    func runOrDeferColumnReload(_ block: @escaping () -> Void) {
+        _ = renameCoordinator.runOrDefer(block)
+    }
+
+    func handlePendingRevealIfNeeded(in column: ColumnUnit) {
+        guard let p = pendingReveal else { return }
+        let parent = p.url.deletingLastPathComponent().standardizedFileURL.path
+        guard column.directory.standardizedFileURL.path == parent else { return }
+        let targetPath = p.url.standardizedFileURL.path
+        guard let row = column.items.firstIndex(where: {
+            $0.url.standardizedFileURL.path == targetPath
+                || $0.url.standardizedFileURL.path.compare(targetPath, options: .caseInsensitive) == .orderedSame
+        }) else {
+            if !column.isLoading { pendingReveal = nil }
+            return
+        }
+        pendingReveal = nil
+        if let colIndex = columns.firstIndex(where: { $0 === column }) {
+            focusedColumnIndex = colIndex
+        }
+        column.highlight(url: column.items[row].url)
+        if p.focus && !p.rename {
+            view.window?.makeFirstResponder(column.tableView)
+        }
+        if p.rename {
+            beginRename(in: column, row: row)
+        }
     }
 
     private func rebuild(root: URL) {
@@ -324,53 +377,134 @@ final class FileColumnViewController: NSViewController {
 
     func isCut(_ url: URL) -> Bool { coordinator?.isCut(url) ?? false }
 
-    // MARK: 投放语义（与列表一致：目录行=投进该文件夹；空白/文件行=投进列目录；⌥ 复制）
+    func open(_ item: FileItem) {
+        if item.isDirectory && !item.isPackage {
+            onNavigate?(item.url)
+        } else {
+            coordinator?.recordAccess(item.url)
+            NSWorkspace.shared.open(item.url)
+        }
+    }
+
+    func beginRenameSelected(in targetColumn: ColumnUnit? = nil) {
+        let col = targetColumn ?? (columns.indices.contains(focusedColumnIndex) ? columns[focusedColumnIndex] : nil)
+        guard let col else { NSSound.beep(); return }
+        let rows = col.tableView.selectedRowIndexes
+        guard rows.count == 1, let row = rows.first else { NSSound.beep(); return }
+        beginRename(in: col, row: row)
+    }
+
+    func beginRename(in column: ColumnUnit, row: Int) {
+        guard !TrashLocation.isInsideTrash(column.directory),
+              column.items.indices.contains(row) else { return }
+        let item = column.items[row]
+        if let idx = columns.firstIndex(where: { $0 === column }) {
+            focusedColumnIndex = idx
+        }
+        column.tableView.scrollRowToVisible(row)
+        guard let cell = column.tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? NameCellView else { return }
+        cell.beginRename(
+            for: item,
+            using: renameCoordinator,
+            hostView: column.tableView,
+            prepareVisibleFrame: { [weak column] in
+                column?.tableView.scrollRowToVisible(row)
+            },
+            onCommit: { [weak self, weak column] newName in
+                guard let self, let column else { return nil }
+                return await self.submitRenameAndAwaitURL(item, newName: newName, in: column, fallbackRow: row)
+            },
+            onFinish: { [weak self, weak column] renamedURL, restoreFocus in
+                guard let self else { return }
+                if let renamedURL, let column {
+                    self.prepareReveal(renamedURL, rename: false, focus: restoreFocus)
+                    column.reload()
+                } else if restoreFocus, let column {
+                    self.view.window?.makeFirstResponder(column.tableView)
+                }
+            },
+            onTabStep: { [weak self, weak column] anchorURL, forward in
+                guard let self, let column else { return }
+                self.beginRenameAdjacent(in: column, from: anchorURL, forward: forward)
+            }
+        )
+    }
+
+    private func beginRenameAdjacent(in column: ColumnUnit, from anchorURL: URL, forward: Bool) {
+        let path = anchorURL.standardizedFileURL.path
+        guard let idx = column.items.firstIndex(where: {
+            $0.url.standardizedFileURL.path.compare(path, options: .caseInsensitive) == .orderedSame
+        }) else { return }
+        let next = forward ? idx + 1 : idx - 1
+        guard column.items.indices.contains(next) else { return }
+        column.highlight(url: column.items[next].url)
+        beginRename(in: column, row: next)
+    }
+
+    private func submitRenameAndAwaitURL(_ item: FileItem, newName: String,
+                                         in column: ColumnUnit, fallbackRow: Int) async -> URL? {
+        guard let coordinator else { return nil }
+        return await withCheckedContinuation { continuation in
+            coordinator.rename(item.url, to: newName) { [weak self, weak column] ok in
+                if !ok {
+                    if let column {
+                        self?.flashRenameError(in: column, row: fallbackRow)
+                    }
+                    continuation.resume(returning: nil)
+                } else {
+                    continuation.resume(returning: item.url.deletingLastPathComponent().appendingPathComponent(newName))
+                }
+            }
+        }
+    }
+
+    private func flashRenameError(in column: ColumnUnit, row: Int) {
+        NSSound.beep()
+        guard column.items.indices.contains(row) else { return }
+        let rect = column.tableView.rect(ofRow: row)
+        let banner = NSTextField(labelWithString: L10n.t("rename.failed"))
+        banner.textColor = .systemRed
+        banner.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.9)
+        banner.drawsBackground = true
+        banner.font = .systemFont(ofSize: 11)
+        banner.frame = NSRect(x: rect.minX + 20, y: rect.minY + 2, width: 180, height: 20)
+        column.tableView.addSubview(banner)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            banner.removeFromSuperview()
+        }
+    }
+
+    // MARK: 投放语义（统一委托 FileDropPolicy）
 
     func validateDrop(in column: ColumnUnit, info: any NSDraggingInfo,
                       proposedRow row: Int, operation op: NSTableView.DropOperation) -> NSDragOperation {
-        guard let urls = Self.draggedFileURLs(info), !urls.isEmpty else { return [] }
-        var targetRow = -1
-        if op == .on, row >= 0, row < column.items.count,
+        let folderTarget: FileItem?
+        if op == .on, column.items.indices.contains(row),
            column.items[row].isDirectory, !column.items[row].isPackage {
-            targetRow = row
-        }
-        let target = targetRow >= 0 ? column.items[targetRow].url : column.directory
-        guard urls.allSatisfy({ !FileOpsCoordinator.isSelfOrDescendant(destination: target, ofSource: $0) }) else {
-            return []
-        }
-        let forceCopy = info.draggingSourceOperationMask == .copy
-        let destPath = target.standardizedFileURL.path
-        if !forceCopy, urls.allSatisfy({ $0.standardizedFileURL.deletingLastPathComponent().path == destPath }) {
-            return []
-        }
-        if targetRow >= 0 {
-            column.tableView.setDropRow(targetRow, dropOperation: .on)
+            folderTarget = column.items[row]
+            column.tableView.setDropRow(row, dropOperation: .on)
         } else {
-            column.tableView.setDropRow(-1, dropOperation: .on)   // 整列高亮 = 投进列目录
+            folderTarget = nil
+            column.tableView.setDropRow(-1, dropOperation: .on)
         }
-        if forceCopy { return .copy }
-        return urls.allSatisfy({ FileOpsCoordinator.isSameVolume($0, target) }) ? .move : .copy
+        return FileDropPolicy.dragOperation(for: info, targetDirectory: column.directory, targetItem: folderTarget)
     }
 
     func acceptDrop(in column: ColumnUnit, info: any NSDraggingInfo,
                     row: Int, operation op: NSTableView.DropOperation) -> Bool {
-        guard let urls = Self.draggedFileURLs(info), !urls.isEmpty else { return false }
-        var target = column.directory
-        if op == .on, row >= 0, row < column.items.count,
+        let folderTarget: FileItem?
+        if op == .on, column.items.indices.contains(row),
            column.items[row].isDirectory, !column.items[row].isPackage {
-            target = column.items[row].url
+            folderTarget = column.items[row]
+        } else {
+            folderTarget = nil
         }
-        coordinator?.dropTransfer(urls: urls, into: target,
-                                  forceCopy: info.draggingSourceOperationMask == .copy)
-        return true
+        return FileDropPolicy.acceptDrop(info, targetDirectory: column.directory,
+                                         targetItem: folderTarget, coordinator: coordinator)
     }
 
-    private static func draggedFileURLs(_ info: any NSDraggingInfo) -> [URL]? {
-        info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                            options: [.urlReadingFileURLsOnly: true]) as? [URL]
-    }
-
-    // MARK: 菜单命令（响应链；作用于焦点列；重命名未实现 → 不响应即诚实灰显）
+    // MARK: 菜单命令（响应链；作用于焦点列；三视图语义完全统一）
 
     @objc func toggleHiddenFiles(_ sender: Any?) {
         model.includeHidden.toggle()
@@ -382,137 +516,78 @@ final class FileColumnViewController: NSViewController {
         reloadAllColumns()
     }
 
-    @objc func copyItems(_ sender: Any?) { coordinator?.copy(selectedURLs) }
-    @objc func cutItems(_ sender: Any?) { coordinator?.cut(selectedURLs) }
-    /// 放回原处（仅废纸篓内；只对台账里有记录的项有效，其余诚实置灰）
-    @objc func putBackItems(_ sender: Any?) { coordinator?.putBack(selectedURLs) }
-
-    @objc func pasteItems(_ sender: Any?) { coordinator?.paste(into: currentDirectory, revealIn: nil) }
-    /// 拷贝路径（⌘⇧C）：**空选中时回落到当前目录**——用户点文件夹空白处按快捷键，
-    /// 意图就是"复制我现在所在这个文件夹的路径"（Finder ⌥⌘C 在空白处同样给当前文件夹）。
-    /// 此前只传 selectedURLs，空选中即空数组，copyPaths 的 guard 直接吞掉，表现为快捷键没反应。
+    @objc func copyItems(_ sender: Any?) { FileViewActions.copyItems(pane: self) }
+    @objc func cutItems(_ sender: Any?) { FileViewActions.cutItems(pane: self) }
+    @objc func putBackItems(_ sender: Any?) { FileViewActions.putBackItems(pane: self) }
+    @objc func pasteItems(_ sender: Any?) { FileViewActions.pasteItems(pane: self) }
+    @objc func moveItemsHere(_ sender: Any?) { FileViewActions.moveItemsHere(pane: self) }
     @objc func copyPath(_ sender: Any?) { copyPath(to: .general) }
 
     /// 自测注入私有 pasteboard 用（产品路径恒走 .general）
     func copyPath(to pasteboard: NSPasteboard) {
-        coordinator?.copyPaths(selectedURLs.isEmpty ? [currentDirectory] : selectedURLs, to: pasteboard)
+        FileViewActions.copyPath(pane: self, to: pasteboard)
     }
+    @objc func copyNames(_ sender: Any?) { FileViewActions.copyNames(pane: self) }
     @objc func copy(_ sender: Any?) { copyItems(sender) }
     @objc func cut(_ sender: Any?) { cutItems(sender) }
     @objc func paste(_ sender: Any?) { pasteItems(sender) }
 
-    @objc func duplicateItems(_ sender: Any?) { coordinator?.duplicate(selectedURLs) }
-    @objc func moveToTrash(_ sender: Any?) { coordinator?.moveToTrash(selectedURLs) }
-    @objc func newFolderHere(_ sender: Any?) { coordinator?.newFolder(in: currentDirectory, revealIn: nil) }
-    @objc func newFileHere(_ sender: Any?) { coordinator?.newFile(in: currentDirectory, revealIn: nil) }
+    @objc func duplicateItems(_ sender: Any?) { FileViewActions.duplicateItems(pane: self) }
+    @objc func renameSelected(_ sender: Any?) { beginRenameSelected() }
+    @objc func batchRenameItems(_ sender: Any?) { FileViewActions.batchRenameItems(pane: self) }
+    @objc func moveToTrash(_ sender: Any?) { FileViewActions.moveToTrash(pane: self) }
+    @objc func deleteImmediately(_ sender: Any?) { FileViewActions.deleteImmediately(pane: self) }
+    @objc func newFolderHere(_ sender: Any?) { FileViewActions.newFolderHere(pane: self) }
+    @objc func newFileHere(_ sender: Any?) { FileViewActions.newFileHere(pane: self) }
+    @objc func newFolderWithSelection(_ sender: Any?) { FileViewActions.newFolderWithSelection(pane: self) }
+    @objc func compressItems(_ sender: Any?) { FileViewActions.compressItems(pane: self) }
+    @objc func extractItems(_ sender: Any?) { FileViewActions.extractItems(pane: self) }
+    @objc func extractItemsTo(_ sender: Any?) { FileViewActions.extractItemsTo(pane: self) }
     @objc func copyToOtherPane(_ sender: Any?) { coordinator?.copyToOtherPane(selectedURLs) }
     @objc func moveToOtherPane(_ sender: Any?) { coordinator?.moveToOtherPane(selectedURLs) }
 
-    @objc func openSelected(_ sender: Any?) {
-        for item in selectedItems {
-            if item.isDirectory && !item.isPackage {
-                onNavigate?(item.url)
-            } else {
-                coordinator?.recordAccess(item.url)   // M28：打开文件 = 一次使用记账
-                NSWorkspace.shared.open(item.url)
-            }
-        }
-    }
-
-    @objc func openWithApp(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem, let app = item.representedObject as? URL else { return }
-        NSWorkspace.shared.open(selectedURLs, withApplicationAt: app,
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc func openWithOther(_ sender: Any?) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        guard panel.runModal() == .OK, let app = panel.url else { return }
-        NSWorkspace.shared.open(selectedURLs, withApplicationAt: app,
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc func getInfo(_ sender: Any?) {
-        let target = selectedURLs.first ?? currentDirectory
-        InfoPanel.show(for: target)
-    }
-
-    @objc func openInTerminal(_ sender: Any?) {
-        let dir: URL = selectedItems.first(where: { $0.isDirectory })?.url ?? currentDirectory
-        let ws = NSWorkspace.shared
-        let terminal = ws.urlForApplication(withBundleIdentifier: "com.apple.Terminal")
-            ?? ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2")
-        guard let terminal else { NSSound.beep(); return }
-        ws.open([dir], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
-    }
-
-    @objc func showPackageContents(_ sender: Any?) {
-        guard let pkg = selectedItems.first(where: { $0.isPackage }) else { return }
-        onNavigate?(pkg.url)
-    }
+    @objc func openSelected(_ sender: Any?) { FileViewActions.openSelected(pane: self) }
+    @objc func openWithApp(_ sender: Any?) { FileViewActions.openWithApp(pane: self, sender: sender) }
+    @objc func openWithOther(_ sender: Any?) { FileViewActions.openWithOther(pane: self) }
+    @objc func airdropSelected(_ sender: Any?) { FileViewActions.airdropSelected(pane: self) }
+    @objc func getInfo(_ sender: Any?) { FileViewActions.getInfo(pane: self) }
+    @objc func openInTerminal(_ sender: Any?) { FileViewActions.openInTerminal(pane: self) }
+    @objc func showPackageContents(_ sender: Any?) { FileViewActions.showPackageContents(pane: self) }
 
     // MARK: Quick Look（空格开关；数据源=焦点列选中集）
 
-    /// I-45：收起走淡出而非"缩到图标"（同列表视图，sourceFrame 收起态返回 .zero）
-    private var quickLookDismissing = false
-
     @objc func toggleQuickLook(_ sender: Any?) {
-        guard let panel = QLPreviewPanel.shared() else { return }
-        if panel.isVisible {
-            quickLookDismissing = true
-            panel.orderOut(nil)
-        } else if !selectedItems.isEmpty {
-            panel.makeKeyAndOrderFront(nil)
+        qlBridge.toggle(urls: selectedURLs) { [weak self] url in
+            self?.rowScreenRect(for: url) ?? .zero
         }
     }
 
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        quickLookDismissing = false
-        panel.dataSource = self
-        panel.delegate = self
-        panel.reloadData()
+        MainActor.assumeIsolated {
+            qlBridge.quickLookDismissing = false
+            panel.dataSource = self
+            panel.delegate = self
+            qlBridge.updateIfVisible(urls: selectedURLs) { [weak self] url in
+                self?.rowScreenRect(for: url) ?? .zero
+            }
+        }
     }
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.dataSource = nil
-        panel.delegate = nil
+        MainActor.assumeIsolated {
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
     }
 }
 
-// MARK: - 菜单校验（按焦点列选中态启用/禁用）
+// MARK: - 菜单校验（按焦点列选中态统一委托 FileViewActions）
 
 extension FileColumnViewController: @preconcurrency NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let hasSelection = !selectedItems.isEmpty
-        switch menuItem.action {
-        // 拷贝路径恒可用：空选中回落到焦点列所在目录（同列表视图）
-        case #selector(copyPath(_:)):
-            return true
-        case #selector(putBackItems(_:)):
-            return TrashLocation.isInsideTrash(currentDirectory) && !selectedURLs.isEmpty
-        case #selector(copyItems(_:)), #selector(cutItems(_:)),
-             #selector(duplicateItems(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
-             #selector(copyToOtherPane(_:)), #selector(moveToOtherPane(_:)),
-             #selector(copy(_:)), #selector(cut(_:)):
-            return hasSelection
-        // 废纸篓里禁掉「把活文件放进来」的动作（Finder 同样禁用）。废纸篓可浏览之后
-        // 这些入口才第一次可达：放进来的文件既无撤销、也无「放回原处」元数据，
-        // 将来清空废纸篓就真没了。三视图同病同修。
-        case #selector(pasteItems(_:)), #selector(paste(_:)):
-            if TrashLocation.isInsideTrash(currentDirectory) { return false }
-            return NSPasteboard.general.canReadObject(forClasses: [NSURL.self],
-                                                      options: [.urlReadingFileURLsOnly: true])
-        case #selector(newFolderHere(_:)), #selector(newFileHere(_:)):
-            return !TrashLocation.isInsideTrash(currentDirectory)
-        default:
-            return true
-        }
+        FileViewActions.validateMenuItem(menuItem, pane: self)
     }
 }
 
@@ -520,13 +595,11 @@ extension FileColumnViewController: @preconcurrency NSMenuItemValidation {
 
 extension FileColumnViewController: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        selectedItems.count
+        qlBridge.count()
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        let urls = selectedURLs
-        guard index >= 0, index < urls.count else { return nil }
-        return urls[index] as NSURL
+        qlBridge.item(at: index)
     }
 
     /// 面板收到方向键先转回焦点列（↑↓ 推进行、←→ 移列）
@@ -538,10 +611,13 @@ extension FileColumnViewController: @preconcurrency QLPreviewPanelDataSource, @p
 
     /// 缩放动画起点=焦点列该行图标位置
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
-        if quickLookDismissing { return .zero }
-        guard let url = (item as? NSURL) as URL?,
-              columns.indices.contains(focusedColumnIndex),
-              let window = view.window else { return .zero }
+        qlBridge.sourceFrame(on: panel, for: item) { [weak self] url in
+            self?.rowScreenRect(for: url) ?? .zero
+        }
+    }
+
+    private func rowScreenRect(for url: URL) -> NSRect {
+        guard columns.indices.contains(focusedColumnIndex), let window = view.window else { return .zero }
         let col = columns[focusedColumnIndex]
         guard let row = col.items.firstIndex(where: { $0.url == url }) else { return .zero }
         let rect = col.tableView.convert(NSRect(x: 4, y: 0, width: 22, height: 22)
@@ -583,7 +659,32 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
             guard let self else { return nil }
             return self.owner?.menu(for: self)
         }
-        tableView.onReturn = { NSSound.beep() }   // 分栏不支持行内重命名（诚实反馈）
+        tableView.onReturn = { [weak self] in
+            guard let self else { return }
+            self.owner?.beginRenameSelected(in: self)
+        }
+        tableView.onOpenSelected = { [weak self] in
+            self?.owner?.openSelected(nil)
+        }
+        tableView.onSingleClickRename = { [weak self] row in
+            guard let self else { return }
+            self.owner?.beginRename(in: self, row: row)
+        }
+        tableView.isPaneActiveProvider = { [weak self] in
+            self?.owner?.isPaneActiveProvider?() ?? true
+        }
+        tableView.itemURLProvider = { [weak self] row in
+            guard let self, self.items.indices.contains(row) else { return nil }
+            return self.items[row].url
+        }
+        tableView.rowForURLProvider = { [weak self] url in
+            guard let self else { return nil }
+            let target = url.standardizedFileURL.path
+            return self.items.firstIndex {
+                $0.url.standardizedFileURL.path == target
+                    || $0.url.standardizedFileURL.path.compare(target, options: .caseInsensitive) == .orderedSame
+            }
+        }
         tableView.onSpace = { [weak self] in self?.owner?.toggleQuickLook(nil) }
         tableView.onArrowLeft = { [weak self] in
             guard let self else { return }
@@ -658,16 +759,26 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
             let snap = try? await reader.load(request)
             guard let self, !Task.isCancelled else { return }
             self.isLoading = false
-            // 刷新前保留现有选中（FSEvents/操作后重读不丢选中）
-            if self.desiredSelection.isEmpty {
-                self.desiredSelection = Set(self.selectedItems.map(\.url))
+            let rawItems = snap?.items ?? []
+            self.owner?.runOrDeferColumnReload { [weak self] in
+                guard let self else { return }
+                // 刷新前保留现有选中（FSEvents/操作后重读不丢选中）
+                if self.desiredSelection.isEmpty {
+                    self.desiredSelection = Set(self.selectedItems.map(\.url))
+                }
+                if let owner = self.owner, owner.model.isFiltering,
+                   self.directory.standardizedFileURL.path == owner.currentDirectory.standardizedFileURL.path {
+                    self.items = DirectoryViewModel.filterItems(rawItems, query: owner.model.filterQuery)
+                } else {
+                    self.items = rawItems   // 读取失败 → 空列原位呈现（不弹窗）
+                }
+                self.isProgrammaticSelection = true
+                self.tableView.reloadData()
+                self.isProgrammaticSelection = false
+                self.applyDesiredSelectionIfLoaded()
+                self.owner?.handlePendingRevealIfNeeded(in: self)
+                self.owner?.columnContentChanged(self)
             }
-            self.items = snap?.items ?? []   // 读取失败 → 空列原位呈现（不弹窗）
-            self.isProgrammaticSelection = true
-            self.tableView.reloadData()
-            self.isProgrammaticSelection = false
-            self.applyDesiredSelectionIfLoaded()
-            self.owner?.columnContentChanged(self)
         }
     }
 
@@ -743,9 +854,14 @@ final class ColumnUnit: NSView, NSTableViewDataSource, NSTableViewDelegate {
         owner?.doubleClicked(in: self)
     }
 
+    func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
+        items.indices.contains(row) ? items[row].name : nil
+    }
+
     // MARK: 拖拽源 / 投放目标（语义裁决在 owner，与列表一致）
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        (tableView as? FocusReportingTableView)?.dragInitiated = true
         guard items.indices.contains(row) else { return nil }
         return items[row].url as NSURL
     }

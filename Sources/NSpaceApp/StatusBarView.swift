@@ -94,9 +94,14 @@ final class StatusBarView: NSView {
         }
     }
 
-    /// 计数：countLabel 恒显总数"N 项"；有选中时药丸显"已选 M 项 · 大小"，无选中隐藏药丸
-    func update(itemCount: Int, selectedCount: Int, selectedBytes: Int64) {
-        countLabel.stringValue = String(format: L10n.t("status.items"), itemCount)
+    /// 计数：countLabel 恒显总数"N 项"（过滤时显"M/N 项"）；有选中时药丸显"已选 M 项 · 大小"，无选中隐藏药丸
+    func update(itemCount: Int, selectedCount: Int, selectedBytes: Int64,
+                filteredFrom unfilteredCount: Int? = nil) {
+        if let total = unfilteredCount {
+            countLabel.stringValue = L10n.f("status.filteredItems", itemCount, total)
+        } else {
+            countLabel.stringValue = String(format: L10n.t("status.items"), itemCount)
+        }
         if selectedCount > 0 {
             let sizeStr = selectedBytes > 0 ? Formatters.size.string(fromByteCount: selectedBytes) : ""
             selectionLabel.stringValue = sizeStr.isEmpty

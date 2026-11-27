@@ -302,6 +302,15 @@ require_pass "I-70 ⌘T 新工作区复制当前工作区"
 require_pass "I-72 工作区标签条点文字即切换且整行可点"
 require_pass "I-71 窗格内多标签已退役"
 require_pass "I-64 子目录夹具放回原处"
+# I-74 MIT 公理重构与新特性全链路（三视图行内重命名/FSEvents 推迟/大小写重命名/过滤/消歧+恢复/冲突跳过改名/横滚+批量撤销）
+require_pass "沙箱守卫[I-74]: 重构与新特性夹具在自建临时目录内"
+require_pass "I-74 单击重命名安全谓词：非活跃窗格/非名称列/拖拽均不触发"
+require_pass "I-74 三视图行内重命名与 FSEvents 推迟刷新"
+require_pass "I-74 APFS 仅大小写重命名成功"
+require_pass "I-74 窗格实时过滤（⌥⌘F）筛选并恢复"
+require_pass "I-74 重名工作区标签自动消歧且 ⇧⌘T 恢复已关闭标签"
+require_pass "I-74 冲突弹窗保留 M27 四钮并新增跳过与重命名"
+require_pass "I-74 列表视图支持横向滚动且批量重命名支持撤销"
 
 echo "==== M17 断言校验完毕 (exit=$CODE) ===="
 # 测试沙箱铁律收尾（I-46 / M28 / I-47）：清理 UITEST 隔离态，绝不留测试残留在用户真实域

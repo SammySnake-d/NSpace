@@ -8,6 +8,7 @@ import SessionStore
 import Frecency
 import TrashLedger
 import Eraser
+import BatchRename
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -58,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await kernel.register(TransferNode(), for: [.copy, .move, .duplicate])
             await kernel.register(LocalOpsNode(), for: [.rename, .newFolder, .newFile, .trash])
+            await kernel.register(BatchRenameNode(), for: [.batchRename])
             await kernel.register(ArchiveEngineNode(), for: [.compress, .extract])
             // 永久删除单独成节点：不可逆操作不与其余本地操作共用一个成熟节点
             await kernel.register(EraserNode(), for: [.delete])

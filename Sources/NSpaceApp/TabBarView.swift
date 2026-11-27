@@ -5,7 +5,12 @@ import AppKit
 final class TabBarView: NSView {
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
+    var onDuplicate: ((Int) -> Void)?
+    var onCloseOthers: ((Int) -> Void)?
+    var onCloseToRight: ((Int) -> Void)?
     var onNew: (() -> Void)?
+
+    private var transparentBG = false
 
     private let stack = NSStackView()
     private let scroll = NSScrollView()
@@ -73,7 +78,16 @@ final class TabBarView: NSView {
 
     /// 甲板样式（M17）：透明底，透出 TopDeckView 的 .titlebar 材质（工作区标签条复用同一标签语法）
     func useTransparentBackground() {
+        transparentBG = true
         layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        guard !transparentBG else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
     }
 
     /// 栏内任何一点，只要 x 落在某个胶囊的横向范围里就归它。
@@ -98,13 +112,28 @@ final class TabBarView: NSView {
     }
 
     func update(titles: [String], active: Int) {
+        update(titles: titles, toolTips: nil, active: active)
+    }
+
+    func update(titles: [String], toolTips: [String]?, active: Int) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for (i, title) in titles.enumerated() {
-            let item = TabItemView(title: title, isActive: i == active,
-                                   closable: titles.count > 1, height: itemHeight)
+            let tip = (toolTips?.indices.contains(i) == true) ? toolTips?[i] : nil
+            let item = TabItemView(index: i, total: titles.count, title: title, toolTip: tip,
+                                   isActive: i == active, closable: titles.count > 1, height: itemHeight)
             item.onSelect = { [weak self] in self?.onSelect?(i) }
             item.onClose = { [weak self] in self?.onClose?(i) }
+            item.onDuplicate = { [weak self] in self?.onDuplicate?(i) }
+            item.onCloseOthers = { [weak self] in self?.onCloseOthers?(i) }
+            item.onCloseToRight = { [weak self] in self?.onCloseToRight?(i) }
             stack.addArrangedSubview(item)
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let items = self.stack.arrangedSubviews.compactMap { $0 as? TabItemView }
+            guard items.indices.contains(active) else { return }
+            self.stack.layoutSubtreeIfNeeded()
+            self.scroll.contentView.scrollToVisible(items[active].frame)
         }
     }
 
@@ -181,7 +210,12 @@ final class TabBarView: NSView {
 private final class TabItemView: NSView {
     var onSelect: (() -> Void)?
     var onClose: (() -> Void)?
+    var onDuplicate: (() -> Void)?
+    var onCloseOthers: (() -> Void)?
+    var onCloseToRight: (() -> Void)?
 
+    private let index: Int
+    private let total: Int
     private let label = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
     private let isActive: Bool
@@ -191,15 +225,16 @@ private final class TabItemView: NSView {
     /// 同 TabBarView：标题栏区内必须禁窗口拖拽接管，否则 mouseDown 收不到（I-12）
     override var mouseDownCanMoveWindow: Bool { false }
 
-    init(title: String, isActive: Bool, closable: Bool, height: CGFloat) {
+    init(index: Int, total: Int, title: String, toolTip: String?, isActive: Bool, closable: Bool, height: CGFloat) {
+        self.index = index
+        self.total = total
         self.isActive = isActive
         self.closable = closable
         super.init(frame: .zero)
+        self.toolTip = toolTip
         wantsLayer = true
         layer?.cornerRadius = 5
-        layer?.backgroundColor = isActive
-            ? Theme.accent.withAlphaComponent(0.18).cgColor
-            : NSColor.clear.cgColor
+        refreshLayerAppearance()
 
         label.stringValue = title
         label.font = .systemFont(ofSize: 11)
@@ -231,6 +266,44 @@ private final class TabItemView: NSView {
             heightAnchor.constraint(equalToConstant: height),
         ])
     }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshLayerAppearance()
+    }
+
+    private func refreshLayerAppearance() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = isActive
+                ? Theme.accent.withAlphaComponent(0.18).cgColor
+                : NSColor.clear.cgColor
+        }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        let dup = menu.addItem(withTitle: L10n.t("tab.menu.duplicate"),
+                               action: #selector(duplicateTab), keyEquivalent: "")
+        dup.target = self
+        menu.addItem(.separator())
+        let close = menu.addItem(withTitle: L10n.t("tab.close"),
+                                 action: #selector(closeTab), keyEquivalent: "")
+        close.target = self
+        close.isEnabled = closable
+        let others = menu.addItem(withTitle: L10n.t("tab.menu.closeOthers"),
+                                  action: #selector(closeOtherTabs), keyEquivalent: "")
+        others.target = self
+        others.isEnabled = total > 1
+        let right = menu.addItem(withTitle: L10n.t("tab.menu.closeRight"),
+                                 action: #selector(closeRightTabs), keyEquivalent: "")
+        right.target = self
+        right.isEnabled = index + 1 < total
+        return menu
+    }
+
+    @objc private func duplicateTab() { onDuplicate?() }
+    @objc private func closeOtherTabs() { onCloseOthers?() }
+    @objc private func closeRightTabs() { onCloseToRight?() }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("代码构建 UI，无 xib") }

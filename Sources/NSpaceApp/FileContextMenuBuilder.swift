@@ -23,8 +23,13 @@ enum FileContextMenuBuilder {
             key: "N", mods: [.command, .shift], symbol: "folder.badge.plus")
         add(menu, "menu.newFile", #selector(FileListViewController.newFileHere(_:)), target,
             key: "n", mods: [.command, .option], symbol: "doc.badge.plus")
-        add(menu, "menu.paste", #selector(FileListViewController.pasteItems(_:)), target,
-            key: "v", mods: .command, symbol: "doc.on.clipboard")
+        if NSEvent.modifierFlags.contains(.option) {
+            add(menu, "menu.moveHere", #selector(FileListViewController.moveItemsHere(_:)), target,
+                key: "v", mods: [.command, .option], symbol: "arrow.right.doc.on.clipboard")
+        } else {
+            add(menu, "menu.paste", #selector(FileListViewController.pasteItems(_:)), target,
+                key: "v", mods: .command, symbol: "doc.on.clipboard")
+        }
         menu.addItem(.separator())
         add(menu, "menu.getInfo", #selector(FileListViewController.getInfo(_:)), target,
             key: "i", mods: .command, symbol: "info.circle")
@@ -55,6 +60,8 @@ enum FileContextMenuBuilder {
             key: "v", mods: .command, symbol: "doc.on.clipboard")
         add(menu, "menu.copyPath", #selector(FileListViewController.copyPath(_:)), target,
             key: "c", mods: [.command, .shift], symbol: "link")
+        add(menu, "menu.copyNames", #selector(FileListViewController.copyNames(_:)), target,
+            key: "c", mods: [.command, .option], symbol: "textformat")
         menu.addItem(.separator())
 
         // 添加到书签：仅选中含真实目录时出现（FG-1）；action 走响应链到 MainWindowController
@@ -70,16 +77,30 @@ enum FileContextMenuBuilder {
             add(menu, "menu.rename", #selector(FileListViewController.renameSelected(_:)), target,
                 symbol: "pencil")
         }
+        if !TrashLocation.isInsideTrash(directory) {
+            add(menu, "menu.batchRename", #selector(FileListViewController.batchRenameItems(_:)), target,
+                key: "R", mods: [.command, .shift], symbol: "character.textbox")
+            add(menu, "menu.newFolderWithSelection",
+                #selector(FileListViewController.newFolderWithSelection(_:)), target,
+                key: "n", mods: [.command, .control], symbol: "folder.badge.plus")
+        }
         add(menu, "menu.duplicate", #selector(FileListViewController.duplicateItems(_:)), target,
             key: "d", mods: .command, symbol: "plus.square.on.square")
-        // 在废纸篓里：「移到废纸篓」没有意义（已经在里面了），换成「放回原处」。
-        // 只在这个位置出现——常驻一个在别处永远灰着的项，就是 I-25 那种永败按钮。
+        // 在废纸篓里：「移到废纸篓」没有意义（已经在里面了），换成「放回原处」与「立即删除」。
         if TrashLocation.isInsideTrash(directory) {
             add(menu, "menu.putBack", #selector(FileListViewController.putBackItems(_:)), target,
                 symbol: "arrow.uturn.backward")
+            add(menu, "menu.deleteImmediately",
+                #selector(FileListViewController.deleteImmediately(_:)), target,
+                key: "\u{8}", mods: [.command, .option], symbol: "trash.slash")
         } else {
             add(menu, "menu.moveToTrash", #selector(FileListViewController.moveToTrash(_:)), target,
                 key: "\u{8}", mods: .command, symbol: "trash")
+            if NSEvent.modifierFlags.contains(.option) {
+                add(menu, "menu.deleteImmediately",
+                    #selector(FileListViewController.deleteImmediately(_:)), target,
+                    key: "\u{8}", mods: [.command, .option], symbol: "trash.slash")
+            }
         }
         menu.addItem(.separator())
 

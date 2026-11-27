@@ -28,11 +28,40 @@ final class DirectoryViewModel {
     private var suspendedMTime: Date?
 
     private(set) var directory: URL
+    private(set) var allItems: [FileItem] = []
     private(set) var items: [FileItem] = []
     private(set) var isLoading = false
 
-    var includeHidden = false { didSet { reload() } }
-    var sort = SortSpec() { didSet { reload() } }
+    var filterQuery = "" {
+        didSet {
+            if filterQuery != oldValue {
+                reapplyFilterAndNotify()
+            }
+        }
+    }
+    var isFiltering: Bool { !filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var includeHidden = false {
+        didSet {
+            guard includeHidden != oldValue else { return }
+            reload()
+        }
+    }
+    var sort = SortSpec() {
+        didSet {
+            guard sort != oldValue else { return }
+            reload()
+        }
+    }
+    private var suppressReloadCount = 0
+
+    /// 初始注入偏好：一次性设定 hidden/sort，不触发多次冗余读盘
+    func configureInitial(includeHidden: Bool, sort: SortSpec) {
+        suppressReloadCount += 1
+        self.includeHidden = includeHidden
+        self.sort = sort
+        suppressReloadCount -= 1
+    }
 
     // M9 多播：同一 model 被列表/图标网格多视图消费（观察者与标签同生命周期，不需移除）
     private var updateHandlers: [() -> Void] = []
@@ -56,11 +85,17 @@ final class DirectoryViewModel {
     func navigate(to url: URL) {
         directory = url
         lastAppliedGeneration = 0  // 新目录重置代际基线
+        if !filterQuery.isEmpty {
+            suppressReloadCount += 1
+            filterQuery = ""
+            suppressReloadCount -= 1
+        }
         startWatching()            // 停旧流开新流
         reload()
     }
 
     func reload() {
+        guard suppressReloadCount == 0 else { return }
         if watcher == nil { startWatching() }  // 首次装载（loadView → reload）时补开监听
         loadTask?.cancel()
         isLoading = true
@@ -72,16 +107,36 @@ final class DirectoryViewModel {
                 guard snap.generation > self.lastAppliedGeneration,
                       snap.directory == self.directory else { return }
                 self.lastAppliedGeneration = snap.generation
-                self.items = snap.items
+                self.allItems = snap.items
+                self.items = Self.filterItems(snap.items, query: self.filterQuery)
                 self.isLoading = false
                 self.notifyUpdate()
             } catch is CancellationError {
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 self.isLoading = false
+                self.allItems = []
                 self.items = []
                 self.notifyUpdate()
                 self.notifyError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func reapplyFilterAndNotify() {
+        guard suppressReloadCount == 0 else { return }
+        items = Self.filterItems(allItems, query: filterQuery)
+        notifyUpdate()
+    }
+
+    static func filterItems(_ source: [FileItem], query: String) -> [FileItem] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return source }
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else { return source }
+        return source.filter { item in
+            tokens.allSatisfy { token in
+                item.name.range(of: token, options: [.caseInsensitive, .diacriticInsensitive]) != nil
             }
         }
     }

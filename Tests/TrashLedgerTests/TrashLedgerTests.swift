@@ -79,4 +79,31 @@ import NSpaceContracts
         let many = await led.origins(of: [dir.appendingPathComponent("a"), dir.appendingPathComponent("b")])
         #expect(many.isEmpty)
     }
+
+    @Test func allTrashedPathsTracksLiveEntries() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.txt")
+        let b = dir.appendingPathComponent("b.txt")
+        let vanished = dir.appendingPathComponent("vanished.txt")
+        try Data("a".utf8).write(to: a)
+        try Data("b".utf8).write(to: b)
+        try Data("v".utf8).write(to: vanished)
+
+        let led = TrashLedger(directory: dir)
+        await led.record([
+            (original: dir.appendingPathComponent("orig/a.txt"), trashed: a),
+            (original: dir.appendingPathComponent("orig/b.txt"), trashed: b),
+            (original: dir.appendingPathComponent("orig/vanished.txt"), trashed: vanished),
+        ])
+        await led.forget([b])
+        let livePaths = await led.allTrashedPaths()
+        #expect(livePaths.contains(a.standardizedFileURL.path))
+        #expect(!livePaths.contains(b.standardizedFileURL.path))
+
+        try FileManager.default.removeItem(at: vanished)
+        let fresh = TrashLedger(directory: dir)
+        let prunedPaths = await fresh.allTrashedPaths()
+        #expect(prunedPaths == Set([a.standardizedFileURL.path]))
+    }
 }

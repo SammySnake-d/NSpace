@@ -206,6 +206,17 @@ enum Preferences {
         set { d.set(min(14, max(11, newValue)), forKey: "listFontSize") }
     }
 
+    /// 列表视图列宽持久化（columnID → pt）
+    static var columnWidths: [String: CGFloat] {
+        get {
+            guard let raw = d.dictionary(forKey: "listColumnWidths") as? [String: Double] else { return [:] }
+            return raw.mapValues { CGFloat($0) }
+        }
+        set {
+            d.set(newValue.mapValues { Double($0) }, forKey: "listColumnWidths")
+        }
+    }
+
     /// 高亮活动窗格地址栏（默认开）
     static var activePaneHighlight: Bool {
         get { d.object(forKey: "activePaneHighlight") as? Bool ?? true }

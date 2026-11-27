@@ -2,6 +2,42 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.20.0] - 2026-11-27
+
+### 修复：三视图行内重命名彻底打通、FSEvents/异步刷新不再打断输入与截图问题一并根治
+
+- **单击 / Enter / F2 行内重命名全视图修复（列表 / 图标 / 分栏）**：
+  - 修复活跃目录（FSEvents 持续变化）与异步文件夹大小回填触发 `reloadData` 打断重命名及丢失焦点的问题：在 `InlineRenameCoordinator` 中引入 `runOrDefer` 延迟快照刷新并在提交/取消前同步归还宿主视图焦点；`FileListViewController.requestFolderSize` 改为直接局部更新可见单元格 `configureSize`。
+  - 修复非活跃窗格点击、非名称列点击或拖拽操作误触发单击重命名：由 `InlineRenameCoordinator.shouldScheduleSingleClickRename` 统一把关，并支持 `Tab` / `⇧Tab` 连续重命名相邻项、`hasMarkedText()` 输入法组合期保护，以及基于 UTF-16 的扩展名前基本名选区。
+  - 修复 APFS 默认大小写不敏感卷上「仅修改大小写」（如 `alpha.txt` → `Alpha.txt`）重命名失败：`LocalOps` 通过 `lstat` `(st_dev, st_ino)` 识别同文件并执行两阶段兄弟临时名原子中转与回滚保护。
+- **窗口焦点与截图细节问题修复**：
+  - 消除多窗格交互时的焦点回环（`PaneGridController.setActivePane(_:focusContent:)`）；侧栏与面包屑点击导航后聚焦回文件视图。
+  - 修复重名不同路径工作区标签显示同名歧义（仅在共享末尾目录名的**不同物理路径**之间自动补父目录消歧，同路径克隆工作区保持简洁名称）；支持活动标签自动滚入视野与右键菜单。
+  - 列表视图启用横向滚动条（`hasHorizontalScroller = true`），收紧默认列宽并持久化用户调整后的列宽（`Preferences.columnWidths`）。
+  - 任意文件操作完成后同步刷新全部可见窗格状态栏卷可用容量；修复侧栏不可推出卷的推出占位挤压导致容量数字右侧被裁切的问题，并补全侧栏书签/位置/卷右键菜单。
+
+### 架构：MIT 公理设计审查与解耦重构
+
+- **Axiom 1（独立公理）**：
+  - 抽取 [InlineRenameController.swift](Sources/NSpaceApp/InlineRenameController.swift) 统一三视图重命名状态机与单行可滚动输入框。
+  - 抽取 [FilePaneCommandCenter.swift](Sources/NSpaceApp/FilePaneCommandCenter.swift) 统一三视图命令校验/执行（`FilePaneContent`、`FileViewActions`、`FileDropPolicy`、`FileQuickLookBridge`、`TerminalLauncher`）。
+  - 新增独立 Pod 胶囊 `BatchRename`（规则预览/冲突校验 + 两阶段回滚式原子执行）与 `FileHash`（`CryptoKit` 流式 MD5 / SHA-256），保持展示层零写型文件 I/O。
+- **Axiom 2（信息公理）**：
+  - `OperationKernel` 限制终态记录上限（`maxRetainedTerminalRuns = 200`）；`Formatters` 改用有界 `NSCache`（上限 `512`）；`InfoPanelWindowController` 通过 `NSWindowDelegate` 统一管理异步任务取消与生命周期清理。
+
+### 新增功能
+
+- **窗格实时过滤（`⌥⌘F`）**：新增 `PaneFilterBar`，联动 `DirectoryViewModel` 实时检索与状态栏 `"M/N 项"` 过滤计数。
+- **批量重命名（`⇧⌘R`）**：新增 `BatchRenameSheet`（文本替换/正则/前后缀/递增序号/大小写/扩展名处理、实时预览与碰撞提示），支持整批 `⌘Z` 撤销。
+- **文件操作与撤销闭环**：新增「将项目移到这里」（`⌥⌘V` / 目录右键按 `⌥` 切换）、「复制名称」（`⌥⌘C`）、「以选定项目新建文件夹」（`⌃⌘N`）、「立即删除」（`⌥⌘⌫`，危险确认框且取消为默认按钮）；支持单重命名与移动的 `⌘Z` 撤销/重做；`TrashLedger` 内存镜像精确校验「放回原处」。
+- **冲突处理增强**：`ConflictSheet` 在保留 M27 四按钮基础上新增「跳过（Skip）」与「重命名…（Rename）」及行内合法性校验。
+- **工作区标签管理与简介/搜索升级**：工作区切换保留各窗格前进/后退历史，新增 `⇧⌘T` 恢复已关闭工作区、复制/关闭其他/关闭右侧工作区与双窗格互换/同步；`InfoPanel` 支持多选汇总、POSIX 权限、软链原始路径定位及按需计算 MD5 / SHA-256；`SearchPanelController` 支持多选、空格 Quick Look、`⌘C` 复制文件、`⌘⇧C` 复制路径与拖拽。
+
+### 测试
+
+- 单元测试扩展至 **20 个套件 / 156 项**（新增 `BatchRenameTests` 3 项、`FileHashTests` 2 项、`LocalOpsTests` APFS 仅大小写重命名、`KernelStateMachineTests` 终态历史剪裁、`TrashLedgerTests.allTrashedPathsTracksLiveEntries`）。
+- UI 冒烟回归扩展至 **250 项**（新增 `I-74` 全链路沙箱断言，覆盖三视图重命名、FSEvents 延迟刷新、APFS 大小写重命名、过滤、`⇧⌘T` 与消歧、冲突跳过/重命名、横滚与批量撤销），`pod-lint-swift.sh` 与 `grid-lint.sh` 全部通过。
+
 ## [0.19.27] - 2026-09-14
 
 ### 修复：带空格的搜索词找不到文件（不是大小写问题）

@@ -34,6 +34,9 @@ protocol TopDeckDelegate: AnyObject {
     func deckNewWorkspace()
     func deckSelectWorkspace(_ index: Int)
     func deckCloseWorkspace(_ index: Int)
+    func deckDuplicateWorkspace(_ index: Int)
+    func deckCloseOtherWorkspaces(keeping index: Int)
+    func deckCloseWorkspacesToRight(of index: Int)
     /// 导航历史（长按后退/前进段弹出；最近的在前）
     func deckHistory(forward: Bool) -> [URL]
     func deckJumpHistory(forward: Bool, index: Int)
@@ -93,6 +96,9 @@ final class TopDeckView: NSVisualEffectView {
         workspaceTabBar.useTransparentBackground()
         workspaceTabBar.onSelect = { [weak self] i in self?.deckDelegate?.deckSelectWorkspace(i) }
         workspaceTabBar.onClose = { [weak self] i in self?.deckDelegate?.deckCloseWorkspace(i) }
+        workspaceTabBar.onDuplicate = { [weak self] i in self?.deckDelegate?.deckDuplicateWorkspace(i) }
+        workspaceTabBar.onCloseOthers = { [weak self] i in self?.deckDelegate?.deckCloseOtherWorkspaces(keeping: i) }
+        workspaceTabBar.onCloseToRight = { [weak self] i in self?.deckDelegate?.deckCloseWorkspacesToRight(of: i) }
         workspaceTabBar.onNew = { [weak self] in self?.deckDelegate?.deckNewWorkspace() }
         // 版本徽章嵌入标签条尾部配件槽（"＋"左侧；M22）
         versionBadge.onClick = { [weak self] in self?.deckDelegate?.deckVersionBadgeClicked() }
@@ -238,8 +244,8 @@ final class TopDeckView: NSVisualEffectView {
 
     // MARK: 同步（活动窗格/位置/布局变化时由 MainWindowController 回灌）
 
-    func updateWorkspaces(titles: [String], active: Int) {
-        workspaceTabBar.update(titles: titles, active: active)
+    func updateWorkspaces(titles: [String], toolTips: [String]? = nil, active: Int) {
+        workspaceTabBar.update(titles: titles, toolTips: toolTips, active: active)
     }
 
     func syncViewMode(_ raw: Int) {

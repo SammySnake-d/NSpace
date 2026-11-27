@@ -39,6 +39,11 @@ public actor TrashLedger {
         return entries.count
     }
 
+    public func allTrashedPaths() async -> Set<String> {
+        await ensureLoaded()
+        return Set(entries.keys)
+    }
+
     // MARK: 变更
 
     /// 记一批「原路径 → 废纸篓落点」。同落点重复记账以最新为准。

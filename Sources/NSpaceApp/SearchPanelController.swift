@@ -1,4 +1,5 @@
 import AppKit
+import QuickLookUI
 import UniformTypeIdentifiers
 import SearchEngine
 import Frecency
@@ -45,18 +46,34 @@ private final class SearchPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-/// 结果表：Return=定位、Esc=关面板、右键=上下文菜单（其余交默认：方向键/双击）
+/// 结果表：Return=定位、Esc=关面板、Space=QuickLook、⌘C=复制、⌘⇧C=拷贝路径、首行↑回搜素框
 @MainActor
 private final class SearchResultTableView: NSTableView {
     var onReturn: (() -> Void)?
     var onEscape: (() -> Void)?
+    var onSpace: (() -> Void)?
+    var onCopy: (() -> Void)?
+    var onCopyPaths: (() -> Void)?
+    var onMoveUpFromTop: (() -> Void)?
     /// 右键菜单提供者：入参为点击行（-1 表示空白区，返回 nil 不弹菜单）
     var menuProvider: ((Int) -> NSMenu?)?
 
     override func keyDown(with event: NSEvent) {
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if mods == .command, event.charactersIgnoringModifiers?.lowercased() == "c" {
+            onCopy?()
+            return
+        }
+        if mods == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "c" {
+            onCopyPaths?()
+            return
+        }
         switch event.keyCode {
-        case 36, 76: onReturn?()   // Return / Enter
-        case 53: onEscape?()       // Esc
+        case 36 where mods.isEmpty, 76 where mods.isEmpty: onReturn?()
+        case 53: onEscape?()
+        case 49 where mods.isEmpty: onSpace?()
+        case 126 where mods.isEmpty && (selectedRowIndexes.isEmpty || selectedRowIndexes == [0]):
+            onMoveUpFromTop?()
         default: super.keyDown(with: event)
         }
     }
@@ -510,10 +527,50 @@ final class SearchPanelController: NSObject {
         onStash?([url])
     }
 
-    /// 显示简介：复用 InfoPanel
+    /// 显示简介：支持多选合并简介
     @objc private func getInfoForHit(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        InfoPanel.show(for: url)
+        let urls = selectedHitURLs(fallback: sender.representedObject as? URL)
+        guard !urls.isEmpty else { return }
+        InfoPanel.show(for: urls)
+    }
+
+    private func selectedHitURLs(fallback: URL? = nil) -> [URL] {
+        let urls = tableView.selectedRowIndexes.compactMap { row -> URL? in
+            guard hits.indices.contains(row) else { return nil }
+            return hits[row].url
+        }
+        if !urls.isEmpty { return urls }
+        return fallback.map { [$0] } ?? []
+    }
+
+    private func copySelectedHitsToPasteboard() {
+        let urls = selectedHitURLs()
+        guard !urls.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(urls as [NSURL])
+        Toast.show(String(format: L10n.t("toast.copied"), urls.count), in: panel)
+    }
+
+    private func copySelectedHitPathsToPasteboard() {
+        let urls = selectedHitURLs()
+        guard !urls.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
+        Toast.show(urls.count == 1 ? L10n.t("toast.copiedPath")
+                   : String(format: L10n.t("toast.copiedPaths"), urls.count), in: panel)
+    }
+
+    private func toggleQuickLookForHits() {
+        let urls = selectedHitURLs()
+        guard let ql = QLPreviewPanel.shared() else { return }
+        if ql.isVisible {
+            ql.orderOut(nil)
+        } else if !urls.isEmpty {
+            ql.makeKeyAndOrderFront(nil)
+            ql.reloadData()
+        }
     }
 
     // MARK: UISelfTest 探针（I-38 流式不打断选中 / I-40 根近排序+路径列；不触真实搜索引擎）
@@ -615,14 +672,23 @@ final class SearchPanelController: NSObject {
         tableView.rowHeight = 24
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
         tableView.usesAlternatingRowBackgroundColors = true
-        tableView.allowsMultipleSelection = false
+        tableView.allowsMultipleSelection = true
         tableView.headerView = nil
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(didDoubleClick(_:))
+        tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
+        tableView.setDraggingSourceOperationMask([.copy, .generic], forLocal: false)
         tableView.onReturn = { [weak self] in self?.revealSelection() }
         tableView.onEscape = { [weak self] in self?.closePanel() }
+        tableView.onSpace = { [weak self] in self?.toggleQuickLookForHits() }
+        tableView.onCopy = { [weak self] in self?.copySelectedHitsToPasteboard() }
+        tableView.onCopyPaths = { [weak self] in self?.copySelectedHitPathsToPasteboard() }
+        tableView.onMoveUpFromTop = { [weak self] in
+            guard let self else { return }
+            self.panel.makeFirstResponder(self.field)
+        }
         tableView.menuProvider = { [weak self] row in self?.buildMenu(clickedRow: row) }
         for (id, width) in [("name", CGFloat(320)), ("path", 292), ("size", 72), ("dateModified", 148)] {
             let col = NSTableColumn(identifier: .init(id))
@@ -736,6 +802,18 @@ extension SearchPanelController: NSTextFieldDelegate {
 extension SearchPanelController: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int { hits.count }
 
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+        guard hits.indices.contains(row) else { return nil }
+        return hits[row].url as NSURL
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        if QLPreviewPanel.sharedPreviewPanelExists(),
+           let ql = QLPreviewPanel.shared(), ql.isVisible {
+            ql.reloadData()
+        }
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let colID = tableColumn?.identifier.rawValue, row < hits.count else { return nil }
         let hit = hits[row]
@@ -769,5 +847,34 @@ extension SearchPanelController: NSTableViewDataSource, NSTableViewDelegate {
             cell.configure("", alignment: .left)
         }
         return cell
+    }
+}
+
+extension SearchPanelController: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated {
+            panel.dataSource = self
+            panel.delegate = self
+            panel.reloadData()
+        }
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated {
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        selectedHitURLs().count
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+        let urls = selectedHitURLs()
+        guard urls.indices.contains(index) else { return nil }
+        return urls[index] as NSURL
     }
 }
