@@ -2,6 +2,19 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。0.y.z 为开发期版本：每完成一个里程碑 bump minor 并打 git tag。
 
+## [0.20.1] - 2026-11-28
+
+### 修复：`⌘F` 搜索面板支持 `⌘↩` 快速跳转与结果表快捷键防主菜单拦截
+
+- **修复搜索面板 `⌘↩` 快速跳转失效**：
+  - 在 `SearchPanel` 覆写 `performKeyEquivalent(with:)` 拦截 `⌘+Return` / `⌘+小键盘Enter` 并触发 `revealSelection()`，同时放开 `SearchResultTableView.keyDown` 对 `mods == .command` 的 Enter 支持，无论焦点在搜索框还是结果表均可直接跳转。
+  - 搜索框委托新增 `hasMarkedText()` 检查，避免输入法候选词确认时误跳转，并兼容 `insertNewlineIgnoringFieldEditor(_:)`。
+- **修复结果表快捷键被主菜单抢占与跳转焦点落点**：
+  - 当焦点位于搜索结果表时，优先拦截并执行复制文件（`⌘C`）、拷贝路径（`⌘⇧C`）、显示简介（`⌘I`）、打开（`⌘O` / `⌘↓`），不干扰搜索框内原生文本编辑快捷键；统一双击与菜单「打开」逻辑为 `openURL(_:)`。
+  - `MainWindowController.revealSearchHit(_:)` 在导航进目录后自动前置主窗口并聚焦文件视图。
+- **测试**：
+  - 新增真实 `performKeyEquivalent` 链路回归断言（`I-74`，`ui-smoke` 251 项全绿），`pod-lint` / `grid-lint` / `test.sh` 全绿。
+
 ## [0.20.0] - 2026-11-27
 
 ### 修复：三视图行内重命名彻底打通、FSEvents/异步刷新不再打断输入与截图问题一并根治

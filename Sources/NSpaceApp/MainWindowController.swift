@@ -588,13 +588,14 @@ final class MainWindowController: NSWindowController, @preconcurrency NSMenuItem
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
         let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
+        window?.makeKeyAndOrderFront(nil)
         if exists, isDir.boolValue, !isPackage {
             pane.navigate(to: url)
+            pane.focusFileView()
         } else {
             pane.navigate(to: url.deletingLastPathComponent())
             pane.reveal(url)
         }
-        window?.makeKeyAndOrderFront(nil)
     }
 }
 

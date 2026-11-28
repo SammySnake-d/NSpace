@@ -42,8 +42,22 @@ private enum SearchKindFilter: Int, CaseIterable {
 @MainActor
 private final class SearchPanel: NSPanel {
     var onCancel: (() -> Void)?
+    var onCommandReturn: (() -> Void)?
+    var onTableKeyEquivalent: ((NSEvent) -> Bool)?
     override var canBecomeKey: Bool { true }
     override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if mods == .command, event.keyCode == 36 || event.keyCode == 76 {
+            onCommandReturn?()
+            return true
+        }
+        if onTableKeyEquivalent?(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 /// 结果表：Return=定位、Esc=关面板、Space=QuickLook、⌘C=复制、⌘⇧C=拷贝路径、首行↑回搜素框
@@ -69,7 +83,9 @@ private final class SearchResultTableView: NSTableView {
             return
         }
         switch event.keyCode {
-        case 36 where mods.isEmpty, 76 where mods.isEmpty: onReturn?()
+        case 36 where mods.isEmpty || mods == .command,
+             76 where mods.isEmpty || mods == .command:
+            onReturn?()
         case 53: onEscape?()
         case 49 where mods.isEmpty: onSpace?()
         case 126 where mods.isEmpty && (selectedRowIndexes.isEmpty || selectedRowIndexes == [0]):
@@ -153,6 +169,10 @@ final class SearchPanelController: NSObject {
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = true
         panel.onCancel = { [weak self] in self?.closePanel() }
+        panel.onCommandReturn = { [weak self] in self?.revealSelection() }
+        panel.onTableKeyEquivalent = { [weak self] event in
+            self?.handleTableKeyEquivalent(event) ?? false
+        }
         buildContent()
         // 失焦（点击面板外部）自动关闭
         NotificationCenter.default.addObserver(self, selector: #selector(panelResignedKey(_:)),
@@ -420,11 +440,14 @@ final class SearchPanelController: NSObject {
     @objc private func didDoubleClick(_ sender: Any?) {
         let row = tableView.clickedRow
         guard row >= 0, row < hits.count else { return }
-        let url = hits[row].url
+        openURL(hits[row].url)
+    }
+
+    private func openURL(_ url: URL) {
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
         let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
-        if exists, isDir.boolValue, !isPackage {
+        if exists, isDir.boolValue, !isPackage, onReveal != nil {
             closePanel()
             onReveal?(url)
         } else {
@@ -494,15 +517,7 @@ final class SearchPanelController: NSObject {
     /// 打开：目录（非包）在 NSpace 内定位进入；文件/包走系统默认程序（与双击同语义）
     @objc private func openHit(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
-        var isDir: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-        let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
-        if exists, isDir.boolValue, !isPackage, onReveal != nil {
-            closePanel()
-            onReveal?(url)
-        } else {
-            NSWorkspace.shared.open(url)
-        }
+        openURL(url)
     }
 
     /// 在 NSpace 中定位：经 onReveal 链上抛 MainWindowController 导航并选中
@@ -571,6 +586,42 @@ final class SearchPanelController: NSObject {
             ql.makeKeyAndOrderFront(nil)
             ql.reloadData()
         }
+    }
+
+    /// 结果表获焦时优先接管 ⌘C / ⌘⇧C / ⌘I / ⌘O / ⌘↓，避免被 MainMenu 拦截；搜索框编辑时不抢占文本复制/全选
+    private func handleTableKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard panel.firstResponder === tableView else { return false }
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if mods == .command, key == "c" {
+            copySelectedHitsToPasteboard()
+            return true
+        }
+        if mods == [.command, .shift], key == "c" {
+            copySelectedHitPathsToPasteboard()
+            return true
+        }
+        if mods == .command, key == "i" {
+            let urls = selectedHitURLs()
+            if !urls.isEmpty { InfoPanel.show(for: urls) }
+            return true
+        }
+        if mods == .command, key == "o" || event.keyCode == 125 {
+            if let first = selectedHitURLs().first { openURL(first) }
+            return true
+        }
+        return false
+    }
+
+    /// UISelfTest：经真实 SearchPanel.performKeyEquivalent 分发 ⌘↩（分别测搜索框获焦与结果表获焦）
+    func uiTestDispatchCommandReturn(focusTable: Bool) -> Bool {
+        panel.makeFirstResponder(focusTable ? tableView : field)
+        guard let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command],
+                                        timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: panel.windowNumber, context: nil,
+                                        characters: "\r", charactersIgnoringModifiers: "\r",
+                                        isARepeat: false, keyCode: 36) else { return false }
+        return panel.performKeyEquivalent(with: ev)
     }
 
     // MARK: UISelfTest 探针（I-38 流式不打断选中 / I-40 根近排序+路径列；不触真实搜索引擎）
@@ -777,8 +828,10 @@ extension SearchPanelController: NSTextFieldDelegate {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if textView.hasMarkedText() { return false }
         switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
+        case #selector(NSResponder.insertNewline(_:)),
+             #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
             revealSelection()
             return true
         case #selector(NSResponder.cancelOperation(_:)):

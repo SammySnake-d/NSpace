@@ -3712,6 +3712,31 @@ enum UISelfTest {
         }
         record(hasHScroll && pairs.count == 2 && batchApplied && batchUndone,
                "I-74 列表视图支持横向滚动且批量重命名支持撤销（hScroll=\(hasHScroll) applied=\(batchApplied) undone=\(batchUndone)）")
+
+        // ⑧ ⌘F 搜索面板 ⌘↩ 快速跳转（搜索框获焦 + 结果表获焦均经真实 performKeyEquivalent 触发）
+        wc.showSearchHere(nil)
+        try? await Task.sleep(for: .milliseconds(150))
+        let sp = SearchPanelController.shared
+        sp.uiTestReset(root: box)
+        sp.uiTestAppend([SearchHit(url: beta, name: "beta.md", isDirectory: false,
+                                   size: 4, modified: Date(), contentTypeID: nil)])
+        let handledFromField = sp.uiTestDispatchCommandReturn(focusTable: false)
+        let revealedFile = await pollFS {
+            samePath(pane.uiTestViewCurrentDirectory, box)
+                && pane.activeTab.listVC.selectedURLs.contains { samePath($0, beta) }
+        }
+        wc.showSearchHere(nil)
+        try? await Task.sleep(for: .milliseconds(150))
+        sp.uiTestReset(root: box)
+        sp.uiTestAppend([SearchHit(url: subA, name: "sub", isDirectory: true,
+                                   size: nil, modified: Date(), contentTypeID: nil)])
+        sp.uiTestSelectRow(0)
+        let handledFromTable = sp.uiTestDispatchCommandReturn(focusTable: true)
+        let revealedDir = await pollFS {
+            samePath(pane.uiTestViewCurrentDirectory, subA)
+        }
+        record(handledFromField && revealedFile && handledFromTable && revealedDir,
+               "I-74 搜索面板 ⌘↩ 快速跳转在搜索框与结果表均生效（field=\(handledFromField)/\(revealedFile) table=\(handledFromTable)/\(revealedDir)）")
     }
 
     // MARK: 工具
