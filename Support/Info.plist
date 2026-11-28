@@ -21,6 +21,20 @@
 				<string>public.volume</string>
 			</array>
 		</dict>
+		<!-- Sandboxed reveal callers require the target to claim the file type (-10820).
+		     Rank None accepts explicit delivery without competing for default file handlers. -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>File Location</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>None</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>NSpace</string>
