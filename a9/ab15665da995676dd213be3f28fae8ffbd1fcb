@@ -1,0 +1,24 @@
+CHANGELOG.md
+  h_f33e46a035b77c 5-17
+Sources/NSpaceApp/MainWindowController.swift
+  h_f33e46a035b77c 591,594
+Sources/NSpaceApp/SearchPanelController.swift
+  h_f33e46a035b77c 45-46,49-60,86-88,172-175,443-446,450,520,591-626,831,833-834
+Sources/NSpaceApp/UISelfTest.swift
+  h_f33e46a035b77c 3715-3739
+VERSION
+  h_f33e46a035b77c 1
+scripts/ui-smoke.sh
+  h_f33e46a035b77c 314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a9ab15665da995676dd213be3f28fae8ffbd1fcb",
+  "prompts": {},
+  "humans": {
+    "h_f33e46a035b77c": {
+      "author": "Sammy <caxapokrq+sammy@gmail.com>"
+    }
+  }
+}
